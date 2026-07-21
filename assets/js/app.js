@@ -171,6 +171,41 @@
     if (dailyRate && form.dataset.newRecord === '1' && currency.value === 'USD') fetchDailyRate();
   });
 
+  const productPricingForm = qs('[data-product-pricing]');
+  if (productPricingForm) {
+    const mode = qs('[data-pricing-mode]', productPricingForm);
+    const brl = qs('[data-price-brl]', productPricingForm);
+    const usd = qs('[data-price-usd]', productPricingForm);
+    const brlLabel = qs('[data-price-brl-label]', productPricingForm);
+    const usdLabel = qs('[data-price-usd-label]', productPricingForm);
+    const brlHelp = qs('[data-price-brl-help]', productPricingForm);
+    const usdHelp = qs('[data-price-usd-help]', productPricingForm);
+    const rate = Math.max(0.000001, Number(productPricingForm.dataset.currentRate || 1));
+
+    const convert = () => {
+      if (mode.value === 'usd') brl.value = (Number(usd.value || 0) * rate).toFixed(2);
+      if (mode.value === 'brl') usd.value = (Number(brl.value || 0) / rate).toFixed(2);
+    };
+    const updateMode = () => {
+      const manual = mode.value === 'manual';
+      const brlBase = mode.value === 'brl';
+      brl.readOnly = mode.value === 'usd';
+      usd.readOnly = brlBase;
+      brl.required = manual || brlBase;
+      usd.required = manual || mode.value === 'usd';
+      brlLabel.classList.toggle('calculated-price', mode.value === 'usd');
+      usdLabel.classList.toggle('calculated-price', brlBase);
+      brlHelp.textContent = mode.value === 'usd' ? 'Calculado automaticamente pela cotação diária' : (brlBase ? 'Preço-base do produto' : 'Preço local informado manualmente');
+      usdHelp.textContent = brlBase ? 'Calculado automaticamente pela cotação diária' : (mode.value === 'usd' ? 'Preço-base do produto' : 'Preço local informado manualmente');
+      if (!manual) convert();
+    };
+
+    brl.addEventListener('input', () => { if (mode.value === 'brl') convert(); });
+    usd.addEventListener('input', () => { if (mode.value === 'usd') convert(); });
+    mode.addEventListener('change', updateMode);
+    updateMode();
+  }
+
   const subForm = qs('[data-subscription-form]');
   if (subForm) {
     const client = qs('[data-sub-client]', subForm);

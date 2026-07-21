@@ -12,6 +12,9 @@ $tests = [
     'data brasileira' => date_br('2026-07-21') === '21/07/2026',
     'ciclo mensal' => cycle_label('monthly') === 'Mensal',
     'status pago' => status_label('paid') === 'Pago',
+    'produto cotado em USD converte para BRL' => product_with_current_prices(['pricing_mode'=>'usd','price_brl'=>0,'price_usd'=>15], 5.5)['price_brl'] === 82.5,
+    'produto cotado em BRL converte para USD' => product_with_current_prices(['pricing_mode'=>'brl','price_brl'=>55,'price_usd'=>0], 5.5)['price_usd'] === 10.0,
+    'produto manual preserva preços locais' => product_with_current_prices(['pricing_mode'=>'manual','price_brl'=>50,'price_usd'=>15], 5.5)['price_usd'] === 15.0,
 ];
 
 $failed = [];
@@ -27,4 +30,3 @@ if ($failed) {
 }
 
 echo count($tests) . " testes passaram.\n";
-

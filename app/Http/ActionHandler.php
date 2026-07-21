@@ -105,20 +105,39 @@ final class ActionHandler
     private function saveProduct(): string
     {
         $id = $this->id();
+        $pricingMode = $this->choice('pricing_mode', ['manual', 'brl', 'usd']);
+        $priceBrl = normalize_decimal($_POST['price_brl'] ?? 0);
+        $priceUsd = normalize_decimal($_POST['price_usd'] ?? 0);
+        $quote = null;
+        if ($pricingMode !== 'manual') {
+            $quote = $this->rates->current();
+            $rate = (float) $quote['bid'];
+            if ($pricingMode === 'usd' && $priceUsd > 0) {
+                $priceBrl = round($priceUsd * $rate, 2);
+            } elseif ($pricingMode === 'brl' && $priceBrl > 0) {
+                $priceUsd = round($priceBrl / $rate, 2);
+            }
+        }
+        if (($pricingMode === 'manual' && ($priceBrl <= 0 || $priceUsd <= 0))
+            || ($pricingMode === 'usd' && $priceUsd <= 0)
+            || ($pricingMode === 'brl' && $priceBrl <= 0)) {
+            throw new RuntimeException('Informe um preço positivo na moeda-base selecionada.');
+        }
         $params = [
             $this->required('name', 'Informe o nome do produto.'), $this->nullable('sku'), $this->nullable('description'),
-            normalize_decimal($_POST['price_brl'] ?? 0), normalize_decimal($_POST['price_usd'] ?? 0),
+            $priceBrl, $priceUsd, $pricingMode, $quote['bid'] ?? null, $quote['source'] ?? null,
+            isset($quote['quoted_at']) ? substr((string) $quote['quoted_at'], 0, 10) : null,
             $this->choice('billing_cycle', ['monthly','quarterly','semiannual','annual']), isset($_POST['active']) ? 1 : 0,
         ];
         if ($id) {
             $params[] = $id;
-            $this->db->query('UPDATE products SET name=?, sku=?, description=?, price_brl=?, price_usd=?, billing_cycle=?, active=? WHERE id=?', $params);
-            audit($this->db, 'update', 'product', $id);
+            $this->db->query('UPDATE products SET name=?, sku=?, description=?, price_brl=?, price_usd=?, pricing_mode=?, price_exchange_rate=?, price_rate_source=?, price_rate_date=?, billing_cycle=?, active=? WHERE id=?', $params);
+            audit($this->db, 'update', 'product', $id, ['pricing_mode'=>$pricingMode,'price_brl'=>$priceBrl,'price_usd'=>$priceUsd,'exchange_rate'=>$quote['bid'] ?? null]);
         } else {
-            $id = $this->db->insert('INSERT INTO products (name, sku, description, price_brl, price_usd, billing_cycle, active) VALUES (?,?,?,?,?,?,?)', $params);
-            audit($this->db, 'create', 'product', $id);
+            $id = $this->db->insert('INSERT INTO products (name, sku, description, price_brl, price_usd, pricing_mode, price_exchange_rate, price_rate_source, price_rate_date, billing_cycle, active) VALUES (?,?,?,?,?,?,?,?,?,?,?)', $params);
+            audit($this->db, 'create', 'product', $id, ['pricing_mode'=>$pricingMode,'price_brl'=>$priceBrl,'price_usd'=>$priceUsd,'exchange_rate'=>$quote['bid'] ?? null]);
         }
-        Flash::add('success', 'Produto salvo com sucesso.');
+        Flash::add('success', $pricingMode === 'manual' ? 'Produto salvo com preços locais.' : 'Produto salvo e convertido pela cotação diária.');
         return '?page=products';
     }
 

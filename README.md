@@ -34,6 +34,16 @@ Há três camadas de segurança:
 
 Cada pagamento em USD possui uma data de pagamento e uma data de resgate. A taxa diária da data do resgate, sua fonte e o valor convertido ficam gravados no lançamento. Assim, movimentações antigas não mudam com cotações futuras. A cotação efetivamente aplicada pelo banco ou plataforma também pode ser informada manualmente.
 
+### Preços de produtos com câmbio
+
+No cadastro de produtos, a formação do preço pode ser configurada de três formas:
+
+- **Preços locais independentes:** BRL e USD são informados manualmente.
+- **Cotado em real:** o preço em BRL é fixo e o equivalente em USD acompanha a cotação diária.
+- **Cotado em dólar:** o preço em USD é fixo e o equivalente em BRL acompanha a cotação diária.
+
+Os valores convertidos são usados em novas assinaturas e apresentados para conferência nas renovações. Contratos existentes não são reescritos silenciosamente: alterações de valor só entram na assinatura após a confirmação da renovação e ficam registradas no histórico.
+
 ### Cron opcional
 
 O dashboard atualiza a cotação sob demanda. Para manter o histórico mesmo sem acessos, você pode criar no hPanel uma tarefa diária:

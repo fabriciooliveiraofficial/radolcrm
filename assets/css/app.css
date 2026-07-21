@@ -183,6 +183,7 @@ td b { color: var(--ink); }
 .product-icon, .expense-icon, .flow-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; color: var(--green-700); background: var(--green-100); font-size: 18px; }
 .product-card h2 { margin: 17px 0 6px; font: 700 18px Georgia, serif; }
 .product-card > p { height: 39px; margin-bottom: 18px; overflow: hidden; color: var(--muted); font-size: 11px; }
+.product-pricing-mode { display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-7px 0 10px; }.product-pricing-mode b { color:var(--green-700);font-size:9px; }.product-pricing-mode span { color:var(--muted);font-size:8px;text-align:right; }
 .local-prices { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--line); }
 .local-prices div { padding: 12px; background: #f9faf8; }
 .local-prices small, .local-prices strong { display: block; }
@@ -282,6 +283,7 @@ td b { color: var(--ink); }
 .conversion-preview span { color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; }
 .conversion-preview strong { margin: 3px 0; color: var(--green-700); font: 700 21px Georgia,serif; }
 .conversion-preview small { color: var(--muted); font-size: 8px; }
+.pricing-quote { min-height:57px;display:flex;align-items:center;gap:11px;padding:10px 12px;border:1px solid #cfe5dc;border-radius:9px;background:#f1f8f5; }.pricing-quote div small,.pricing-quote div b { display:block; }.pricing-quote div small { color:var(--muted);font-size:8px;font-weight:800; }.pricing-quote div b { color:var(--green-700);font-size:12px; }.pricing-quote em { margin-left:auto;color:var(--muted);font-size:8px;font-style:normal;text-align:right; }.form-grid label.calculated-price { opacity:.72; }.form-grid label.calculated-price input { cursor:not-allowed;background:#f2f5f3; }
 .danger-zone { margin-top: 22px; padding-top: 17px; border-top: 1px solid var(--red-100); }
 .danger-zone button { padding: 0; border: 0; color: var(--red); background: transparent; font-size: 11px; font-weight: 800; }
 .row-actions { display:flex;align-items:center;justify-content:flex-end;gap:8px;white-space:nowrap; }.row-actions>a:first-child { color:var(--green-700);font-size:10px;font-weight:800; }

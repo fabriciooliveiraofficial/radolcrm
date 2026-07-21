@@ -17,8 +17,16 @@ $pagination = pagination($db, $countSql, $dataSql, $params);
 
 $edit = isset($_GET['edit']) ? $db->fetch('SELECT * FROM subscriptions WHERE id=?', [(int) $_GET['edit']]) : null;
 $showForm = isset($_GET['new']) || $edit;
+$showRenewals = isset($_GET['renewals']);
+$productRate = null;
+if ($showForm || $showRenewals) {
+    $productRate = (float) $rates->current()['bid'];
+}
 $clients = $showForm ? $db->fetchAll("SELECT id,name,country,preferred_currency FROM clients WHERE status!='inactive' OR id=? ORDER BY name", [(int) ($edit['client_id'] ?? 0)]) : [];
 $products = $showForm ? $db->fetchAll('SELECT * FROM products WHERE active=1 OR id=? ORDER BY name', [(int) ($edit['product_id'] ?? 0)]) : [];
+foreach ($products as $key => $product) {
+    $products[$key] = product_with_current_prices($product, $productRate ?: 1.0);
+}
 
 $activeCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions WHERE status='active'");
 $trialCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions WHERE status='trial'");
@@ -33,12 +41,12 @@ $dueCount = (int) $db->value(
     [$cutoff]
 );
 
-$showRenewals = isset($_GET['renewals']);
 $renewalRows = [];
 $renewalProducts = [];
 if ($showRenewals) {
     $renewalRows = $db->fetchAll(
         "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,
+                p.price_brl product_price_brl,p.price_usd product_price_usd,p.pricing_mode product_pricing_mode,
                 pending.id pending_payment_id,pending.due_date pending_due_date,
                 pending.amount pending_amount,pending.fee_amount pending_fee_amount,
                 pending.payment_method pending_payment_method,pending.external_reference pending_external_reference,
@@ -57,6 +65,19 @@ if ($showRenewals) {
         [$cutoff]
     );
     $renewalProducts = $db->fetchAll('SELECT * FROM products ORDER BY active DESC,name');
+    foreach ($renewalProducts as $key => $product) {
+        $renewalProducts[$key] = product_with_current_prices($product, $productRate ?: 1.0);
+    }
+    foreach ($renewalRows as $key => $row) {
+        $pricedProduct = product_with_current_prices([
+            'pricing_mode' => $row['product_pricing_mode'] ?? 'manual',
+            'price_brl' => $row['product_price_brl'] ?? 0,
+            'price_usd' => $row['product_price_usd'] ?? 0,
+        ], $productRate ?: 1.0);
+        $renewalRows[$key]['renewal_unit_price'] = ($pricedProduct['pricing_mode'] ?? 'manual') === 'manual'
+            ? (float) $row['unit_price']
+            : (float) $pricedProduct[$row['currency'] === 'USD' ? 'price_usd' : 'price_brl'];
+    }
 }
 
 $historyId = max(0, (int) ($_GET['history'] ?? 0));
@@ -97,7 +118,8 @@ if ($historyId > 0) {
     <?php foreach ($renewalRows as $row):
         $subscriptionId = (int) $row['id'];
         $dueDate = $row['pending_due_date'] ?: $row['next_billing_date'];
-        $contractAmount = round(max(0, ((float) $row['unit_price'] * (int) $row['quantity']) - (float) $row['discount']), 2);
+        $renewalUnitPrice = (float) ($row['renewal_unit_price'] ?? $row['unit_price']);
+        $contractAmount = round(max(0, ($renewalUnitPrice * (int) $row['quantity']) - (float) $row['discount']), 2);
         $receivedAmount = $row['pending_payment_id'] ? (float) $row['pending_amount'] : $contractAmount;
     ?>
     <article class="renewal-card" data-renewal-row data-current-product="<?= (int) $row['product_id'] ?>">
@@ -107,7 +129,7 @@ if ($historyId > 0) {
             <label class="span-2">Plano<select name="renewals[<?= $subscriptionId ?>][product_id]" data-renewal-product><?php foreach ($renewalProducts as $product): ?><option value="<?= (int) $product['id'] ?>" data-brl="<?= h($product['price_brl']) ?>" data-usd="<?= h($product['price_usd']) ?>" data-cycle="<?= h($product['billing_cycle']) ?>" <?= (int) $product['id'] === (int) $row['product_id'] ? 'selected' : '' ?>><?= h($product['name']) ?> · <?= cycle_label($product['billing_cycle']) ?><?= $product['active'] ? '' : ' (inativo)' ?></option><?php endforeach; ?></select><small>Trocar o plano aqui altera a assinatura somente após a confirmação.</small></label>
             <label>Moeda<select name="renewals[<?= $subscriptionId ?>][currency]" data-renewal-currency><option value="BRL" <?= $row['currency'] === 'BRL' ? 'selected' : '' ?>>BRL</option><option value="USD" <?= $row['currency'] === 'USD' ? 'selected' : '' ?>>USD</option></select></label>
             <label>Quantidade<input name="renewals[<?= $subscriptionId ?>][quantity]" type="number" min="1" value="<?= (int) $row['quantity'] ?>" data-renewal-quantity></label>
-            <label>Valor unitário<input name="renewals[<?= $subscriptionId ?>][unit_price]" type="number" min="0.01" step="0.01" value="<?= decimal_input($row['unit_price']) ?>" data-renewal-price></label>
+            <label>Valor unitário<input name="renewals[<?= $subscriptionId ?>][unit_price]" type="number" min="0.01" step="0.01" value="<?= decimal_input($renewalUnitPrice) ?>" data-renewal-price><?php if (($row['product_pricing_mode'] ?? 'manual') !== 'manual'): ?><small>Atualizado pela cotação diária do produto</small><?php endif; ?></label>
             <label>Desconto total<input name="renewals[<?= $subscriptionId ?>][discount]" type="number" min="0" step="0.01" value="<?= decimal_input($row['discount']) ?>" data-renewal-discount></label>
             <label>Valor recebido<input name="renewals[<?= $subscriptionId ?>][amount]" type="number" min="0.01" step="0.01" value="<?= decimal_input($receivedAmount) ?>" data-renewal-amount><small data-renewal-balance></small><button type="button" class="renewal-use-total" data-renewal-use-total>Usar total devido</button></label>
             <label>Taxa da plataforma<input name="renewals[<?= $subscriptionId ?>][fee_amount]" type="number" min="0" step="0.01" value="<?= decimal_input($row['pending_fee_amount'] ?? 0) ?>"></label>

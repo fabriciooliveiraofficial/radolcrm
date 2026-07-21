@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS products (
     description TEXT NULL,
     price_brl DECIMAL(15,2) NOT NULL DEFAULT 0,
     price_usd DECIMAL(15,2) NOT NULL DEFAULT 0,
+    pricing_mode ENUM('manual','brl','usd') NOT NULL DEFAULT 'manual',
+    price_exchange_rate DECIMAL(15,6) NULL,
+    price_rate_source VARCHAR(80) NULL,
+    price_rate_date DATE NULL,
     billing_cycle ENUM('monthly','quarterly','semiannual','annual') NOT NULL DEFAULT 'monthly',
     active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -200,7 +204,7 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('manual_exchange_rate', '5.500000'),
 ('exchange_cache_minutes', '720'),
 ('initial_balance_brl', '0.00'),
-('schema_version', '3')
+('schema_version', '4')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
 
 SET FOREIGN_KEY_CHECKS = 1;

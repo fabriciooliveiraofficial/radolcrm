@@ -12,6 +12,14 @@ function cycle_label(string $cycle): string { return ['monthly'=>'Mensal','quart
 function status_label(string $status): string { return ['active'=>'Ativo','paid'=>'Pago','pending'=>'Pendente'][$status] ?? $status; }
 function status_class(string $status): string { return in_array($status, ['active', 'paid'], true) ? 'success' : 'warning'; }
 function csrf_field(): string { return '<input type="hidden" name="_token" value="test">'; }
+function product_with_current_prices(array $product, float $rate): array
+{
+    $mode = $product['pricing_mode'] ?? 'manual';
+    if ($mode === 'usd') $product['price_brl'] = round((float) $product['price_usd'] * $rate, 2);
+    if ($mode === 'brl') $product['price_usd'] = round((float) $product['price_brl'] / $rate, 2);
+    $product['pricing_mode'] = $mode;
+    return $product;
+}
 function pagination(object $db, string $countSql, string $dataSql, array $params = [], int $perPage = 15): array
 {
     return ['rows'=>$db->fetchAll($dataSql . ' LIMIT 15 OFFSET 0', $params),'total'=>1,'pages'=>1,'page'=>1];
@@ -26,7 +34,7 @@ $subscription = [
     'pending_payment_id'=>null,'pending_due_date'=>null,'pending_amount'=>null,'pending_fee_amount'=>null,
     'pending_payment_method'=>null,'pending_external_reference'=>null,'pending_notes'=>null,
 ];
-$product = ['id'=>2,'name'=>'Plano Mensal','price_brl'=>'54.00','price_usd'=>'18.00','billing_cycle'=>'monthly','active'=>1];
+$product = ['id'=>2,'name'=>'Plano Mensal','price_brl'=>'54.00','price_usd'=>'18.00','pricing_mode'=>'manual','billing_cycle'=>'monthly','active'=>1];
 $db = new class($subscription, $product) {
     public function __construct(private array $subscription, private array $product) {}
     public function value(string $sql, array $params = []): int { return 1; }
@@ -40,6 +48,7 @@ $db = new class($subscription, $product) {
     }
 };
 $auth = new class { public function canWrite(): bool { return true; } };
+$rates = new class { public function current(): array { return ['bid'=>5.5]; } };
 $_GET = ['renewals' => '1'];
 $_SERVER['REQUEST_URI'] = '?page=subscriptions&renewals=1';
 

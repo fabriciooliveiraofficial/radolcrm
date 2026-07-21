@@ -35,6 +35,29 @@ function normalize_decimal(mixed $value): float
     return round((float) $raw, 6);
 }
 
+function product_with_current_prices(array $product, float $usdBrlRate): array
+{
+    $rate = $usdBrlRate > 0 ? $usdBrlRate : 1.0;
+    $mode = in_array($product['pricing_mode'] ?? 'manual', ['manual', 'brl', 'usd'], true)
+        ? $product['pricing_mode']
+        : 'manual';
+    $priceBrl = (float) ($product['price_brl'] ?? 0);
+    $priceUsd = (float) ($product['price_usd'] ?? 0);
+
+    if ($mode === 'usd') {
+        $priceBrl = round($priceUsd * $rate, 2);
+    } elseif ($mode === 'brl') {
+        $priceUsd = round($priceBrl / $rate, 2);
+    }
+
+    $product['pricing_mode'] = $mode;
+    $product['price_brl'] = $priceBrl;
+    $product['price_usd'] = $priceUsd;
+    $product['current_exchange_rate'] = $rate;
+
+    return $product;
+}
+
 function csrf_field(): string
 {
     return Csrf::field();
@@ -162,4 +185,3 @@ function render_pagination(array $pagination): void
     }
     echo '</nav>';
 }
-

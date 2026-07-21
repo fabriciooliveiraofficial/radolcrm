@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 3;
+    private const VERSION = 4;
 
     public function __construct(private readonly Database $db)
     {
@@ -52,6 +52,21 @@ final class MigrationService
                     INDEX idx_subscription_events_payment (payment_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
             );
+        }
+
+        if ($version < 4) {
+            if (!$this->columnExists('products', 'pricing_mode')) {
+                $this->db->query("ALTER TABLE products ADD COLUMN pricing_mode ENUM('manual','brl','usd') NOT NULL DEFAULT 'manual' AFTER price_usd");
+            }
+            if (!$this->columnExists('products', 'price_exchange_rate')) {
+                $this->db->query("ALTER TABLE products ADD COLUMN price_exchange_rate DECIMAL(15,6) NULL AFTER pricing_mode");
+            }
+            if (!$this->columnExists('products', 'price_rate_source')) {
+                $this->db->query("ALTER TABLE products ADD COLUMN price_rate_source VARCHAR(80) NULL AFTER price_exchange_rate");
+            }
+            if (!$this->columnExists('products', 'price_rate_date')) {
+                $this->db->query("ALTER TABLE products ADD COLUMN price_rate_date DATE NULL AFTER price_rate_source");
+            }
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",
