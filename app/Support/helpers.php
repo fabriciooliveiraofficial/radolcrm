@@ -58,6 +58,13 @@ function product_with_current_prices(array $product, float $usdBrlRate): array
     return $product;
 }
 
+function country_flag_icon(string $country): string
+{
+    $code = strtoupper($country) === 'BR' ? 'br' : 'us';
+    $label = $code === 'br' ? 'Bandeira do Brasil' : 'Bandeira dos Estados Unidos';
+    return '<span class="flag-icon flag-' . $code . '" role="img" aria-label="' . $label . '"></span>';
+}
+
 function csrf_field(): string
 {
     return Csrf::field();

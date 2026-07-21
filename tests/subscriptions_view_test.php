@@ -12,6 +12,7 @@ function cycle_label(string $cycle): string { return ['monthly'=>'Mensal','quart
 function status_label(string $status): string { return ['active'=>'Ativo','paid'=>'Pago','pending'=>'Pendente'][$status] ?? $status; }
 function status_class(string $status): string { return in_array($status, ['active', 'paid'], true) ? 'success' : 'warning'; }
 function csrf_field(): string { return '<input type="hidden" name="_token" value="test">'; }
+function country_flag_icon(string $country): string { return '<span class="flag-icon flag-' . (strtoupper($country) === 'BR' ? 'br' : 'us') . '"></span>'; }
 function product_with_current_prices(array $product, float $rate): array
 {
     $mode = $product['pricing_mode'] ?? 'manual';

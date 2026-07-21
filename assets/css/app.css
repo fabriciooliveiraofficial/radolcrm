@@ -151,6 +151,7 @@ td b { color: var(--ink); }
 .entity { display: flex; align-items: center; gap: 10px; min-width: 165px; }
 .entity > span:last-child b, .entity > span:last-child small { display: block; }
 .entity small { max-width: 260px; color: var(--muted); }
+.country-cell { display:inline-flex;align-items:center;gap:8px;white-space:nowrap; }.entity-country { display:flex!important;align-items:center;gap:5px; }.flag-icon { position:relative;width:26px;height:17px;display:inline-block;flex:0 0 auto;overflow:hidden;border:1px solid rgba(23,41,39,.16);border-radius:3px;vertical-align:middle;box-shadow:0 1px 2px rgba(13,41,41,.12); }.flag-br { background:#159447; }.flag-br::before { content:'';position:absolute;left:7px;top:3px;width:10px;height:10px;background:#ffdf3e;transform:rotate(45deg); }.flag-br::after { content:'';position:absolute;left:8px;top:4px;width:8px;height:8px;border-radius:50%;background:#2455a4;box-shadow:inset 0 1px 0 rgba(255,255,255,.65); }.flag-us { background:repeating-linear-gradient(to bottom,#b22234 0,#b22234 1.31px,#fff 1.31px,#fff 2.62px); }.flag-us::before { content:'';position:absolute;z-index:1;left:0;top:0;width:11px;height:9px;background:#3c3b6e; }.flag-us::after { content:'';position:absolute;z-index:2;left:1px;top:1px;width:9px;height:7px;background:radial-gradient(circle,#fff 0 .45px,transparent .55px);background-size:3px 2px; }
 .avatar-sm { width: 30px; height: 30px; display: inline-grid; flex: 0 0 auto; place-items: center; border-radius: 8px; color: var(--green-700); background: var(--green-100); font-size: 11px; font-weight: 800; }
 .badge { display: inline-flex; align-items: center; justify-content: center; min-height: 22px; padding: 3px 8px; border-radius: 20px; font-size: 9px; font-weight: 800; }
 .badge.success { color: #28715c; background: var(--green-100); }
@@ -242,7 +243,7 @@ td b { color: var(--ink); }
 .country-report { padding: 22px 24px; }
 .country-report > div:last-child { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .country-report article { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 11px; }
-.country-flag { font-size: 24px; }.country-report article b, .country-report article small { display:block; }.country-report article small { color: var(--muted); font-size: 9px; }.country-report article strong { font: 700 16px Georgia,serif; }
+.country-report article .flag-icon { margin-left:3px; }.country-report article b, .country-report article small { display:block; }.country-report article small { color: var(--muted); font-size: 9px; }.country-report article strong { font: 700 16px Georgia,serif; }
 
 .settings-layout { display: grid; grid-template-columns: 170px minmax(0,850px); gap: 24px; align-items: start; }
 .settings-nav { position: sticky; top: 20px; display: flex; flex-direction: column; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: white; }

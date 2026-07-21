@@ -15,6 +15,8 @@ $tests = [
     'produto cotado em USD converte para BRL' => product_with_current_prices(['pricing_mode'=>'usd','price_brl'=>0,'price_usd'=>15], 5.5)['price_brl'] === 82.5,
     'produto cotado em BRL converte para USD' => product_with_current_prices(['pricing_mode'=>'brl','price_brl'=>55,'price_usd'=>0], 5.5)['price_usd'] === 10.0,
     'produto manual preserva preços locais' => product_with_current_prices(['pricing_mode'=>'manual','price_brl'=>50,'price_usd'=>15], 5.5)['price_usd'] === 15.0,
+    'bandeira visual do Brasil' => str_contains(country_flag_icon('BR'), 'flag-br'),
+    'bandeira visual dos EUA' => str_contains(country_flag_icon('US'), 'flag-us'),
 ];
 
 $failed = [];
