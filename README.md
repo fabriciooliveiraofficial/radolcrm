@@ -22,21 +22,21 @@ Não há build, Composer, Node.js ou processo residente. Isso permite publicar t
 
 Se o instalador não puder gravar a configuração, dê permissão de escrita temporária à pasta `config`, conclua a instalação e restaure a permissão recomendada pelo hPanel.
 
-## Cotação automática
+## Cotação diária automática
 
-A aplicação consulta `USD-BRL` na AwesomeAPI. Sem chave, a resposta pública pode ter cache. Uma chave gratuita dá acesso sem esse cache e pode ser cadastrada em **Configurações → Câmbio**.
+A aplicação consulta `USD-BRL` no Frankfurter, uma API open source de taxas institucionais diárias que não exige cadastro nem chave.
 
 Há três camadas de segurança:
 
 1. cotação recente salva no MySQL;
-2. nova consulta à AwesomeAPI quando o cache local vence;
+2. nova consulta ao Frankfurter quando o cache local vence;
 3. última cotação válida ou taxa manual se a API estiver indisponível.
 
-Cada pagamento ou gasto em USD guarda a taxa usada e o valor convertido. Assim, movimentações antigas não mudam com a cotação atual.
+Cada pagamento em USD possui uma data de pagamento e uma data de resgate. A taxa diária da data do resgate, sua fonte e o valor convertido ficam gravados no lançamento. Assim, movimentações antigas não mudam com cotações futuras. A cotação efetivamente aplicada pelo banco ou plataforma também pode ser informada manualmente.
 
 ### Cron opcional
 
-O dashboard atualiza a cotação sob demanda. Para manter o histórico mesmo sem acessos, crie no hPanel uma tarefa a cada 10 minutos:
+O dashboard atualiza a cotação sob demanda. Para manter o histórico mesmo sem acessos, você pode criar no hPanel uma tarefa diária:
 
 ```text
 php /home/SEU_USUARIO/domains/SEU_DOMINIO/public_html/cron/update-exchange-rate.php SEU_CRON_SECRET

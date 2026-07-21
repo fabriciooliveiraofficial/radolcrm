@@ -8,7 +8,7 @@ $metrics = $finance->dashboard($from, $to, $rate['bid']);
 $series = $finance->monthlySeries();
 $balance = $finance->cashBalance();
 $upcoming = $db->fetchAll("SELECT s.id,s.next_billing_date,s.currency,s.unit_price,s.quantity,s.discount,c.name client,p.name product FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id WHERE s.status IN ('active','trial','past_due') AND s.next_billing_date IS NOT NULL ORDER BY s.next_billing_date LIMIT 6");
-$recent = $db->fetchAll("SELECT p.id,p.payment_date,p.amount,p.currency,p.amount_brl,p.status,c.name client FROM payments p JOIN clients c ON c.id=p.client_id ORDER BY COALESCE(p.payment_date,p.due_date) DESC,p.id DESC LIMIT 6");
+$recent = $db->fetchAll("SELECT p.id,p.payment_date,p.settlement_date,p.amount,p.currency,p.amount_brl,p.status,c.name client FROM payments p JOIN clients c ON c.id=p.client_id ORDER BY COALESCE(CASE WHEN p.currency='USD' THEN p.settlement_date ELSE p.payment_date END,p.payment_date,p.due_date) DESC,p.id DESC LIMIT 6");
 ?>
 <section class="toolbar dashboard-toolbar">
     <form method="get" class="period-filter">
@@ -17,7 +17,7 @@ $recent = $db->fetchAll("SELECT p.id,p.payment_date,p.amount,p.currency,p.amount
         <?php if (($_GET['period'] ?? '') === 'custom'): ?><label>De<input type="date" name="from" value="<?= h($from) ?>"></label><label>Até<input type="date" name="to" value="<?= h($to) ?>"></label><button class="button secondary" type="submit">Aplicar</button><?php endif; ?>
     </form>
     <div class="rate-pill">
-        <span class="live-dot"></span><div><small>DÓLAR COMERCIAL</small><b>US$ 1 = <?= money($rate['bid']) ?></b></div><span><?= h($rate['source']) ?><br><?= datetime_br($rate['quoted_at']) ?></span>
+        <span class="live-dot"></span><div><small>COTAÇÃO DIÁRIA USD/BRL</small><b>US$ 1 = <?= money($rate['bid']) ?></b></div><span><?= h($rate['source']) ?><br><?= date_br($rate['quoted_at']) ?></span>
         <form method="post"><?= csrf_field() ?><input type="hidden" name="action" value="refresh_rate"><input type="hidden" name="_return" value="?page=dashboard"><button class="icon-button" title="Atualizar cotação">↻</button></form>
     </div>
 </section>
@@ -48,7 +48,7 @@ $recent = $db->fetchAll("SELECT p.id,p.payment_date,p.amount,p.currency,p.amount
         <div class="card-header"><div><p class="eyebrow">ÚLTIMOS LANÇAMENTOS</p><h2>Pagamentos recentes</h2></div><a href="?page=payments">Ver todos →</a></div>
         <div class="table-wrap"><table><thead><tr><th>Cliente</th><th>Data</th><th>Original</th><th>Convertido</th><th>Status</th></tr></thead><tbody>
         <?php if (!$recent): ?><tr><td colspan="5" class="empty-cell">Nenhum pagamento registrado.</td></tr><?php endif; ?>
-        <?php foreach ($recent as $item): ?><tr><td><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'],0,1))) ?></span><b><?= h($item['client']) ?></b></td><td><?= date_br($item['payment_date']) ?></td><td><?= money($item['amount'],$item['currency']) ?></td><td><b><?= money($item['amount_brl']) ?></b></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td></tr><?php endforeach; ?>
+        <?php foreach ($recent as $item): ?><tr><td><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'],0,1))) ?></span><b><?= h($item['client']) ?></b></td><td><?= date_br($item['currency']==='USD' ? ($item['settlement_date']?:$item['payment_date']) : $item['payment_date']) ?></td><td><?= money($item['amount'],$item['currency']) ?></td><td><b><?= money($item['amount_brl']) ?></b></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td></tr><?php endforeach; ?>
         </tbody></table></div>
     </article>
     <article class="card upcoming-card">

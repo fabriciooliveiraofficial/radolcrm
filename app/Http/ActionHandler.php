@@ -235,30 +235,38 @@ final class ActionHandler
         if ($amount <= 0 || $fee > $amount) {
             throw new RuntimeException('Informe um valor válido e uma taxa menor que o pagamento.');
         }
-        $currency = $this->choice('currency', ['BRL','USD']);
-        $rate = $currency === 'USD' ? normalize_decimal($_POST['exchange_rate'] ?? 0) : 1.0;
-        if ($currency === 'USD' && $rate <= 0) {
-            $rate = $this->rates->current()['bid'];
-        }
-        $amountBrl = round($amount * $rate, 2);
-        $feeBrl = round($fee * $rate, 2);
-        $netBrl = $amountBrl - $feeBrl;
         $status = $this->choice('status', ['pending','paid','failed','refunded']);
         $paymentDate = $this->nullable('payment_date');
         if ($status === 'paid' && $paymentDate === null) {
             $paymentDate = date('Y-m-d');
         }
+        $settlementDate = $this->nullable('settlement_date');
+        $currency = $this->choice('currency', ['BRL','USD']);
+        $rate = $currency === 'USD' ? normalize_decimal($_POST['exchange_rate'] ?? 0) : 1.0;
+        $rateSource = $currency === 'USD' ? $this->nullable('exchange_rate_source') : 'BRL';
+        if ($currency === 'USD' && $status === 'paid' && $settlementDate === null) {
+            throw new RuntimeException('Informe a data em que o valor em dólar foi resgatado.');
+        }
+        if ($currency === 'USD' && $rate <= 0) {
+            $quote = $this->rates->forDate($settlementDate ?: $paymentDate ?: date('Y-m-d'));
+            $rate = $quote['bid'];
+            $rateSource = $quote['source'];
+        }
+        $rateSource = $rateSource ?: ($currency === 'USD' ? 'Manual' : 'BRL');
+        $amountBrl = round($amount * $rate, 2);
+        $feeBrl = round($fee * $rate, 2);
+        $netBrl = $amountBrl - $feeBrl;
         $params = [
-            $subscriptionId, $clientId, $this->nullable('description'), $amount, $currency, $rate, $amountBrl, $fee, $feeBrl, $netBrl,
-            $status, $this->nullable('due_date'), $paymentDate,
+            $subscriptionId, $clientId, $this->nullable('description'), $amount, $currency, $rate, $rateSource, $amountBrl, $fee, $feeBrl, $netBrl,
+            $status, $this->nullable('due_date'), $paymentDate, $settlementDate,
             $this->nullable('payment_method'), $this->nullable('external_reference'), $this->nullable('notes'),
         ];
         if ($id) {
             $params[] = $id;
-            $this->db->query('UPDATE payments SET subscription_id=?, client_id=?, description=?, amount=?, currency=?, exchange_rate=?, amount_brl=?, fee_amount=?, fee_brl=?, net_brl=?, status=?, due_date=?, payment_date=?, payment_method=?, external_reference=?, notes=? WHERE id=?', $params);
+            $this->db->query('UPDATE payments SET subscription_id=?, client_id=?, description=?, amount=?, currency=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_amount=?, fee_brl=?, net_brl=?, status=?, due_date=?, payment_date=?, settlement_date=?, payment_method=?, external_reference=?, notes=? WHERE id=?', $params);
             audit($this->db, 'update', 'payment', $id, ['amount_brl' => $amountBrl]);
         } else {
-            $id = $this->db->insert('INSERT INTO payments (subscription_id, client_id, description, amount, currency, exchange_rate, amount_brl, fee_amount, fee_brl, net_brl, status, due_date, payment_date, payment_method, external_reference, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
+            $id = $this->db->insert('INSERT INTO payments (subscription_id, client_id, description, amount, currency, exchange_rate, exchange_rate_source, amount_brl, fee_amount, fee_brl, net_brl, status, due_date, payment_date, settlement_date, payment_method, external_reference, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
             audit($this->db, 'create', 'payment', $id, ['amount_brl' => $amountBrl]);
         }
         Flash::add('success', 'Pagamento salvo. Conversão registrada em ' . money($amountBrl) . '.');
@@ -284,7 +292,7 @@ final class ActionHandler
         $currency = $this->choice('currency', ['BRL','USD']);
         $rate = $currency === 'USD' ? normalize_decimal($_POST['exchange_rate'] ?? 0) : 1.0;
         if ($currency === 'USD' && $rate <= 0) {
-            $rate = $this->rates->current()['bid'];
+            $rate = $this->rates->forDate($this->required('payment_date', 'Informe a data.'))['bid'];
         }
         $params = [
             $this->choice('type', ['expense','investment']), $this->required('category', 'Informe a categoria.'),
@@ -323,7 +331,7 @@ final class ActionHandler
         $currency = $this->choice('currency', ['BRL','USD']);
         $rate = $currency === 'USD' ? normalize_decimal($_POST['exchange_rate'] ?? 0) : 1.0;
         if ($currency === 'USD' && $rate <= 0) {
-            $rate = $this->rates->current()['bid'];
+            $rate = $this->rates->forDate($this->required('entry_date', 'Informe a data.'))['bid'];
         }
         $params = [
             $this->choice('direction', ['in','out']), $this->required('category', 'Informe a categoria.'),
@@ -354,7 +362,7 @@ final class ActionHandler
     private function refreshRate(): string
     {
         $rate = $this->rates->current(true);
-        Flash::add('success', 'Cotação atualizada: US$ 1 = ' . money($rate['bid']) . '.');
+        Flash::add('success', 'Cotação diária atualizada: US$ 1 = ' . money($rate['bid']) . '.');
         return $this->returnUrl('?page=dashboard');
     }
 
@@ -363,20 +371,14 @@ final class ActionHandler
         if (!$this->auth->isAdmin()) {
             throw new RuntimeException('Somente administradores podem alterar configurações.');
         }
-        $allowed = ['company_name','awesome_api_key','manual_exchange_rate','exchange_cache_minutes','initial_balance_brl'];
+        $allowed = ['company_name','manual_exchange_rate','exchange_cache_minutes','initial_balance_brl'];
         foreach ($allowed as $key) {
             $value = trim((string) ($_POST[$key] ?? ''));
-            if ($key === 'awesome_api_key' && $value === '') {
-                continue;
-            }
-            if ($key === 'awesome_api_key') {
-                $value = str_replace(["\r", "\n"], '', $value);
-            }
             if (in_array($key, ['manual_exchange_rate','initial_balance_brl'], true)) {
                 $value = (string) normalize_decimal($value);
             }
             if ($key === 'exchange_cache_minutes') {
-                $value = (string) max(1, min(60, (int) $value));
+                $value = (string) max(60, min(1440, (int) $value));
             }
             $this->db->query('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)', [$key, $value]);
         }

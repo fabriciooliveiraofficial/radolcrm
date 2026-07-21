@@ -32,6 +32,18 @@ if (!$auth->check()) {
 
 $rates = new ExchangeRateService($db);
 
+if (($_GET['page'] ?? '') === 'exchange-rate') {
+    header('Content-Type: application/json; charset=UTF-8');
+    try {
+        $quote = $rates->forDate((string) ($_GET['date'] ?? date('Y-m-d')));
+        echo json_encode(['ok' => true, 'rate' => $quote], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $exception) {
+        http_response_code(422);
+        echo json_encode(['ok' => false, 'message' => $exception->getMessage()], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     (new ActionHandler($db, $auth, $rates))->handle((string) $_POST['action']);
 }
@@ -63,4 +75,3 @@ $pageTitles = [
 $messages = Flash::pull();
 $viewFile = __DIR__ . '/app/Views/pages/' . $page . '.php';
 require __DIR__ . '/app/Views/layout.php';
-

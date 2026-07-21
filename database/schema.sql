@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS payments (
     amount DECIMAL(15,2) NOT NULL,
     currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
     exchange_rate DECIMAL(15,6) NOT NULL DEFAULT 1,
+    exchange_rate_source VARCHAR(80) NULL,
     amount_brl DECIMAL(15,2) NOT NULL,
     fee_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
     fee_brl DECIMAL(15,2) NOT NULL DEFAULT 0,
@@ -111,6 +112,7 @@ CREATE TABLE IF NOT EXISTS payments (
     status ENUM('pending','paid','failed','refunded') NOT NULL DEFAULT 'paid',
     due_date DATE NULL,
     payment_date DATE NULL,
+    settlement_date DATE NULL,
     payment_method VARCHAR(80) NULL,
     external_reference VARCHAR(120) NULL,
     notes TEXT NULL,
@@ -119,6 +121,7 @@ CREATE TABLE IF NOT EXISTS payments (
     CONSTRAINT fk_payments_subscription FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
     CONSTRAINT fk_payments_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
     INDEX idx_payments_status_date (status, payment_date),
+    INDEX idx_payments_settlement_date (settlement_date),
     INDEX idx_payments_client (client_id),
     INDEX idx_payments_subscription (subscription_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -177,10 +180,10 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 INSERT INTO settings (setting_key, setting_value) VALUES
 ('company_name', 'Minha Empresa'),
-('awesome_api_key', ''),
 ('manual_exchange_rate', '5.500000'),
-('exchange_cache_minutes', '10'),
-('initial_balance_brl', '0.00')
+('exchange_cache_minutes', '720'),
+('initial_balance_brl', '0.00'),
+('schema_version', '2')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
 
 SET FOREIGN_KEY_CHECKS = 1;

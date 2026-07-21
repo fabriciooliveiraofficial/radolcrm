@@ -10,7 +10,7 @@ use RuntimeException;
 
 final class ExchangeRateService
 {
-    private const ENDPOINT = 'https://economia.awesomeapi.com.br/json/last/USD-BRL';
+    private const ENDPOINT = 'https://api.frankfurter.dev/v2/rate/USD/BRL';
 
     public function __construct(private readonly Database $db)
     {
@@ -19,9 +19,9 @@ final class ExchangeRateService
     public function current(bool $forceRefresh = false): array
     {
         $latest = $this->db->fetch(
-            "SELECT * FROM exchange_rates WHERE base_currency = 'USD' AND quote_currency = 'BRL' ORDER BY quoted_at DESC, id DESC LIMIT 1"
+            "SELECT * FROM exchange_rates WHERE base_currency = 'USD' AND quote_currency = 'BRL' AND source LIKE 'Frankfurter%' ORDER BY created_at DESC, id DESC LIMIT 1"
         );
-        $cacheMinutes = max(1, (int) $this->setting('exchange_cache_minutes', '10'));
+        $cacheMinutes = max(60, (int) $this->setting('exchange_cache_minutes', '720'));
 
         // A idade do cache é baseada no momento da consulta, não no horário da
         // última negociação (que pode ser de sexta-feira durante o fim de semana).
@@ -30,21 +30,14 @@ final class ExchangeRateService
         }
 
         try {
-            $fresh = $this->fetchRemote();
-            $id = $this->db->insert(
-                'INSERT INTO exchange_rates (base_currency, quote_currency, bid, ask, source, quoted_at) VALUES (?, ?, ?, ?, ?, ?)',
-                ['USD', 'BRL', $fresh['bid'], $fresh['ask'], 'AwesomeAPI', $fresh['quoted_at']]
-            );
-            $fresh['id'] = $id;
-            $fresh['source'] = 'AwesomeAPI';
-            $fresh['base_currency'] = 'USD';
-            $fresh['quote_currency'] = 'BRL';
-
-            return $this->format($fresh, true);
+            return $this->store($this->fetchRemote(), true);
         } catch (\Throwable $exception) {
-            if ($latest) {
-                $formatted = $this->format($latest, false);
-                $formatted['warning'] = 'API indisponível; usando a última cotação salva.';
+            $fallback = $latest ?: $this->db->fetch(
+                "SELECT * FROM exchange_rates WHERE base_currency='USD' AND quote_currency='BRL' ORDER BY created_at DESC,id DESC LIMIT 1"
+            );
+            if ($fallback) {
+                $formatted = $this->format($fallback, false);
+                $formatted['warning'] = 'Fonte diária indisponível; usando a última cotação salva.';
                 return $formatted;
             }
 
@@ -59,9 +52,30 @@ final class ExchangeRateService
                 'source' => 'Taxa manual',
                 'quoted_at' => date('Y-m-d H:i:s'),
                 'fresh' => false,
-                'warning' => 'API indisponível; usando a taxa manual de segurança.',
+                'warning' => 'Fonte diária indisponível; usando a taxa manual de segurança.',
             ];
         }
+    }
+
+    public function forDate(string $date, bool $forceRefresh = false): array
+    {
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        $errors = DateTimeImmutable::getLastErrors();
+        if (!$parsed || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
+            throw new RuntimeException('Data de resgate inválida para consultar o câmbio.');
+        }
+        $date = $parsed->format('Y-m-d');
+        if (!$forceRefresh) {
+            $stored = $this->db->fetch(
+                "SELECT * FROM exchange_rates WHERE base_currency='USD' AND quote_currency='BRL' AND source LIKE 'Frankfurter%' AND DATE(quoted_at)=? ORDER BY id DESC LIMIT 1",
+                [$date]
+            );
+            if ($stored) {
+                return $this->format($stored, false);
+            }
+        }
+
+        return $this->store($this->fetchRemote($date), true);
     }
 
     public function latestStored(): ?array
@@ -81,17 +95,14 @@ final class ExchangeRateService
         );
     }
 
-    private function fetchRemote(): array
+    private function fetchRemote(?string $date = null): array
     {
-        $apiKey = trim((string) $this->setting('awesome_api_key', ''));
-        $headers = ['Accept: application/json', 'User-Agent: NexoGestao/1.0'];
-        if ($apiKey !== '') {
-            $headers[] = 'x-api-key: ' . $apiKey;
-        }
+        $url = self::ENDPOINT . ($date ? '?date=' . rawurlencode($date) : '');
+        $headers = ['Accept: application/json', 'User-Agent: RadolCRM/1.1'];
 
         $body = false;
         if (function_exists('curl_init')) {
-            $curl = curl_init(self::ENDPOINT);
+            $curl = curl_init($url);
             curl_setopt_array($curl, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_CONNECTTIMEOUT => 5,
@@ -108,7 +119,7 @@ final class ExchangeRateService
             }
         } elseif (filter_var(ini_get('allow_url_fopen'), FILTER_VALIDATE_BOOLEAN)) {
             $context = stream_context_create(['http' => ['timeout' => 8, 'header' => implode("\r\n", $headers)]]);
-            $body = @file_get_contents(self::ENDPOINT, false, $context);
+            $body = @file_get_contents($url, false, $context);
         }
 
         if (!is_string($body) || $body === '') {
@@ -116,18 +127,30 @@ final class ExchangeRateService
         }
 
         $data = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
-        $quote = $data['USDBRL'] ?? null;
-        $bid = (float) ($quote['bid'] ?? 0);
+        $bid = (float) ($data['rate'] ?? 0);
         if ($bid <= 0) {
             throw new RuntimeException('A API retornou uma cotação inválida.');
         }
+        $rateDate = (string) ($data['date'] ?? $date ?? date('Y-m-d'));
 
-        $timestamp = (int) ($quote['timestamp'] ?? 0);
-        $quotedAt = $timestamp > 0
-            ? (new DateTimeImmutable('@' . $timestamp))->setTimezone(new \DateTimeZone(date_default_timezone_get()))->format('Y-m-d H:i:s')
-            : date('Y-m-d H:i:s');
+        return [
+            'bid' => $bid,
+            'ask' => $bid,
+            'quoted_at' => $rateDate . ' 12:00:00',
+            'source' => 'Frankfurter · diária',
+            'base_currency' => 'USD',
+            'quote_currency' => 'BRL',
+        ];
+    }
 
-        return ['bid' => $bid, 'ask' => (float) ($quote['ask'] ?? $bid), 'quoted_at' => $quotedAt];
+    private function store(array $rate, bool $fresh): array
+    {
+        $rate['id'] = $this->db->insert(
+            'INSERT INTO exchange_rates (base_currency, quote_currency, bid, ask, source, quoted_at) VALUES (?, ?, ?, ?, ?, ?)',
+            ['USD', 'BRL', $rate['bid'], $rate['ask'], $rate['source'], $rate['quoted_at']]
+        );
+
+        return $this->format($rate, $fresh);
     }
 
     private function setting(string $key, string $default): string

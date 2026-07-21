@@ -31,18 +31,62 @@
     const rate = qs('[data-money-rate]', form);
     const preview = qs('[data-money-preview]', form);
     const currentRate = Number(form.dataset.currentRate || 1);
+    const dailyRate = form.dataset.dailyRate === '1';
+    const rateDate = qs('[data-rate-date]', form);
+    const rateSource = qs('[data-rate-source]', form);
+    const rateHelp = qs('[data-rate-help]', form);
+    let previousCurrency = currency.value;
 
     const calculate = () => {
-      const multiplier = currency.value === 'USD' ? Number(rate.value || currentRate) : 1;
+      const multiplier = currency.value === 'USD' ? Number(rate.value || (dailyRate ? 0 : currentRate)) : 1;
       const net = Math.max(0, Number(amount.value || 0) - Number(fee?.value || 0));
       preview.textContent = formatBrl(net * multiplier);
       rate.readOnly = currency.value === 'BRL';
       rate.closest('label')?.classList.toggle('field-disabled', currency.value === 'BRL');
-      if (currency.value === 'BRL') rate.value = '1';
-      else if (Number(rate.value) === 1) rate.value = currentRate;
+      if (currency.value === 'BRL') {
+        rate.value = '1';
+        if (rateSource) rateSource.value = 'BRL';
+      } else if (!dailyRate && Number(rate.value) === 1) {
+        rate.value = currentRate;
+      }
     };
-    [currency, amount, fee, rate].filter(Boolean).forEach((input) => input.addEventListener('input', calculate));
+
+    const fetchDailyRate = async () => {
+      if (!dailyRate || currency.value !== 'USD' || !rateDate?.value) return;
+      if (rateHelp) rateHelp.textContent = 'Consultando cotação diária…';
+      try {
+        const response = await fetch(`index.php?page=exchange-rate&date=${encodeURIComponent(rateDate.value)}`, {
+          headers: { Accept: 'application/json' }
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.message || 'Cotação indisponível');
+        rate.value = Number(data.rate.bid).toFixed(6);
+        rate.dataset.fetchedRate = rate.value;
+        if (rateSource) rateSource.value = data.rate.source;
+        if (rateHelp) rateHelp.textContent = `${data.rate.source} · ${rateDate.value.split('-').reverse().join('/')}`;
+        calculate();
+      } catch (error) {
+        if (rateHelp) rateHelp.textContent = `${error.message}. Você pode informar a taxa manualmente.`;
+      }
+    };
+
+    [amount, fee].filter(Boolean).forEach((input) => input.addEventListener('input', calculate));
+    currency.addEventListener('input', () => {
+      if (dailyRate && currency.value === 'USD' && previousCurrency === 'BRL') {
+        rate.value = '';
+        if (rateSource) rateSource.value = '';
+      }
+      previousCurrency = currency.value;
+      calculate();
+      fetchDailyRate();
+    });
+    rate.addEventListener('input', () => {
+      calculate();
+      if (rateSource && rate.value !== rate.dataset.fetchedRate && currency.value === 'USD') rateSource.value = 'Manual';
+    });
+    rateDate?.addEventListener('change', fetchDailyRate);
     calculate();
+    if (dailyRate && form.dataset.newRecord === '1' && currency.value === 'USD') fetchDailyRate();
   });
 
   const subForm = qs('[data-subscription-form]');
@@ -105,4 +149,3 @@
     }).join('');
   });
 })();
-

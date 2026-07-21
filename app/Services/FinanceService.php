@@ -20,7 +20,8 @@ final class FinanceService
                     COALESCE(SUM(CASE WHEN currency='USD' THEN amount ELSE 0 END),0) usd,
                     COALESCE(SUM(CASE WHEN currency='BRL' THEN amount ELSE 0 END),0) brl,
                     COUNT(*) payment_count
-             FROM payments WHERE status = 'paid' AND payment_date BETWEEN ? AND ?",
+             FROM payments WHERE status = 'paid'
+             AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) BETWEEN ? AND ?",
             [$from, $to]
         );
         $costs = $this->db->fetch(
@@ -73,8 +74,9 @@ final class FinanceService
         $start = (new DateTimeImmutable('first day of this month'))->modify('-' . ($months - 1) . ' months');
         $rows = $this->db->fetchAll(
             "SELECT month_key, SUM(revenue) revenue, SUM(cost) cost FROM (
-                SELECT DATE_FORMAT(payment_date, '%Y-%m') month_key, SUM(net_brl) revenue, 0 cost
-                FROM payments WHERE status='paid' AND payment_date >= ? GROUP BY DATE_FORMAT(payment_date, '%Y-%m')
+                SELECT DATE_FORMAT(CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END, '%Y-%m') month_key, SUM(net_brl) revenue, 0 cost
+                FROM payments WHERE status='paid' AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) >= ?
+                GROUP BY DATE_FORMAT(CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END, '%Y-%m')
                 UNION ALL
                 SELECT DATE_FORMAT(payment_date, '%Y-%m') month_key, 0 revenue, SUM(amount_brl) cost
                 FROM expenses WHERE status='paid' AND payment_date >= ? GROUP BY DATE_FORMAT(payment_date, '%Y-%m')

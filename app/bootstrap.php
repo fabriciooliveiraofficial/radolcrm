@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Core\Auth;
 use App\Core\Database;
+use App\Services\MigrationService;
 
 if (!defined('BASE_PATH')) {
     define('BASE_PATH', dirname(__DIR__));
@@ -53,6 +54,7 @@ if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE) {
 
 try {
     $db = new Database($config['db']);
+    (new MigrationService($db))->run();
     $auth = new Auth($db);
 } catch (Throwable $exception) {
     http_response_code(500);
@@ -63,4 +65,3 @@ try {
     }
     exit;
 }
-
