@@ -4,8 +4,8 @@ $status = (string) ($_GET['status'] ?? '');
 $where = ' WHERE 1=1';
 $params = [];
 if ($search !== '') {
-    $where .= ' AND (c.name LIKE ? OR p.name LIKE ?)';
-    $params = ['%' . $search . '%', '%' . $search . '%'];
+    $where .= " AND CONCAT_WS(' ',s.id,c.name,c.company,c.email,c.country,CASE c.country WHEN 'BR' THEN 'Brasil' WHEN 'US' THEN 'Estados Unidos' END,p.name,p.sku,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,s.quantity,s.currency,s.unit_price,REPLACE(s.unit_price,'.',','),s.discount,REPLACE(s.discount,'.',','),s.status,CASE s.status WHEN 'active' THEN 'Ativa Ativo' WHEN 'trial' THEN 'Teste' WHEN 'past_due' THEN 'Em atraso Atrasada' WHEN 'paused' THEN 'Pausada' WHEN 'canceled' THEN 'Cancelada' END,s.start_date,DATE_FORMAT(s.start_date,'%d/%m/%Y'),s.next_billing_date,DATE_FORMAT(s.next_billing_date,'%d/%m/%Y'),s.payment_method,s.notes) LIKE ?";
+    $params = ['%' . $search . '%'];
 }
 if (in_array($status, ['trial', 'active', 'past_due', 'paused', 'canceled'], true)) {
     $where .= ' AND s.status=?';
@@ -99,14 +99,16 @@ if ($historyId > 0) {
 <section class="mini-stats"><div><span class="dot green"></span><b><?= $activeCount ?></b><small>Ativas</small></div><div><span class="dot gold"></span><b><?= $trialCount ?></b><small>Em teste</small></div><div><span class="dot red"></span><b><?= $overdueCount ?></b><small>Em atraso</small></div></section>
 
 <section class="toolbar list-toolbar">
-    <form class="search-filters" method="get"><input type="hidden" name="page" value="subscriptions"><label class="search-box">⌕<input name="q" placeholder="Buscar cliente ou produto" value="<?= h($search) ?>"></label><select name="status" onchange="this.form.submit()"><option value="">Todos os status</option><?php foreach (['active'=>'Ativas','trial'=>'Em teste','past_due'=>'Em atraso','paused'=>'Pausadas','canceled'=>'Canceladas'] as $value => $label): ?><option value="<?= $value ?>" <?= $status === $value ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select><button class="button secondary">Buscar</button></form>
+    <form class="search-filters" method="get" data-live-filter><input type="hidden" name="page" value="subscriptions"><label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar qualquer informação" value="<?= h($search) ?>"></label><select name="status"><option value="">Todos os status</option><?php foreach (['active'=>'Ativas','trial'=>'Em teste','past_due'=>'Em atraso','paused'=>'Pausadas','canceled'=>'Canceladas'] as $value => $label): ?><option value="<?= $value ?>" <?= $status === $value ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select><span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span></form>
     <div><a class="button ghost" href="?page=export&type=subscriptions">⇩ Exportar</a><?php if ($auth->canWrite() && $dueCount > 0): ?><a class="button secondary" href="?page=subscriptions&renewals=1">⚡ Gerar próximas cobranças (<?= $dueCount ?>)</a><?php endif; ?><?php if ($auth->canWrite()): ?><a class="button primary" href="?page=subscriptions&new=1">＋ Nova assinatura</a><?php endif; ?></div>
 </section>
 
+<div data-live-results>
 <section class="card table-card"><div class="table-meta"><span><b><?= $pagination['total'] ?></b> assinaturas</span><small>Renovações confirmadas atualizam o financeiro e ficam no histórico.</small></div><div class="table-wrap"><table><thead><tr><th>Cliente / Produto</th><th>Valor recorrente</th><th>Ciclo</th><th>Próxima cobrança</th><th>Status</th><th></th></tr></thead><tbody>
 <?php if (!$pagination['rows']): ?><tr><td colspan="6" class="empty-cell">Nenhuma assinatura encontrada.</td></tr><?php endif; ?>
 <?php foreach ($pagination['rows'] as $item): ?><tr><td><div class="entity"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span><span><b><?= h($item['client']) ?></b><small><?= h($item['product']) ?> · <?= $item['country'] === 'BR' ? '🇧🇷' : '🇺🇸' ?></small></span></div></td><td><b><?= money($item['recurring_value'], $item['currency']) ?></b><small class="block"><?= (int) $item['quantity'] ?> unidade(s)</small></td><td><?= cycle_label($item['billing_cycle']) ?></td><td><?= date_br($item['next_billing_date']) ?></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td><td><div class="row-actions"><a href="?page=subscriptions&history=<?= (int) $item['id'] ?>" title="Histórico">Histórico</a><?php if ($auth->canWrite()): ?><a class="row-action" href="?page=subscriptions&edit=<?= (int) $item['id'] ?>" title="Editar">•••</a><?php endif; ?></div></td></tr><?php endforeach; ?>
 </tbody></table></div><?= render_pagination($pagination) ?></section>
+</div>
 
 <?php if ($showRenewals): ?>
 <div class="modal open"><a class="modal-backdrop" href="?page=subscriptions"></a><section class="modal-panel renewal-panel"><header><div><p class="eyebrow">RENOVAÇÃO ASSISTIDA</p><h2>Conferir e receber cobranças</h2><p>Revise os dados. Ao confirmar, cada cobrança será lançada como paga, a assinatura será renovada e todas as alterações ficarão registradas.</p></div><a href="?page=subscriptions" class="modal-close">×</a></header>

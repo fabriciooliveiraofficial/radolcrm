@@ -11,10 +11,10 @@ $upcoming = $db->fetchAll("SELECT s.id,s.next_billing_date,s.currency,s.unit_pri
 $recent = $db->fetchAll("SELECT p.id,p.payment_date,p.settlement_date,p.amount,p.currency,p.amount_brl,p.status,c.name client FROM payments p JOIN clients c ON c.id=p.client_id ORDER BY COALESCE(CASE WHEN p.currency='USD' THEN p.settlement_date ELSE p.payment_date END,p.payment_date,p.due_date) DESC,p.id DESC LIMIT 6");
 ?>
 <section class="toolbar dashboard-toolbar">
-    <form method="get" class="period-filter">
+    <form method="get" class="period-filter" data-auto-submit>
         <input type="hidden" name="page" value="dashboard">
-        <label>Período<select name="period" onchange="this.form.submit()"><option value="month">Este mês</option><option value="today" <?= ($_GET['period'] ?? '') === 'today' ? 'selected' : '' ?>>Hoje</option><option value="quarter" <?= ($_GET['period'] ?? '') === 'quarter' ? 'selected' : '' ?>>Últimos 3 meses</option><option value="year" <?= ($_GET['period'] ?? '') === 'year' ? 'selected' : '' ?>>Este ano</option><option value="custom" <?= ($_GET['period'] ?? '') === 'custom' ? 'selected' : '' ?>>Personalizado</option></select></label>
-        <?php if (($_GET['period'] ?? '') === 'custom'): ?><label>De<input type="date" name="from" value="<?= h($from) ?>"></label><label>Até<input type="date" name="to" value="<?= h($to) ?>"></label><button class="button secondary" type="submit">Aplicar</button><?php endif; ?>
+        <label>Período<select name="period"><option value="month">Este mês</option><option value="today" <?= ($_GET['period'] ?? '') === 'today' ? 'selected' : '' ?>>Hoje</option><option value="quarter" <?= ($_GET['period'] ?? '') === 'quarter' ? 'selected' : '' ?>>Últimos 3 meses</option><option value="year" <?= ($_GET['period'] ?? '') === 'year' ? 'selected' : '' ?>>Este ano</option><option value="custom" <?= ($_GET['period'] ?? '') === 'custom' ? 'selected' : '' ?>>Personalizado</option></select></label>
+        <?php if (($_GET['period'] ?? '') === 'custom'): ?><label>De<input type="date" name="from" value="<?= h($from) ?>"></label><label>Até<input type="date" name="to" value="<?= h($to) ?>"></label><?php endif; ?>
     </form>
     <div class="rate-pill">
         <span class="live-dot"></span><div><small>COTAÇÃO DIÁRIA USD/BRL</small><b>US$ 1 = <?= money($rate['bid']) ?></b></div><span><?= h($rate['source']) ?><br><?= date_br($rate['quoted_at']) ?></span>

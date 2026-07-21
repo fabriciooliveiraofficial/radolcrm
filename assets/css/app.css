@@ -82,6 +82,7 @@ h1, h2, strong, b { letter-spacing: -.02em; }
 .list-toolbar > div, .export-group { display: flex; gap: 8px; }
 .inline-form { display: inline-flex; }
 .search-filters, .period-filter { display: flex; align-items: flex-end; gap: 9px; }
+.live-filter-indicator { align-self:center;min-width:72px;color:var(--muted);font-size:8px;font-weight:700;white-space:nowrap;transition:opacity .2s; }.search-filters:not(.is-filtering) .live-filter-indicator { opacity:.72; }.search-filters.is-filtering .search-box { border-color:var(--green-600);box-shadow:0 0 0 3px rgba(43,130,107,.08); }.search-filters.is-filtering .live-filter-indicator { color:var(--green-700);opacity:1; }[data-live-results][aria-busy="true"] { opacity:.62;transition:opacity .15s; }
 .search-filters label, .period-filter label { color: var(--muted); font-size: 10px; font-weight: 700; }
 .search-box { width: min(320px, 31vw); height: 41px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: #87918e; background: white; }
 .search-box input { width: 100%; padding: 0; border: 0; outline: 0; background: transparent; }

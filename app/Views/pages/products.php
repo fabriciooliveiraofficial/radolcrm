@@ -3,14 +3,14 @@ $search = trim((string) ($_GET['q'] ?? ''));
 $params = [];
 $where = '';
 if ($search !== '') {
-    $where = ' WHERE name LIKE ? OR sku LIKE ?';
-    $params = ['%' . $search . '%', '%' . $search . '%'];
+    $where = " WHERE CONCAT_WS(' ',p.id,p.name,p.sku,p.description,p.price_brl,REPLACE(p.price_brl,'.',','),p.price_usd,REPLACE(p.price_usd,'.',','),p.pricing_mode,CASE p.pricing_mode WHEN 'manual' THEN 'Preços locais independentes' WHEN 'brl' THEN 'Cotado em BRL real' WHEN 'usd' THEN 'Cotado em USD dólar' END,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,CASE p.active WHEN 1 THEN 'Ativo' ELSE 'Inativo' END,(SELECT COUNT(*) FROM subscriptions sx WHERE sx.product_id=p.id AND sx.status='active'),'assinaturas') LIKE ?";
+    $params = ['%' . $search . '%'];
 }
 $currentQuote = $rates->current();
 $currentRate = (float) $currentQuote['bid'];
 $pagination = pagination(
     $db,
-    'SELECT COUNT(*) FROM products' . $where,
+    'SELECT COUNT(*) FROM products p' . $where,
     'SELECT p.*, (SELECT COUNT(*) FROM subscriptions s WHERE s.product_id=p.id AND s.status=\'active\') active_subscriptions FROM products p' . $where . ' ORDER BY p.active DESC,p.created_at DESC',
     $params
 );
@@ -26,8 +26,9 @@ $pricingMode = $edit['pricing_mode'] ?? 'manual';
 ?>
 
 <?php if (!empty($currentQuote['warning'])): ?><p class="inline-warning">⚠ <?= h($currentQuote['warning']) ?></p><?php endif; ?>
-<section class="toolbar list-toolbar"><form class="search-filters" method="get"><input type="hidden" name="page" value="products"><label class="search-box">⌕<input name="q" placeholder="Buscar produto ou SKU" value="<?= h($search) ?>"></label><button class="button secondary">Buscar</button></form><?php if ($auth->canWrite()): ?><a class="button primary" href="?page=products&new=1">＋ Novo produto</a><?php endif; ?></section>
+<section class="toolbar list-toolbar"><form class="search-filters" method="get" data-live-filter><input type="hidden" name="page" value="products"><label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar qualquer informação" value="<?= h($search) ?>"></label><span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span></form><?php if ($auth->canWrite()): ?><a class="button primary" href="?page=products&new=1">＋ Novo produto</a><?php endif; ?></section>
 
+<div data-live-results>
 <section class="product-grid">
 <?php if (!$pagination['rows']): ?><article class="card empty-state span-full"><span>◇</span><h2>Nenhum produto cadastrado</h2><p>Cadastre preços locais ou use BRL/USD como moeda-base com conversão diária.</p><a class="button primary" href="?page=products&new=1">Criar primeiro produto</a></article><?php endif; ?>
 <?php foreach ($pagination['rows'] as $item):
@@ -36,6 +37,7 @@ $pricingMode = $edit['pricing_mode'] ?? 'manual';
 <article class="card product-card <?= !$item['active'] ? 'disabled' : '' ?>"><div class="product-top"><span class="product-icon">◇</span><span class="badge <?= $item['active'] ? 'success' : 'muted' ?>"><?= $item['active'] ? 'Ativo' : 'Inativo' ?></span></div><h2><?= h($item['name']) ?></h2><p><?= h($item['description'] ?: 'Sem descrição') ?></p><div class="product-pricing-mode"><b><?= h($modeLabel) ?></b><?php if ($item['pricing_mode'] !== 'manual'): ?><span>US$ 1 = <?= money($currentRate) ?> · <?= date_br($currentQuote['quoted_at']) ?></span><?php else: ?><span>Valores definidos separadamente</span><?php endif; ?></div><div class="local-prices"><div><small>🇧🇷 BRASIL</small><strong><?= money($item['price_brl']) ?></strong></div><div><small>🇺🇸 ESTADOS UNIDOS</small><strong><?= money($item['price_usd'], 'USD') ?></strong></div></div><footer><span><?= cycle_label($item['billing_cycle']) ?> · <?= (int) $item['active_subscriptions'] ?> assinaturas</span><a href="?page=products&edit=<?= (int) $item['id'] ?>">Editar →</a></footer></article>
 <?php endforeach; ?>
 </section><?= render_pagination($pagination) ?>
+</div>
 
 <?php if ($showForm): ?>
 <div class="modal open"><a class="modal-backdrop" href="?page=products"></a><section class="modal-panel"><header><div><p class="eyebrow">CATÁLOGO</p><h2><?= $edit ? 'Editar produto' : 'Novo produto' ?></h2></div><a href="?page=products" class="modal-close">×</a></header>

@@ -57,7 +57,9 @@
     setTimeout(() => accept.focus(), 30);
   });
 
-  qsa('form[data-confirm]').forEach((form) => form.addEventListener('submit', async (event) => {
+  document.addEventListener('submit', async (event) => {
+    const form = event.target.closest('form[data-confirm]');
+    if (!form) return;
     if (form.dataset.confirmed === '1') {
       delete form.dataset.confirmed;
       return;
@@ -70,28 +72,89 @@
       form.dataset.confirmed = '1';
       submitter ? form.requestSubmit(submitter) : form.requestSubmit();
     }
-  }));
-
-  const paymentChecks = qsa('[data-payment-check]');
-  const checkAll = qs('[data-check-all]');
-  const bulkSubmit = qs('[data-bulk-submit]');
-  const updateBulkState = () => {
-    const selected = paymentChecks.filter((checkbox) => checkbox.checked).length;
-    if (bulkSubmit) {
-      bulkSubmit.disabled = selected === 0;
-      bulkSubmit.textContent = selected > 0 ? `✓ Confirmar selecionados (${selected})` : '✓ Confirmar selecionados';
-    }
-    if (checkAll) {
-      checkAll.checked = paymentChecks.length > 0 && selected === paymentChecks.length;
-      checkAll.indeterminate = selected > 0 && selected < paymentChecks.length;
-    }
-  };
-  checkAll?.addEventListener('change', () => {
-    paymentChecks.forEach((checkbox) => { checkbox.checked = checkAll.checked; });
-    updateBulkState();
   });
-  paymentChecks.forEach((checkbox) => checkbox.addEventListener('change', updateBulkState));
-  updateBulkState();
+
+  const initializePaymentBulk = () => {
+    const paymentChecks = qsa('[data-payment-check]');
+    const checkAll = qs('[data-check-all]');
+    const bulkSubmit = qs('[data-bulk-submit]');
+    const updateBulkState = () => {
+      const selected = paymentChecks.filter((checkbox) => checkbox.checked).length;
+      if (bulkSubmit) {
+        bulkSubmit.disabled = selected === 0;
+        bulkSubmit.textContent = selected > 0 ? `✓ Confirmar selecionados (${selected})` : '✓ Confirmar selecionados';
+      }
+      if (checkAll) {
+        checkAll.checked = paymentChecks.length > 0 && selected === paymentChecks.length;
+        checkAll.indeterminate = selected > 0 && selected < paymentChecks.length;
+      }
+    };
+    checkAll?.addEventListener('change', () => {
+      paymentChecks.forEach((checkbox) => { checkbox.checked = checkAll.checked; });
+      updateBulkState();
+    });
+    paymentChecks.forEach((checkbox) => checkbox.addEventListener('change', updateBulkState));
+    updateBulkState();
+  };
+  initializePaymentBulk();
+
+  qsa('form[data-live-filter]').forEach((form) => {
+    const results = qsa('[data-live-results]');
+    const indicator = qs('[data-live-filter-indicator]', form);
+    const searchInput = qs('input[name="q"]', form);
+    let timer;
+    let request;
+
+    const loadResults = async (url) => {
+      request?.abort();
+      const controller = new AbortController();
+      request = controller;
+      form.classList.add('is-filtering');
+      results.forEach((result) => result.setAttribute('aria-busy', 'true'));
+      if (indicator) indicator.textContent = 'Buscando…';
+      try {
+        const response = await fetch(url, { headers: { 'X-Requested-With': 'live-filter' }, signal: controller.signal });
+        if (!response.ok) throw new Error('Não foi possível atualizar os resultados.');
+        const html = await response.text();
+        const documentCopy = new DOMParser().parseFromString(html, 'text/html');
+        const nextResults = qsa('[data-live-results]', documentCopy);
+        if (results.length === 0 || nextResults.length !== results.length) throw new Error('A listagem retornada é inválida.');
+        results.forEach((result, index) => { result.innerHTML = nextResults[index].innerHTML; });
+        history.replaceState({}, '', url);
+        initializePaymentBulk();
+        if (indicator) indicator.textContent = 'Resultados atualizados';
+      } catch (error) {
+        if (error.name !== 'AbortError' && request === controller && indicator) indicator.textContent = error.message;
+      } finally {
+        if (request !== controller) return;
+        form.classList.remove('is-filtering');
+        results.forEach((result) => result.removeAttribute('aria-busy'));
+      }
+    };
+    const buildUrl = () => {
+      const query = new URLSearchParams(new FormData(form));
+      query.delete('p');
+      return `${location.pathname}?${query.toString()}`;
+    };
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => loadResults(buildUrl()), 320);
+    };
+
+    form.addEventListener('submit', (event) => { event.preventDefault(); loadResults(buildUrl()); });
+    qsa('select,input[type="date"]', form).forEach((field) => field.addEventListener('change', () => loadResults(buildUrl())));
+    searchInput?.addEventListener('input', schedule);
+    results.forEach((result) => result.addEventListener('click', (event) => {
+        const link = event.target.closest('.pagination a');
+        if (!link) return;
+        event.preventDefault();
+        loadResults(link.href);
+      }));
+  });
+
+  qsa('form[data-auto-submit]').forEach((form) => {
+    qsa('select,input[type="date"]', form).forEach((field) => field.addEventListener('change', () => form.requestSubmit()));
+  });
 
   const passwordButton = qs('[data-toggle-password]');
   if (passwordButton) passwordButton.addEventListener('click', () => {

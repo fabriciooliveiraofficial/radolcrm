@@ -64,6 +64,10 @@ No hPanel, use o tipo **Custom/Personalizado** para poder passar o segredo como 
 
 Pagamentos pendentes aparecem no acompanhamento, mas só afetam resultado e caixa quando marcados como pagos.
 
+### Filtros inteligentes
+
+As listagens de clientes, produtos, assinaturas, pagamentos, gastos, investimentos e caixa pesquisam automaticamente enquanto o usuário digita. A busca consulta todas as páginas do banco e considera campos visíveis e complementares, como status, país, moeda, datas, valores, documentos, formas de pagamento e observações. Somente os resultados são atualizados, mantendo o foco no campo de pesquisa. Seletores e períodos também são aplicados sem botão de busca.
+
 ### Fluxo automático das assinaturas
 
 1. Em **Assinaturas**, clique em **Gerar próximas cobranças**. O CRM abre uma conferência com as cobranças pendentes e as previstas nos próximos 45 dias.
