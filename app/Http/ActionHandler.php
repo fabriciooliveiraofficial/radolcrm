@@ -41,6 +41,7 @@ final class ActionHandler
                 'save_subscription' => $this->saveSubscription(),
                 'delete_subscription' => $this->deleteSubscription(),
                 'generate_due_payments', 'generate_upcoming_payments' => $this->generateUpcomingPayments(),
+                'process_subscription_renewals' => $this->processSubscriptionRenewals(),
                 'save_payment' => $this->savePayment(),
                 'mark_payments_paid' => $this->markPaymentsPaid(),
                 'delete_payment' => $this->deletePayment(),
@@ -151,11 +152,35 @@ final class ActionHandler
         ];
         if ($id) {
             $params[] = $id;
-            $this->db->query('UPDATE subscriptions SET client_id=?, product_id=?, quantity=?, currency=?, unit_price=?, discount=?, status=?, start_date=?, next_billing_date=?, canceled_at=?, payment_method=?, notes=? WHERE id=?', $params);
-            audit($this->db, 'update', 'subscription', $id);
+            $this->db->transaction(function (Database $db) use ($id, $params): void {
+                $previous = $db->fetch('SELECT s.*,p.name product FROM subscriptions s JOIN products p ON p.id=s.product_id WHERE s.id=? FOR UPDATE', [$id]);
+                if (!$previous) {
+                    throw new RuntimeException('A assinatura não existe mais. Atualize a página.');
+                }
+                $db->query('UPDATE subscriptions SET client_id=?, product_id=?, quantity=?, currency=?, unit_price=?, discount=?, status=?, start_date=?, next_billing_date=?, canceled_at=?, payment_method=?, notes=? WHERE id=?', $params);
+                $current = $db->fetch('SELECT s.*,p.name product FROM subscriptions s JOIN products p ON p.id=s.product_id WHERE s.id=?', [$id]);
+                $eventType = (int) $previous['product_id'] !== (int) $current['product_id'] ? 'plan_change' : 'subscription_update';
+                $summary = $eventType === 'plan_change'
+                    ? 'Plano alterado manualmente de ' . $previous['product'] . ' para ' . $current['product'] . '.'
+                    : 'Condições da assinatura atualizadas manualmente.';
+                $details = ['previous' => $previous, 'current' => $current];
+                $db->insert(
+                    'INSERT INTO subscription_events (subscription_id,user_id,event_type,event_date,summary,details) VALUES (?,?,?,?,?,?)',
+                    [$id,$_SESSION['auth_user_id'] ?? null,$eventType,date('Y-m-d'),$summary,json_encode($details, JSON_UNESCAPED_UNICODE)]
+                );
+                audit($db, $eventType, 'subscription', $id, $details);
+            });
         } else {
-            $id = $this->db->insert('INSERT INTO subscriptions (client_id, product_id, quantity, currency, unit_price, discount, status, start_date, next_billing_date, canceled_at, payment_method, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', $params);
-            audit($this->db, 'create', 'subscription', $id);
+            $this->db->transaction(function (Database $db) use (&$id, $params): void {
+                $id = $db->insert('INSERT INTO subscriptions (client_id, product_id, quantity, currency, unit_price, discount, status, start_date, next_billing_date, canceled_at, payment_method, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', $params);
+                $current = $db->fetch('SELECT s.*,p.name product FROM subscriptions s JOIN products p ON p.id=s.product_id WHERE s.id=?', [$id]);
+                $details = ['current' => $current];
+                $db->insert(
+                    'INSERT INTO subscription_events (subscription_id,user_id,event_type,event_date,summary,details) VALUES (?,?,?,?,?,?)',
+                    [$id,$_SESSION['auth_user_id'] ?? null,'subscription_created',date('Y-m-d'),'Assinatura criada.',json_encode($details, JSON_UNESCAPED_UNICODE)]
+                );
+                audit($db, 'create', 'subscription', $id, $details);
+            });
         }
         Flash::add('success', 'Assinatura salva com sucesso.');
         return '?page=subscriptions';
@@ -175,51 +200,169 @@ final class ActionHandler
 
     private function generateUpcomingPayments(): string
     {
-        $cutoff = (new \DateTimeImmutable('today'))->modify('+45 days')->format('Y-m-d');
-        $subscriptions = $this->db->fetchAll(
-            "SELECT s.*,p.name product,p.billing_cycle,c.name client
-             FROM subscriptions s JOIN products p ON p.id=s.product_id JOIN clients c ON c.id=s.client_id
-             WHERE s.status IN ('active','trial','past_due') AND s.next_billing_date IS NOT NULL AND s.next_billing_date <= ?
-             ORDER BY s.next_billing_date LIMIT 500",
-            [$cutoff]
-        );
-        if (!$subscriptions) {
-            Flash::add('success', 'Não há cobranças previstas nos próximos 45 dias.');
-            return '?page=subscriptions';
+        return '?page=subscriptions&renewals=1';
+    }
+
+    private function processSubscriptionRenewals(): string
+    {
+        $postedRows = $_POST['renewals'] ?? null;
+        if (!is_array($postedRows)) {
+            throw new RuntimeException('Nenhuma renovação foi enviada para conferência.');
         }
 
-        $usdRate = $this->rates->current()['bid'];
-        $created = 0;
-        $this->db->transaction(function (Database $db) use ($subscriptions, $usdRate, $cutoff, &$created): void {
-            foreach ($subscriptions as $subscription) {
-                $dueDate = new \DateTimeImmutable($subscription['next_billing_date']);
-                $cycles = 0;
-                $months = ['monthly'=>1,'quarterly'=>3,'semiannual'=>6,'annual'=>12][$subscription['billing_cycle']] ?? 1;
-                while ($dueDate->format('Y-m-d') <= $cutoff && $cycles < 24) {
-                    $exists = (int) $db->value(
-                        'SELECT COUNT(*) FROM payments WHERE subscription_id=? AND due_date=?',
-                        [$subscription['id'], $dueDate->format('Y-m-d')]
-                    );
-                    if ($exists === 0) {
-                        $amount = max(0, ((float) $subscription['unit_price'] * (int) $subscription['quantity']) - (float) $subscription['discount']);
-                        $rate = $subscription['currency'] === 'USD' ? $usdRate : 1.0;
-                        $amountBrl = round($amount * $rate, 2);
-                        $paymentId = $db->insert(
-                            'INSERT INTO payments (subscription_id,client_id,description,amount,currency,exchange_rate,amount_brl,fee_amount,fee_brl,net_brl,status,due_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-                            [$subscription['id'],$subscription['client_id'],'Cobrança · '.$subscription['product'],$amount,$subscription['currency'],$rate,$amountBrl,0,0,$amountBrl,'pending',$dueDate->format('Y-m-d')]
-                        );
-                        audit($db, 'generate', 'payment', $paymentId, ['subscription_id'=>(int)$subscription['id']]);
-                        $created++;
-                    }
-                    $dueDate = $dueDate->modify('+' . $months . ' months');
-                    $cycles++;
+        $rows = [];
+        foreach ($postedRows as $subscriptionKey => $posted) {
+            if (!is_array($posted) || !isset($posted['selected'])) {
+                continue;
+            }
+            $subscriptionId = (int) $subscriptionKey;
+            $currency = (string) ($posted['currency'] ?? '');
+            if ($subscriptionId < 1 || !in_array($currency, ['BRL', 'USD'], true)) {
+                throw new RuntimeException('Há uma renovação com assinatura ou moeda inválida.');
+            }
+
+            $dueDate = trim((string) ($posted['due_date'] ?? ''));
+            $receiptDate = trim((string) ($posted['receipt_date'] ?? ''));
+            $this->validateDate($dueDate, false, 'O vencimento de uma renovação é inválido.');
+            $this->validateDate($receiptDate, true, 'A data de pagamento/resgate deve ser válida e não pode estar no futuro.');
+
+            $unitPrice = normalize_decimal($posted['unit_price'] ?? 0);
+            $quantity = max(1, (int) ($posted['quantity'] ?? 1));
+            $discount = max(0, normalize_decimal($posted['discount'] ?? 0));
+            $expected = round(($unitPrice * $quantity) - $discount, 2);
+            $received = normalize_decimal($posted['amount'] ?? 0);
+            $fee = max(0, normalize_decimal($posted['fee_amount'] ?? 0));
+            if ($unitPrice <= 0 || $expected <= 0 || $received <= 0 || $fee > $received) {
+                throw new RuntimeException('Revise os valores da renovação. O total e o valor recebido devem ser positivos.');
+            }
+            if (abs($expected - $received) > 0.009) {
+                throw new RuntimeException('O valor recebido deve ser igual ao total devido. Revise quantidade, preço e desconto.');
+            }
+
+            $rows[] = [
+                'subscription_id' => $subscriptionId,
+                'subscription_updated_at' => trim((string) ($posted['subscription_updated_at'] ?? '')),
+                'pending_payment_id' => max(0, (int) ($posted['pending_payment_id'] ?? 0)),
+                'product_id' => max(0, (int) ($posted['product_id'] ?? 0)),
+                'currency' => $currency,
+                'unit_price' => $unitPrice,
+                'quantity' => $quantity,
+                'discount' => $discount,
+                'amount' => $received,
+                'fee_amount' => $fee,
+                'due_date' => $dueDate,
+                'receipt_date' => $receiptDate,
+                'payment_method' => mb_substr(trim((string) ($posted['payment_method'] ?? '')), 0, 80),
+                'external_reference' => mb_substr(trim((string) ($posted['external_reference'] ?? '')), 0, 120),
+                'notes' => trim((string) ($posted['notes'] ?? '')),
+            ];
+        }
+
+        if (!$rows) {
+            throw new RuntimeException('Selecione pelo menos uma assinatura para renovar.');
+        }
+        if (count($rows) > 100) {
+            throw new RuntimeException('Processe no máximo 100 renovações por vez.');
+        }
+
+        $quotes = [];
+        foreach ($rows as $row) {
+            if ($row['currency'] === 'USD' && !isset($quotes[$row['receipt_date']])) {
+                $quotes[$row['receipt_date']] = $this->rates->forDate($row['receipt_date']);
+            }
+        }
+
+        $processed = 0;
+        $planChanges = 0;
+        $this->db->transaction(function (Database $db) use ($rows, $quotes, &$processed, &$planChanges): void {
+            foreach ($rows as $row) {
+                $subscription = $db->fetch(
+                    "SELECT s.*,p.name product,p.billing_cycle
+                     FROM subscriptions s JOIN products p ON p.id=s.product_id
+                     WHERE s.id=? FOR UPDATE",
+                    [$row['subscription_id']]
+                );
+                if (!$subscription || !in_array($subscription['status'], ['active', 'trial', 'past_due'], true)) {
+                    throw new RuntimeException('Uma das assinaturas foi pausada, cancelada ou não existe mais. Atualize a página.');
                 }
-                $db->query('UPDATE subscriptions SET next_billing_date=? WHERE id=?', [$dueDate->format('Y-m-d'),$subscription['id']]);
+                if ($row['subscription_updated_at'] !== '' && $subscription['updated_at'] !== $row['subscription_updated_at']) {
+                    throw new RuntimeException('Uma assinatura foi alterada depois que a conferência foi aberta. Atualize a página antes de confirmar.');
+                }
+
+                $product = $db->fetch('SELECT * FROM products WHERE id=?', [$row['product_id']]);
+                if (!$product) {
+                    throw new RuntimeException('O plano selecionado em uma renovação não existe mais.');
+                }
+
+                $payment = null;
+                if ($row['pending_payment_id'] > 0) {
+                    $payment = $db->fetch(
+                        "SELECT * FROM payments WHERE id=? AND subscription_id=? AND status='pending' FOR UPDATE",
+                        [$row['pending_payment_id'], $row['subscription_id']]
+                    );
+                    if (!$payment) {
+                        throw new RuntimeException('Uma cobrança pendente já foi processada por outro usuário. Atualize a página.');
+                    }
+                } else {
+                    $payment = $db->fetch(
+                        "SELECT * FROM payments WHERE subscription_id=? AND due_date=? AND status='pending' ORDER BY id LIMIT 1 FOR UPDATE",
+                        [$row['subscription_id'], $row['due_date']]
+                    );
+                    if (!$payment && $subscription['next_billing_date'] !== $row['due_date']) {
+                        throw new RuntimeException('A data de vencimento da assinatura mudou. Atualize a página antes de confirmar.');
+                    }
+                    if (!$payment && (int) $db->value(
+                        "SELECT COUNT(*) FROM payments WHERE subscription_id=? AND due_date=? AND status='paid'",
+                        [$row['subscription_id'], $row['due_date']]
+                    ) > 0) {
+                        throw new RuntimeException('Esta renovação já foi paga e não será lançada novamente.');
+                    }
+                }
+
+                $quote = $row['currency'] === 'USD' ? $quotes[$row['receipt_date']] : ['bid' => 1.0, 'source' => 'BRL'];
+                $rate = (float) $quote['bid'];
+                $amountBrl = round($row['amount'] * $rate, 2);
+                $feeBrl = round($row['fee_amount'] * $rate, 2);
+                $netBrl = $amountBrl - $feeBrl;
+                $description = 'Renovação · ' . $product['name'];
+                $settlementDate = $row['currency'] === 'USD' ? $row['receipt_date'] : null;
+
+                if ($payment) {
+                    $paymentId = (int) $payment['id'];
+                    $db->query(
+                        "UPDATE payments SET client_id=?,description=?,amount=?,currency=?,exchange_rate=?,exchange_rate_source=?,amount_brl=?,fee_amount=?,fee_brl=?,net_brl=?,status='paid',due_date=?,payment_date=?,settlement_date=?,payment_method=?,external_reference=?,notes=? WHERE id=? AND status='pending'",
+                        [$subscription['client_id'],$description,$row['amount'],$row['currency'],$rate,$quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],$settlementDate,$row['payment_method'] ?: null,$row['external_reference'] ?: null,$row['notes'] ?: null,$paymentId]
+                    );
+                } else {
+                    $paymentId = $db->insert(
+                        "INSERT INTO payments (subscription_id,client_id,description,amount,currency,exchange_rate,exchange_rate_source,amount_brl,fee_amount,fee_brl,net_brl,status,due_date,payment_date,settlement_date,payment_method,external_reference,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,'paid',?,?,?,?,?,?)",
+                        [$row['subscription_id'],$subscription['client_id'],$description,$row['amount'],$row['currency'],$rate,$quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],$settlementDate,$row['payment_method'] ?: null,$row['external_reference'] ?: null,$row['notes'] ?: null]
+                    );
+                }
+
+                $eventType = $this->renewSubscription($db, $subscription, $product, $row, $paymentId);
+                if ($eventType === 'plan_change') {
+                    $planChanges++;
+                }
+                audit($db, 'receive', 'payment', $paymentId, [
+                    'subscription_id' => $row['subscription_id'],
+                    'due_date' => $row['due_date'],
+                    'payment_date' => $row['receipt_date'],
+                    'amount' => $row['amount'],
+                    'currency' => $row['currency'],
+                    'exchange_rate' => $rate,
+                    'amount_brl' => $amountBrl,
+                ]);
+                $processed++;
             }
         });
 
-        Flash::add('success', $created . ' cobrança(s) gerada(s). Agora confirme os recebimentos no módulo Pagamentos.');
-        return '?page=payments&status=pending';
+        $message = $processed . ' renovação(ões) confirmada(s), recebida(s) e registrada(s).';
+        if ($planChanges > 0) {
+            $message .= ' ' . $planChanges . ' alteração(ões) de plano entrou(aram) no histórico.';
+        }
+        Flash::add('success', $message);
+        return '?page=subscriptions';
     }
 
     private function savePayment(): string
@@ -264,14 +407,29 @@ final class ActionHandler
             $status, $this->nullable('due_date'), $paymentDate, $settlementDate,
             $this->nullable('payment_method'), $this->nullable('external_reference'), $this->nullable('notes'),
         ];
-        if ($id) {
-            $params[] = $id;
-            $this->db->query('UPDATE payments SET subscription_id=?, client_id=?, description=?, amount=?, currency=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_amount=?, fee_brl=?, net_brl=?, status=?, due_date=?, payment_date=?, settlement_date=?, payment_method=?, external_reference=?, notes=? WHERE id=?', $params);
-            audit($this->db, 'update', 'payment', $id, ['amount_brl' => $amountBrl]);
-        } else {
-            $id = $this->db->insert('INSERT INTO payments (subscription_id, client_id, description, amount, currency, exchange_rate, exchange_rate_source, amount_brl, fee_amount, fee_brl, net_brl, status, due_date, payment_date, settlement_date, payment_method, external_reference, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
-            audit($this->db, 'create', 'payment', $id, ['amount_brl' => $amountBrl]);
-        }
+        $this->db->transaction(function (Database $db) use (&$id, $params, $amountBrl, $status, $subscriptionId, $paymentDate): void {
+            $previousStatus = null;
+            if ($id) {
+                $previous = $db->fetch('SELECT status FROM payments WHERE id=? FOR UPDATE', [$id]);
+                if (!$previous) {
+                    throw new RuntimeException('O pagamento não existe mais. Atualize a página.');
+                }
+                $previousStatus = (string) $previous['status'];
+                $updateParams = $params;
+                $updateParams[] = $id;
+                $db->query('UPDATE payments SET subscription_id=?, client_id=?, description=?, amount=?, currency=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_amount=?, fee_brl=?, net_brl=?, status=?, due_date=?, payment_date=?, settlement_date=?, payment_method=?, external_reference=?, notes=? WHERE id=?', $updateParams);
+                audit($db, 'update', 'payment', $id, ['amount_brl' => $amountBrl]);
+            } else {
+                $id = $db->insert('INSERT INTO payments (subscription_id, client_id, description, amount, currency, exchange_rate, exchange_rate_source, amount_brl, fee_amount, fee_brl, net_brl, status, due_date, payment_date, settlement_date, payment_method, external_reference, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
+                audit($db, 'create', 'payment', $id, ['amount_brl' => $amountBrl]);
+            }
+            if ($status === 'paid' && $previousStatus !== 'paid' && $subscriptionId) {
+                $savedPayment = $db->fetch('SELECT * FROM payments WHERE id=?', [$id]);
+                if ($savedPayment) {
+                    $this->renewSubscriptionFromPayment($db, $savedPayment, $paymentDate ?: date('Y-m-d'));
+                }
+            }
+        });
         Flash::add('success', 'Pagamento salvo. Conversão registrada em ' . money($amountBrl) . '.');
         return '?page=payments';
     }
@@ -308,23 +466,30 @@ final class ActionHandler
         $needsUsd = count(array_filter($payments, static fn (array $payment): bool => $payment['currency'] === 'USD')) > 0;
         $usdQuote = $needsUsd ? $this->rates->forDate($settlementDate) : null;
         $updated = 0;
-        $this->db->transaction(function (Database $db) use ($payments, $settlementDate, $usdQuote, &$updated): void {
+        $renewed = 0;
+        $this->db->transaction(function (Database $db) use ($payments, $settlementDate, $usdQuote, &$updated, &$renewed): void {
             foreach ($payments as $payment) {
                 $rate = $payment['currency'] === 'USD' ? (float) $usdQuote['bid'] : 1.0;
                 $rateSource = $payment['currency'] === 'USD' ? $usdQuote['source'] : 'BRL';
                 $amountBrl = round((float) $payment['amount'] * $rate, 2);
                 $feeBrl = round((float) $payment['fee_amount'] * $rate, 2);
                 $netBrl = $amountBrl - $feeBrl;
-                $db->query(
+                $statement = $db->query(
                     "UPDATE payments SET status='paid', payment_date=COALESCE(payment_date,?), settlement_date=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_brl=?, net_brl=? WHERE id=? AND status='pending'",
                     [$settlementDate, $payment['currency'] === 'USD' ? $settlementDate : null, $rate, $rateSource, $amountBrl, $feeBrl, $netBrl, $payment['id']]
                 );
+                if ($statement->rowCount() !== 1) {
+                    throw new RuntimeException('Um pagamento selecionado já foi processado. Atualize a página.');
+                }
                 audit($db, 'receive', 'payment', (int) $payment['id'], ['settlement_date'=>$settlementDate,'amount_brl'=>$amountBrl]);
+                if ($this->renewSubscriptionFromPayment($db, $payment, $settlementDate)) {
+                    $renewed++;
+                }
                 $updated++;
             }
         });
 
-        Flash::add('success', $updated . ' pagamento(s) confirmado(s). O dashboard financeiro foi atualizado.');
+        Flash::add('success', $updated . ' pagamento(s) confirmado(s) e ' . $renewed . ' assinatura(s) renovada(s). O dashboard financeiro foi atualizado.');
         return '?page=payments&status=paid';
     }
 
@@ -497,6 +662,126 @@ final class ActionHandler
         audit($this->db, 'toggle', 'user', $id);
         Flash::add('success', 'Acesso do usuário atualizado.');
         return '?page=settings';
+    }
+
+    private function renewSubscription(Database $db, array $subscription, array $product, array $row, int $paymentId): string
+    {
+        $planChanged = (int) $subscription['product_id'] !== (int) $product['id'];
+        $termsChanged = $planChanged
+            || (int) $subscription['quantity'] !== (int) $row['quantity']
+            || $subscription['currency'] !== $row['currency']
+            || abs((float) $subscription['unit_price'] - (float) $row['unit_price']) > 0.009
+            || abs((float) $subscription['discount'] - (float) $row['discount']) > 0.009
+            || trim((string) $subscription['payment_method']) !== trim((string) $row['payment_method']);
+
+        $calculatedNextDate = $this->addBillingMonths($row['due_date'], (string) $product['billing_cycle']);
+        $nextBillingDate = $calculatedNextDate;
+        if (!$planChanged && $subscription['next_billing_date'] && $subscription['next_billing_date'] > $calculatedNextDate) {
+            $nextBillingDate = $subscription['next_billing_date'];
+        }
+
+        $before = [
+            'product_id' => (int) $subscription['product_id'],
+            'product' => $subscription['product'],
+            'billing_cycle' => $subscription['billing_cycle'],
+            'quantity' => (int) $subscription['quantity'],
+            'currency' => $subscription['currency'],
+            'unit_price' => (float) $subscription['unit_price'],
+            'discount' => (float) $subscription['discount'],
+            'payment_method' => $subscription['payment_method'],
+            'next_billing_date' => $subscription['next_billing_date'],
+            'status' => $subscription['status'],
+        ];
+        $after = [
+            'product_id' => (int) $product['id'],
+            'product' => $product['name'],
+            'billing_cycle' => $product['billing_cycle'],
+            'quantity' => (int) $row['quantity'],
+            'currency' => $row['currency'],
+            'unit_price' => (float) $row['unit_price'],
+            'discount' => (float) $row['discount'],
+            'payment_method' => $row['payment_method'] ?: null,
+            'next_billing_date' => $nextBillingDate,
+            'status' => 'active',
+        ];
+
+        $db->query(
+            "UPDATE subscriptions SET product_id=?,quantity=?,currency=?,unit_price=?,discount=?,payment_method=?,status='active',next_billing_date=?,canceled_at=NULL WHERE id=?",
+            [$after['product_id'],$after['quantity'],$after['currency'],$after['unit_price'],$after['discount'],$after['payment_method'],$nextBillingDate,$subscription['id']]
+        );
+
+        $eventType = $planChanged ? 'plan_change' : ($termsChanged ? 'renewal_adjusted' : 'renewal');
+        $summary = $planChanged
+            ? 'Plano alterado de ' . $subscription['product'] . ' para ' . $product['name'] . ' durante a renovação.'
+            : ($termsChanged ? 'Assinatura renovada com ajustes nas condições comerciais.' : 'Assinatura renovada após a confirmação do pagamento.');
+        $details = [
+            'payment_id' => $paymentId,
+            'due_date' => $row['due_date'],
+            'payment_date' => $row['receipt_date'],
+            'amount' => (float) $row['amount'],
+            'currency' => $row['currency'],
+            'previous' => $before,
+            'current' => $after,
+        ];
+        $db->insert(
+            'INSERT INTO subscription_events (subscription_id,payment_id,user_id,event_type,event_date,summary,details) VALUES (?,?,?,?,?,?,?)',
+            [(int) $subscription['id'],$paymentId,$_SESSION['auth_user_id'] ?? null,$eventType,$row['receipt_date'],$summary,json_encode($details, JSON_UNESCAPED_UNICODE)]
+        );
+        audit($db, $eventType, 'subscription', (int) $subscription['id'], $details);
+
+        return $eventType;
+    }
+
+    private function renewSubscriptionFromPayment(Database $db, array $payment, string $receiptDate): bool
+    {
+        $subscriptionId = (int) ($payment['subscription_id'] ?? 0);
+        if ($subscriptionId < 1) {
+            return false;
+        }
+        $subscription = $db->fetch(
+            'SELECT s.*,p.name product,p.billing_cycle FROM subscriptions s JOIN products p ON p.id=s.product_id WHERE s.id=? FOR UPDATE',
+            [$subscriptionId]
+        );
+        if (!$subscription || in_array($subscription['status'], ['paused', 'canceled'], true)) {
+            return false;
+        }
+        $product = $db->fetch('SELECT * FROM products WHERE id=?', [$subscription['product_id']]);
+        if (!$product) {
+            return false;
+        }
+        $dueDate = $payment['due_date'] ?: $subscription['next_billing_date'] ?: $receiptDate;
+        $row = [
+            'quantity' => (int) $subscription['quantity'],
+            'currency' => $subscription['currency'],
+            'unit_price' => (float) $subscription['unit_price'],
+            'discount' => (float) $subscription['discount'],
+            'payment_method' => $payment['payment_method'] ?: $subscription['payment_method'],
+            'due_date' => $dueDate,
+            'receipt_date' => $receiptDate,
+            'amount' => (float) $payment['amount'],
+        ];
+        $this->renewSubscription($db, $subscription, $product, $row, (int) $payment['id']);
+        return true;
+    }
+
+    private function addBillingMonths(string $date, string $cycle): string
+    {
+        $months = ['monthly' => 1, 'quarterly' => 3, 'semiannual' => 6, 'annual' => 12][$cycle] ?? 1;
+        $source = new \DateTimeImmutable($date);
+        $day = (int) $source->format('d');
+        $target = $source->modify('first day of this month')->modify('+' . $months . ' months');
+        $targetDay = min($day, (int) $target->format('t'));
+        return $target->setDate((int) $target->format('Y'), (int) $target->format('m'), $targetDay)->format('Y-m-d');
+    }
+
+    private function validateDate(string $value, bool $notFuture, string $message): void
+    {
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        $errors = \DateTimeImmutable::getLastErrors();
+        $invalid = !$date || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0));
+        if ($invalid || ($notFuture && $value > date('Y-m-d'))) {
+            throw new RuntimeException($message);
+        }
     }
 
     private function id(bool $required = false): ?int

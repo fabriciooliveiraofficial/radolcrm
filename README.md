@@ -56,9 +56,12 @@ Pagamentos pendentes aparecem no acompanhamento, mas só afetam resultado e caix
 
 ### Fluxo automático das assinaturas
 
-1. Em **Assinaturas**, clique em **Gerar próximas cobranças**. O CRM cria como pendentes todos os ciclos previstos nos próximos 45 dias usando cliente, produto, moeda, quantidade, preço e desconto da assinatura.
-2. Em **Pagamentos**, selecione um ou vários lançamentos pendentes, informe a data em que foram recebidos ou resgatados e clique em **Confirmar selecionados**.
-3. O CRM consulta a taxa diária para os pagamentos em USD, grava a conversão, marca os lançamentos como pagos e recalcula dashboard, lucro e caixa.
+1. Em **Assinaturas**, clique em **Gerar próximas cobranças**. O CRM abre uma conferência com as cobranças pendentes e as previstas nos próximos 45 dias.
+2. Revise ou ajuste plano, moeda, quantidade, preço, desconto, valor recebido, taxa, data, forma de pagamento e referência externa. A tela informa se o pagamento foi antecipado, pontual ou atrasado e bloqueia valores diferentes do total devido.
+3. Clique em **Confirmar e receber**. Em uma única transação, o CRM grava o pagamento como recebido, aplica a cotação diária aos valores em USD, renova a próxima data e atualiza as condições da assinatura quando houver mudança de plano.
+4. Pagamento, renovação e alterações comerciais ficam disponíveis no botão **Histórico** de cada assinatura. A proteção contra duplicidade impede que a mesma renovação seja contabilizada duas vezes.
+
+Pagamentos vinculados a assinaturas e confirmados diretamente no módulo **Pagamentos** também renovam automaticamente a próxima data. A data só avança após a confirmação como pago; apenas abrir a conferência não altera nenhum registro.
 
 Esse fluxo organiza e confirma os recebimentos, mas não dispara uma cobrança bancária, PIX ou cartão. Uma integração com o processador de pagamentos seria necessária para capturar dinheiro automaticamente.
 

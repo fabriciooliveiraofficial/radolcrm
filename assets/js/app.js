@@ -220,6 +220,104 @@
     filterSubs();
   }
 
+  const renewalForm = qs('[data-renewal-form]');
+  if (renewalForm) {
+    const rows = qsa('[data-renewal-row]', renewalForm);
+    const checkAllRenewals = qs('[data-renewal-check-all]', renewalForm);
+    const selectedLabel = qs('[data-renewal-selected]', renewalForm);
+    const submitRenewals = qs('[data-renewal-submit]', renewalForm);
+    const cycleMonths = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 };
+
+    const formatCurrency = (value, currency) => new Intl.NumberFormat('pt-BR', {
+      style: 'currency', currency
+    }).format(value || 0);
+    const addMonths = (dateValue, months) => {
+      const [year, month, day] = dateValue.split('-').map(Number);
+      const lastDay = new Date(year, month - 1 + months + 1, 0).getDate();
+      const target = new Date(year, month - 1 + months, Math.min(day, lastDay), 12);
+      return target.toLocaleDateString('pt-BR');
+    };
+
+    const refreshForm = () => {
+      const selectedRows = rows.filter((row) => qs('[data-renewal-check]', row).checked);
+      const invalidRows = selectedRows.filter((row) => row.dataset.valid !== '1');
+      selectedLabel.textContent = selectedRows.length;
+      checkAllRenewals.checked = selectedRows.length === rows.length;
+      checkAllRenewals.indeterminate = selectedRows.length > 0 && selectedRows.length < rows.length;
+      submitRenewals.disabled = selectedRows.length === 0 || invalidRows.length > 0;
+      submitRenewals.textContent = invalidRows.length > 0
+        ? `Revise ${invalidRows.length} valor(es) divergente(s)`
+        : `Confirmar e receber ${selectedRows.length} renovação(ões)`;
+    };
+
+    rows.forEach((row) => {
+      const check = qs('[data-renewal-check]', row);
+      const product = qs('[data-renewal-product]', row);
+      const currency = qs('[data-renewal-currency]', row);
+      const quantity = qs('[data-renewal-quantity]', row);
+      const price = qs('[data-renewal-price]', row);
+      const discount = qs('[data-renewal-discount]', row);
+      const amount = qs('[data-renewal-amount]', row);
+      const due = qs('[data-renewal-due]', row);
+      const receipt = qs('[data-renewal-receipt]', row);
+      const total = qs('[data-renewal-total]', row);
+      const balance = qs('[data-renewal-balance]', row);
+      const useTotal = qs('[data-renewal-use-total]', row);
+      const match = qs('[data-renewal-match]', row);
+      const next = qs('[data-renewal-next]', row);
+      const timing = qs('[data-payment-timing]', row);
+
+      const calculate = () => {
+        const expected = Math.max(0, (Number(price.value || 0) * Number(quantity.value || 0)) - Number(discount.value || 0));
+        const received = Number(amount.value || 0);
+        const difference = received - expected;
+        row.dataset.expected = expected.toFixed(2);
+        const matches = expected > 0 && Math.abs(difference) < 0.009;
+        total.textContent = formatCurrency(expected, currency.value);
+        balance.textContent = matches ? 'Valor integral confirmado' : `Diferença: ${formatCurrency(difference, currency.value)}`;
+        balance.className = matches ? 'positive' : 'negative';
+        match.textContent = matches ? '✓ Valor confere' : '! Valor divergente';
+        match.classList.toggle('invalid', !matches);
+        row.dataset.valid = matches ? '1' : '0';
+
+        const months = cycleMonths[product.selectedOptions[0]?.dataset.cycle] || 1;
+        next.textContent = addMonths(due.value, months);
+        if (receipt.value < due.value) {
+          timing.textContent = 'Pagamento antecipado';
+          timing.className = 'early';
+        } else if (receipt.value > due.value) {
+          timing.textContent = 'Pagamento em atraso';
+          timing.className = 'late';
+        } else {
+          timing.textContent = 'Pago no vencimento';
+          timing.className = 'on-time';
+        }
+        refreshForm();
+      };
+      const setProductPrice = () => {
+        const option = product.selectedOptions[0];
+        price.value = currency.value === 'USD' ? option.dataset.usd : option.dataset.brl;
+        calculate();
+      };
+
+      [quantity, price, discount, amount, receipt].forEach((input) => input.addEventListener('input', calculate));
+      useTotal.addEventListener('click', () => {
+        amount.value = row.dataset.expected;
+        calculate();
+      });
+      product.addEventListener('change', setProductPrice);
+      currency.addEventListener('change', setProductPrice);
+      check.addEventListener('change', refreshForm);
+      calculate();
+    });
+
+    checkAllRenewals.addEventListener('change', () => {
+      rows.forEach((row) => { qs('[data-renewal-check]', row).checked = checkAllRenewals.checked; });
+      refreshForm();
+    });
+    refreshForm();
+  }
+
   qsa('[data-chart]').forEach((chart) => {
     let data = [];
     try { data = JSON.parse(chart.dataset.chart); } catch (_) { return; }
