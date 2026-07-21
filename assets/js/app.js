@@ -11,6 +11,27 @@
     if (!window.confirm(form.dataset.confirm)) event.preventDefault();
   }));
 
+  const paymentChecks = qsa('[data-payment-check]');
+  const checkAll = qs('[data-check-all]');
+  const bulkSubmit = qs('[data-bulk-submit]');
+  const updateBulkState = () => {
+    const selected = paymentChecks.filter((checkbox) => checkbox.checked).length;
+    if (bulkSubmit) {
+      bulkSubmit.disabled = selected === 0;
+      bulkSubmit.textContent = selected > 0 ? `✓ Confirmar selecionados (${selected})` : '✓ Confirmar selecionados';
+    }
+    if (checkAll) {
+      checkAll.checked = paymentChecks.length > 0 && selected === paymentChecks.length;
+      checkAll.indeterminate = selected > 0 && selected < paymentChecks.length;
+    }
+  };
+  checkAll?.addEventListener('change', () => {
+    paymentChecks.forEach((checkbox) => { checkbox.checked = checkAll.checked; });
+    updateBulkState();
+  });
+  paymentChecks.forEach((checkbox) => checkbox.addEventListener('change', updateBulkState));
+  updateBulkState();
+
   const passwordButton = qs('[data-toggle-password]');
   if (passwordButton) passwordButton.addEventListener('click', () => {
     const input = qs('#password');

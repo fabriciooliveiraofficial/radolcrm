@@ -54,7 +54,13 @@ No hPanel, use o tipo **Custom/Personalizado** para poder passar o segredo como 
 
 Pagamentos pendentes aparecem no acompanhamento, mas só afetam resultado e caixa quando marcados como pagos.
 
-Na tela **Assinaturas**, o botão de cobranças vencidas cria os pagamentos pendentes de cada ciclo ainda não lançado e avança a próxima data. Ele apenas organiza as contas a receber: nenhuma cobrança bancária ou no cartão é disparada.
+### Fluxo automático das assinaturas
+
+1. Em **Assinaturas**, clique em **Gerar próximas cobranças**. O CRM cria como pendentes todos os ciclos previstos nos próximos 45 dias usando cliente, produto, moeda, quantidade, preço e desconto da assinatura.
+2. Em **Pagamentos**, selecione um ou vários lançamentos pendentes, informe a data em que foram recebidos ou resgatados e clique em **Confirmar selecionados**.
+3. O CRM consulta a taxa diária para os pagamentos em USD, grava a conversão, marca os lançamentos como pagos e recalcula dashboard, lucro e caixa.
+
+Esse fluxo organiza e confirma os recebimentos, mas não dispara uma cobrança bancária, PIX ou cartão. Uma integração com o processador de pagamentos seria necessária para capturar dinheiro automaticamente.
 
 ## Perfis de acesso
 

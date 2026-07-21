@@ -40,8 +40,9 @@ final class ActionHandler
                 'delete_product' => $this->deleteProduct(),
                 'save_subscription' => $this->saveSubscription(),
                 'delete_subscription' => $this->deleteSubscription(),
-                'generate_due_payments' => $this->generateDuePayments(),
+                'generate_due_payments', 'generate_upcoming_payments' => $this->generateUpcomingPayments(),
                 'save_payment' => $this->savePayment(),
+                'mark_payments_paid' => $this->markPaymentsPaid(),
                 'delete_payment' => $this->deletePayment(),
                 'save_expense' => $this->saveExpense(),
                 'delete_expense' => $this->deleteExpense(),
@@ -172,27 +173,29 @@ final class ActionHandler
         return '?page=subscriptions';
     }
 
-    private function generateDuePayments(): string
+    private function generateUpcomingPayments(): string
     {
+        $cutoff = (new \DateTimeImmutable('today'))->modify('+45 days')->format('Y-m-d');
         $subscriptions = $this->db->fetchAll(
             "SELECT s.*,p.name product,p.billing_cycle,c.name client
              FROM subscriptions s JOIN products p ON p.id=s.product_id JOIN clients c ON c.id=s.client_id
-             WHERE s.status IN ('active','trial','past_due') AND s.next_billing_date IS NOT NULL AND s.next_billing_date <= CURDATE()
-             ORDER BY s.next_billing_date LIMIT 500"
+             WHERE s.status IN ('active','trial','past_due') AND s.next_billing_date IS NOT NULL AND s.next_billing_date <= ?
+             ORDER BY s.next_billing_date LIMIT 500",
+            [$cutoff]
         );
         if (!$subscriptions) {
-            Flash::add('success', 'Não há cobranças vencidas para gerar.');
+            Flash::add('success', 'Não há cobranças previstas nos próximos 45 dias.');
             return '?page=subscriptions';
         }
 
         $usdRate = $this->rates->current()['bid'];
         $created = 0;
-        $this->db->transaction(function (Database $db) use ($subscriptions, $usdRate, &$created): void {
+        $this->db->transaction(function (Database $db) use ($subscriptions, $usdRate, $cutoff, &$created): void {
             foreach ($subscriptions as $subscription) {
                 $dueDate = new \DateTimeImmutable($subscription['next_billing_date']);
                 $cycles = 0;
                 $months = ['monthly'=>1,'quarterly'=>3,'semiannual'=>6,'annual'=>12][$subscription['billing_cycle']] ?? 1;
-                while ($dueDate->format('Y-m-d') <= date('Y-m-d') && $cycles < 24) {
+                while ($dueDate->format('Y-m-d') <= $cutoff && $cycles < 24) {
                     $exists = (int) $db->value(
                         'SELECT COUNT(*) FROM payments WHERE subscription_id=? AND due_date=?',
                         [$subscription['id'], $dueDate->format('Y-m-d')]
@@ -215,8 +218,8 @@ final class ActionHandler
             }
         });
 
-        Flash::add('success', $created . ' cobrança(s) pendente(s) gerada(s). Confira no módulo Pagamentos.');
-        return '?page=subscriptions';
+        Flash::add('success', $created . ' cobrança(s) gerada(s). Agora confirme os recebimentos no módulo Pagamentos.');
+        return '?page=payments&status=pending';
     }
 
     private function savePayment(): string
@@ -271,6 +274,58 @@ final class ActionHandler
         }
         Flash::add('success', 'Pagamento salvo. Conversão registrada em ' . money($amountBrl) . '.');
         return '?page=payments';
+    }
+
+    private function markPaymentsPaid(): string
+    {
+        $ids = array_values(array_unique(array_filter(array_map(
+            static fn (mixed $id): int => (int) $id,
+            is_array($_POST['payment_ids'] ?? null) ? $_POST['payment_ids'] : []
+        ), static fn (int $id): bool => $id > 0)));
+        if (!$ids) {
+            throw new RuntimeException('Selecione pelo menos um pagamento pendente.');
+        }
+        if (count($ids) > 100) {
+            throw new RuntimeException('Confirme no máximo 100 pagamentos por vez.');
+        }
+
+        $settlementDate = $this->required('settlement_date', 'Informe a data do recebimento ou resgate.');
+        $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $settlementDate);
+        $dateErrors = \DateTimeImmutable::getLastErrors();
+        if (!$parsed || ($dateErrors !== false && ($dateErrors['warning_count'] || $dateErrors['error_count'])) || $settlementDate > date('Y-m-d')) {
+            throw new RuntimeException('Informe uma data de recebimento válida, igual ou anterior a hoje.');
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $payments = $this->db->fetchAll(
+            "SELECT * FROM payments WHERE status='pending' AND id IN ({$placeholders}) ORDER BY id",
+            $ids
+        );
+        if (!$payments) {
+            throw new RuntimeException('Os pagamentos selecionados já foram processados ou não existem.');
+        }
+
+        $needsUsd = count(array_filter($payments, static fn (array $payment): bool => $payment['currency'] === 'USD')) > 0;
+        $usdQuote = $needsUsd ? $this->rates->forDate($settlementDate) : null;
+        $updated = 0;
+        $this->db->transaction(function (Database $db) use ($payments, $settlementDate, $usdQuote, &$updated): void {
+            foreach ($payments as $payment) {
+                $rate = $payment['currency'] === 'USD' ? (float) $usdQuote['bid'] : 1.0;
+                $rateSource = $payment['currency'] === 'USD' ? $usdQuote['source'] : 'BRL';
+                $amountBrl = round((float) $payment['amount'] * $rate, 2);
+                $feeBrl = round((float) $payment['fee_amount'] * $rate, 2);
+                $netBrl = $amountBrl - $feeBrl;
+                $db->query(
+                    "UPDATE payments SET status='paid', payment_date=COALESCE(payment_date,?), settlement_date=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_brl=?, net_brl=? WHERE id=? AND status='pending'",
+                    [$settlementDate, $payment['currency'] === 'USD' ? $settlementDate : null, $rate, $rateSource, $amountBrl, $feeBrl, $netBrl, $payment['id']]
+                );
+                audit($db, 'receive', 'payment', (int) $payment['id'], ['settlement_date'=>$settlementDate,'amount_brl'=>$amountBrl]);
+                $updated++;
+            }
+        });
+
+        Flash::add('success', $updated . ' pagamento(s) confirmado(s). O dashboard financeiro foi atualizado.');
+        return '?page=payments&status=paid';
     }
 
     private function deletePayment(): string
