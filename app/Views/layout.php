@@ -30,7 +30,7 @@
         <div class="top-actions"><?php if($auth->canWrite()): ?><a class="quick-add" href="?page=payments&new=1">＋ <span>Novo pagamento</span></a><?php endif; ?><div class="user-menu"><span><?= h(mb_strtoupper(mb_substr($auth->user()['name'], 0, 1))) ?></span><div><b><?= h($auth->user()['name']) ?></b><small><?= h(ucfirst($auth->user()['role'])) ?></small></div></div></div>
     </header>
     <main class="content">
-        <?php foreach ($messages as $message): ?><div class="alert <?= h($message['type']) ?>" data-alert><?= h($message['message']) ?><button type="button" aria-label="Fechar">×</button></div><?php endforeach; ?>
+        <?php if($messages): ?><div class="toast-stack" aria-live="polite" aria-atomic="true"><?php foreach ($messages as $message): $toastTitle=['success'=>'Tudo certo','danger'=>'Não foi possível','warning'=>'Atenção'][$message['type']]??'Informação'; ?><div class="toast <?= h($message['type']) ?>" data-toast role="status"><span class="toast-icon"><?= $message['type']==='success'?'✓':($message['type']==='danger'?'!':'i') ?></span><div><b><?= h($toastTitle) ?></b><p><?= h($message['message']) ?></p></div><button type="button" aria-label="Fechar notificação">×</button><i class="toast-progress"></i></div><?php endforeach; ?></div><?php endif; ?>
         <?php if (is_file($viewFile)) require $viewFile; else require __DIR__ . '/pages/404.php'; ?>
     </main>
 </div>

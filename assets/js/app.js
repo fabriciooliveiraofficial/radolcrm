@@ -6,9 +6,70 @@
     document.body.classList.toggle('menu-open');
   }));
 
-  qsa('[data-alert] button').forEach((button) => button.addEventListener('click', () => button.parentElement.remove()));
-  qsa('[data-confirm]').forEach((form) => form.addEventListener('submit', (event) => {
-    if (!window.confirm(form.dataset.confirm)) event.preventDefault();
+  qsa('[data-toast]').forEach((toast) => {
+    let timer;
+    const close = () => {
+      clearTimeout(timer);
+      toast.classList.add('leaving');
+      setTimeout(() => toast.remove(), 220);
+    };
+    const schedule = () => { timer = setTimeout(close, toast.classList.contains('danger') ? 8000 : 5500); };
+    toast.querySelector('button')?.addEventListener('click', close);
+    toast.addEventListener('mouseenter', () => clearTimeout(timer));
+    toast.addEventListener('mouseleave', schedule);
+    schedule();
+  });
+
+  const showConfirmation = (message, destructive = false) => new Promise((resolve) => {
+    const previousFocus = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    overlay.innerHTML = `<section class="confirm-popup" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <button class="confirm-close" type="button" aria-label="Fechar">×</button>
+      <span class="confirm-icon ${destructive ? 'danger' : ''}">${destructive ? '!' : '?'}</span>
+      <div><p class="eyebrow">CONFIRMAÇÃO</p><h2 id="confirm-title">Confirmar ação</h2><p id="confirm-message"></p></div>
+      <footer><button class="button ghost confirm-cancel" type="button">Cancelar</button><button class="button ${destructive ? 'danger-button' : 'primary'} confirm-accept" type="button">Confirmar</button></footer>
+    </section>`;
+    qs('#confirm-message', overlay).textContent = message;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('open'));
+
+    const accept = qs('.confirm-accept', overlay);
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      overlay.classList.remove('open');
+      overlay.classList.add('closing');
+      setTimeout(() => overlay.remove(), 180);
+      document.removeEventListener('keydown', onKeydown);
+      previousFocus?.focus?.();
+      resolve(result);
+    };
+    const onKeydown = (event) => {
+      if (event.key === 'Escape') finish(false);
+    };
+    qs('.confirm-cancel', overlay).addEventListener('click', () => finish(false));
+    qs('.confirm-close', overlay).addEventListener('click', () => finish(false));
+    accept.addEventListener('click', () => finish(true));
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) finish(false); });
+    document.addEventListener('keydown', onKeydown);
+    setTimeout(() => accept.focus(), 30);
+  });
+
+  qsa('form[data-confirm]').forEach((form) => form.addEventListener('submit', async (event) => {
+    if (form.dataset.confirmed === '1') {
+      delete form.dataset.confirmed;
+      return;
+    }
+    event.preventDefault();
+    const submitter = event.submitter;
+    const action = qs('input[name="action"]', form)?.value || '';
+    const destructive = form.classList.contains('danger-zone') || action.startsWith('delete_');
+    if (await showConfirmation(form.dataset.confirm, destructive)) {
+      form.dataset.confirmed = '1';
+      submitter ? form.requestSubmit(submitter) : form.requestSubmit();
+    }
   }));
 
   const paymentChecks = qsa('[data-payment-check]');
