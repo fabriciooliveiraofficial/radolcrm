@@ -1,0 +1,15 @@
+# Credenciais e configuração gerada pelo instalador
+/config/config.php
+
+# Dados locais e artefatos de distribuição
+/storage/*
+!/storage/.gitkeep
+!/storage/.htaccess
+/*.zip
+
+# Ambiente e ferramentas
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+
