@@ -77,6 +77,10 @@ As listagens de clientes, produtos, assinaturas, pagamentos, gastos, investiment
 
 Pagamentos vinculados a assinaturas e confirmados diretamente no módulo **Pagamentos** também renovam automaticamente a próxima data. A data só avança após a confirmação como pago; apenas abrir a conferência não altera nenhum registro.
 
+### Radar de vencimentos
+
+A página **Assinaturas** possui um radar para atrasadas, vencimentos de hoje, amanhã, em dois dias e nos próximos sete dias. Os cartões funcionam como filtros rápidos e as linhas recebem cores, ícones e textos de urgência. Quando existem assinaturas que vencem no dia seguinte, um popup diário apresenta cliente, produto e valor; depois de dispensado, ele pode ser reaberto pelo botão de alertas do radar.
+
 Esse fluxo organiza e confirma os recebimentos, mas não dispara uma cobrança bancária, PIX ou cartão. Uma integração com o processador de pagamentos seria necessária para capturar dinheiro automaticamente.
 
 ## Perfis de acesso

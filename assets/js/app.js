@@ -156,6 +156,42 @@
     qsa('select,input[type="date"]', form).forEach((field) => field.addEventListener('change', () => form.requestSubmit()));
   });
 
+  const dueFilter = qs('[data-due-filter]');
+  const radarFilters = qsa('[data-radar-filter]');
+  if (dueFilter && radarFilters.length) {
+    const setActiveRadar = () => radarFilters.forEach((item) => item.classList.toggle('active', item.dataset.radarFilter === dueFilter.value));
+    radarFilters.forEach((item) => item.addEventListener('click', (event) => {
+      event.preventDefault();
+      dueFilter.value = item.classList.contains('active') ? '' : item.dataset.radarFilter;
+      setActiveRadar();
+      dueFilter.dispatchEvent(new Event('change', { bubbles: true }));
+    }));
+    dueFilter.addEventListener('change', setActiveRadar);
+  }
+
+  const dueAlert = qs('[data-due-alert]');
+  if (dueAlert) {
+    const storageKey = `nexo-due-alert-${dueAlert.dataset.alertKey}`;
+    const closeButton = qs('.due-alert-close', dueAlert);
+    const openAlert = () => {
+      dueAlert.classList.add('open');
+      document.body.classList.add('due-alert-open');
+      setTimeout(() => closeButton?.focus(), 220);
+    };
+    const closeAlert = () => {
+      dueAlert.classList.remove('open');
+      document.body.classList.remove('due-alert-open');
+      try { localStorage.setItem(storageKey, '1'); } catch (_) { /* armazenamento pode estar bloqueado */ }
+    };
+    qsa('[data-due-alert-close]', dueAlert).forEach((button) => button.addEventListener('click', closeAlert));
+    qsa('[data-due-alert-open]').forEach((button) => button.addEventListener('click', openAlert));
+    dueAlert.addEventListener('click', (event) => { if (event.target === dueAlert) closeAlert(); });
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && dueAlert.classList.contains('open')) closeAlert(); });
+    let alreadyShown = false;
+    try { alreadyShown = localStorage.getItem(storageKey) === '1'; } catch (_) { /* armazenamento pode estar bloqueado */ }
+    if (!alreadyShown) setTimeout(openAlert, 550);
+  }
+
   const passwordButton = qs('[data-toggle-password]');
   if (passwordButton) passwordButton.addEventListener('click', () => {
     const input = qs('#password');

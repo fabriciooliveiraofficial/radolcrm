@@ -1,18 +1,28 @@
 <?php
 $search = trim((string) ($_GET['q'] ?? ''));
 $status = (string) ($_GET['status'] ?? '');
+$dueFilter = (string) ($_GET['due'] ?? '');
 $where = ' WHERE 1=1';
 $params = [];
 if ($search !== '') {
-    $where .= " AND CONCAT_WS(' ',s.id,c.name,c.company,c.email,c.country,CASE c.country WHEN 'BR' THEN 'Brasil' WHEN 'US' THEN 'Estados Unidos' END,p.name,p.sku,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,s.quantity,s.currency,s.unit_price,REPLACE(s.unit_price,'.',','),s.discount,REPLACE(s.discount,'.',','),s.status,CASE s.status WHEN 'active' THEN 'Ativa Ativo' WHEN 'trial' THEN 'Teste' WHEN 'past_due' THEN 'Em atraso Atrasada' WHEN 'paused' THEN 'Pausada' WHEN 'canceled' THEN 'Cancelada' END,s.start_date,DATE_FORMAT(s.start_date,'%d/%m/%Y'),s.next_billing_date,DATE_FORMAT(s.next_billing_date,'%d/%m/%Y'),s.payment_method,s.notes) LIKE ?";
+    $where .= " AND CONCAT_WS(' ',s.id,c.name,c.company,c.email,c.country,CASE c.country WHEN 'BR' THEN 'Brasil' WHEN 'US' THEN 'Estados Unidos' END,p.name,p.sku,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,s.quantity,s.currency,s.unit_price,REPLACE(s.unit_price,'.',','),s.discount,REPLACE(s.discount,'.',','),s.status,CASE s.status WHEN 'active' THEN 'Ativa Ativo' WHEN 'trial' THEN 'Teste' WHEN 'past_due' THEN 'Em atraso Atrasada' WHEN 'paused' THEN 'Pausada' WHEN 'canceled' THEN 'Cancelada' END,s.start_date,DATE_FORMAT(s.start_date,'%d/%m/%Y'),s.next_billing_date,DATE_FORMAT(s.next_billing_date,'%d/%m/%Y'),DATEDIFF(s.next_billing_date,CURDATE()),CASE WHEN s.next_billing_date<CURDATE() THEN 'Vencida atrasada' WHEN s.next_billing_date=CURDATE() THEN 'Vence hoje' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY) THEN 'Vence amanhã' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 2 DAY) THEN 'Vence em 2 dias' WHEN s.next_billing_date<=DATE_ADD(CURDATE(),INTERVAL 7 DAY) THEN 'Próximos 7 dias' END,s.payment_method,s.notes) LIKE ?";
     $params = ['%' . $search . '%'];
 }
 if (in_array($status, ['trial', 'active', 'past_due', 'paused', 'canceled'], true)) {
     $where .= ' AND s.status=?';
     $params[] = $status;
 }
+if (in_array($dueFilter, ['overdue', 'today', 'tomorrow', 'two_days', 'next_7'], true)) {
+    $where .= " AND s.status IN ('active','trial','past_due')" . match ($dueFilter) {
+        'overdue' => ' AND s.next_billing_date<CURDATE()',
+        'today' => ' AND s.next_billing_date=CURDATE()',
+        'tomorrow' => ' AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)',
+        'two_days' => ' AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 2 DAY)',
+        'next_7' => ' AND s.next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 7 DAY)',
+    };
+}
 $countSql = 'SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id' . $where;
-$dataSql = "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,((s.unit_price*s.quantity)-s.discount) recurring_value FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id{$where} ORDER BY FIELD(s.status,'past_due','trial','active','paused','canceled'),s.next_billing_date";
+$dataSql = "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,((s.unit_price*s.quantity)-s.discount) recurring_value,DATEDIFF(s.next_billing_date,CURDATE()) due_in_days FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id{$where} ORDER BY s.next_billing_date IS NULL,s.next_billing_date,FIELD(s.status,'past_due','trial','active','paused','canceled')";
 $pagination = pagination($db, $countSql, $dataSql, $params);
 
 $edit = isset($_GET['edit']) ? $db->fetch('SELECT * FROM subscriptions WHERE id=?', [(int) $_GET['edit']]) : null;
@@ -39,6 +49,21 @@ $dueCount = (int) $db->value(
             OR (s.next_billing_date IS NOT NULL AND s.next_billing_date<=?
                 AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid'))) ",
     [$cutoff]
+);
+$dueStats = $db->fetch(
+    "SELECT
+        COALESCE(SUM(next_billing_date<CURDATE()),0) overdue,
+        COALESCE(SUM(next_billing_date=CURDATE()),0) today_count,
+        COALESCE(SUM(next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)),0) tomorrow_count,
+        COALESCE(SUM(next_billing_date=DATE_ADD(CURDATE(),INTERVAL 2 DAY)),0) two_days_count,
+        COALESCE(SUM(next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 7 DAY)),0) next_7_count
+     FROM subscriptions WHERE status IN ('active','trial','past_due')"
+) ?: ['overdue'=>0,'today_count'=>0,'tomorrow_count'=>0,'two_days_count'=>0,'next_7_count'=>0];
+$tomorrowSubscriptions = $db->fetchAll(
+    "SELECT s.id,s.currency,s.unit_price,s.quantity,s.discount,c.name client,p.name product
+     FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id
+     WHERE s.status IN ('active','trial','past_due') AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)
+     ORDER BY c.name LIMIT 20"
 );
 
 $renewalRows = [];
@@ -98,17 +123,26 @@ if ($historyId > 0) {
 
 <section class="mini-stats"><div><span class="dot green"></span><b><?= $activeCount ?></b><small>Ativas</small></div><div><span class="dot gold"></span><b><?= $trialCount ?></b><small>Em teste</small></div><div><span class="dot red"></span><b><?= $overdueCount ?></b><small>Em atraso</small></div></section>
 
+<section class="subscription-radar card"><header><div><p class="eyebrow">RADAR DE RENOVAÇÕES</p><h2>Agenda inteligente de vencimentos</h2><p>Antecipe cobranças críticas e priorize o que precisa de atenção agora.</p></div><?php if ((int) $dueStats['tomorrow_count'] > 0): ?><button type="button" class="radar-notification" data-due-alert-open><span>♢</span><b><?= (int) $dueStats['tomorrow_count'] ?></b> alerta(s) para amanhã</button><?php endif; ?></header><div class="radar-grid"><a href="?page=subscriptions&due=overdue" class="radar-item overdue <?= $dueFilter === 'overdue' ? 'active' : '' ?>" data-radar-filter="overdue"><span>!</span><div><small>ATRASADAS</small><b><?= (int) $dueStats['overdue'] ?></b><p>Exigem ação imediata</p></div></a><a href="?page=subscriptions&due=today" class="radar-item today <?= $dueFilter === 'today' ? 'active' : '' ?>" data-radar-filter="today"><span>●</span><div><small>VENCEM HOJE</small><b><?= (int) $dueStats['today_count'] ?></b><p>Confirmar recebimentos</p></div></a><a href="?page=subscriptions&due=tomorrow" class="radar-item tomorrow <?= $dueFilter === 'tomorrow' ? 'active' : '' ?>" data-radar-filter="tomorrow"><span>→</span><div><small>VENCEM AMANHÃ</small><b><?= (int) $dueStats['tomorrow_count'] ?></b><p>Preparar cobranças</p></div></a><a href="?page=subscriptions&due=two_days" class="radar-item two-days <?= $dueFilter === 'two_days' ? 'active' : '' ?>" data-radar-filter="two_days"><span>2</span><div><small>EM 2 DIAS</small><b><?= (int) $dueStats['two_days_count'] ?></b><p>Próxima janela</p></div></a><a href="?page=subscriptions&due=next_7" class="radar-item week <?= $dueFilter === 'next_7' ? 'active' : '' ?>" data-radar-filter="next_7"><span>7</span><div><small>PRÓXIMOS 7 DIAS</small><b><?= (int) $dueStats['next_7_count'] ?></b><p>Visão semanal</p></div></a></div></section>
+
 <section class="toolbar list-toolbar">
-    <form class="search-filters" method="get" data-live-filter><input type="hidden" name="page" value="subscriptions"><label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar qualquer informação" value="<?= h($search) ?>"></label><select name="status"><option value="">Todos os status</option><?php foreach (['active'=>'Ativas','trial'=>'Em teste','past_due'=>'Em atraso','paused'=>'Pausadas','canceled'=>'Canceladas'] as $value => $label): ?><option value="<?= $value ?>" <?= $status === $value ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select><span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span></form>
+    <form class="search-filters" method="get" data-live-filter id="subscription-filters"><input type="hidden" name="page" value="subscriptions"><label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Cliente, produto, valor, moeda, data…" value="<?= h($search) ?>"></label><select name="status"><option value="">Todos os status</option><?php foreach (['active'=>'Ativas','trial'=>'Em teste','past_due'=>'Em atraso','paused'=>'Pausadas','canceled'=>'Canceladas'] as $value => $label): ?><option value="<?= $value ?>" <?= $status === $value ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select><select name="due" data-due-filter><option value="">Todos os vencimentos</option><option value="overdue" <?= $dueFilter === 'overdue' ? 'selected' : '' ?>>Atrasadas</option><option value="today" <?= $dueFilter === 'today' ? 'selected' : '' ?>>Vencem hoje</option><option value="tomorrow" <?= $dueFilter === 'tomorrow' ? 'selected' : '' ?>>Vencem amanhã</option><option value="two_days" <?= $dueFilter === 'two_days' ? 'selected' : '' ?>>Vencem em 2 dias</option><option value="next_7" <?= $dueFilter === 'next_7' ? 'selected' : '' ?>>Próximos 7 dias</option></select><span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span></form>
     <div><a class="button ghost" href="?page=export&type=subscriptions">⇩ Exportar</a><?php if ($auth->canWrite() && $dueCount > 0): ?><a class="button secondary" href="?page=subscriptions&renewals=1">⚡ Gerar próximas cobranças (<?= $dueCount ?>)</a><?php endif; ?><?php if ($auth->canWrite()): ?><a class="button primary" href="?page=subscriptions&new=1">＋ Nova assinatura</a><?php endif; ?></div>
 </section>
 
 <div data-live-results>
-<section class="card table-card"><div class="table-meta"><span><b><?= $pagination['total'] ?></b> assinaturas</span><small>Renovações confirmadas atualizam o financeiro e ficam no histórico.</small></div><div class="table-wrap"><table><thead><tr><th>Cliente / Produto</th><th>Valor recorrente</th><th>Ciclo</th><th>Próxima cobrança</th><th>Status</th><th></th></tr></thead><tbody>
+<section class="card table-card subscription-table"><div class="table-meta"><span><b><?= $pagination['total'] ?></b> assinaturas</span><div class="urgency-legend"><span class="tomorrow">Amanhã</span><span class="two-days">Em 2 dias</span><span class="overdue">Atrasada</span></div></div><div class="table-wrap"><table><thead><tr><th>Cliente / Produto</th><th>Valor recorrente</th><th>Ciclo</th><th>Próxima cobrança</th><th>Status</th><th></th></tr></thead><tbody>
 <?php if (!$pagination['rows']): ?><tr><td colspan="6" class="empty-cell">Nenhuma assinatura encontrada.</td></tr><?php endif; ?>
-<?php foreach ($pagination['rows'] as $item): ?><tr><td><div class="entity"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span><span><b><?= h($item['client']) ?></b><small class="entity-country"><?= h($item['product']) ?> · <?= country_flag_icon($item['country']) ?></small></span></div></td><td><b><?= money($item['recurring_value'], $item['currency']) ?></b><small class="block"><?= (int) $item['quantity'] ?> unidade(s)</small></td><td><?= cycle_label($item['billing_cycle']) ?></td><td><?= date_br($item['next_billing_date']) ?></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td><td><div class="row-actions"><a href="?page=subscriptions&history=<?= (int) $item['id'] ?>" title="Histórico">Histórico</a><?php if ($auth->canWrite()): ?><a class="row-action" href="?page=subscriptions&edit=<?= (int) $item['id'] ?>" title="Editar">•••</a><?php endif; ?></div></td></tr><?php endforeach; ?>
+<?php foreach ($pagination['rows'] as $item):
+    $dueDays = $item['due_in_days'] === null ? null : (int) $item['due_in_days'];
+    $urgency = $dueDays === null ? 'none' : ($dueDays < 0 ? 'overdue' : ($dueDays === 0 ? 'today' : ($dueDays === 1 ? 'tomorrow' : ($dueDays === 2 ? 'two-days' : ($dueDays <= 7 ? 'week' : 'none')))));
+    $dueLabel = match ($urgency) { 'overdue'=>'Vencida há ' . abs($dueDays) . ' dia(s)', 'today'=>'Vence hoje', 'tomorrow'=>'Vence amanhã', 'two-days'=>'Vence em 2 dias', 'week'=>'Vence em ' . $dueDays . ' dias', default=>'Próxima renovação' };
+    $dueIcon = match ($urgency) { 'overdue'=>'!', 'today'=>'●', 'tomorrow'=>'→', 'two-days'=>'2', 'week'=>'◷', default=>'◇' };
+?><tr class="subscription-row urgency-<?= h($urgency) ?>"><td><div class="entity"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span><span><b><?= h($item['client']) ?></b><small class="entity-country"><?= h($item['product']) ?> · <?= country_flag_icon($item['country']) ?></small></span></div></td><td><b><?= money($item['recurring_value'], $item['currency']) ?></b><small class="block"><?= (int) $item['quantity'] ?> unidade(s)</small></td><td><?= cycle_label($item['billing_cycle']) ?></td><td><div class="due-date-cell <?= h($urgency) ?>"><span><?= $dueIcon ?></span><div><b><?= date_br($item['next_billing_date']) ?></b><small><?= h($dueLabel) ?></small></div></div></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td><td><div class="row-actions"><a href="?page=subscriptions&history=<?= (int) $item['id'] ?>" title="Histórico">Histórico</a><?php if ($auth->canWrite()): ?><a class="row-action" href="?page=subscriptions&edit=<?= (int) $item['id'] ?>" title="Editar">•••</a><?php endif; ?></div></td></tr><?php endforeach; ?>
 </tbody></table></div><?= render_pagination($pagination) ?></section>
 </div>
+
+<?php if ($tomorrowSubscriptions): ?><div class="due-alert-overlay" data-due-alert data-alert-key="<?= date('Y-m-d') ?>"><section class="due-alert-popup" role="dialog" aria-modal="true" aria-labelledby="due-alert-title"><button type="button" class="due-alert-close" data-due-alert-close aria-label="Fechar">×</button><header><span class="due-alert-symbol">→</span><div><p class="eyebrow">ALERTA DE RENOVAÇÕES</p><h2 id="due-alert-title"><?= count($tomorrowSubscriptions) ?> assinatura(s) vencem amanhã</h2><p>Revise os valores e prepare os recebimentos antes do vencimento.</p></div></header><div class="due-alert-list"><?php foreach (array_slice($tomorrowSubscriptions, 0, 8) as $dueItem): $dueValue=max(0,((float)$dueItem['unit_price']*(int)$dueItem['quantity'])-(float)$dueItem['discount']); ?><a href="?page=subscriptions&edit=<?= (int) $dueItem['id'] ?>"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($dueItem['client'],0,1))) ?></span><span><b><?= h($dueItem['client']) ?></b><small><?= h($dueItem['product']) ?></small></span><strong><?= money($dueValue,$dueItem['currency']) ?></strong></a><?php endforeach; ?></div><?php if (count($tomorrowSubscriptions)>8): ?><p class="due-alert-more">+ <?= count($tomorrowSubscriptions)-8 ?> assinatura(s) na lista completa</p><?php endif; ?><footer><button type="button" class="button ghost" data-due-alert-close>Dispensar hoje</button><a class="button primary" href="?page=subscriptions&due=tomorrow">Ver vencimentos de amanhã</a></footer></section></div><?php endif; ?>
 
 <?php if ($showRenewals): ?>
 <div class="modal open"><a class="modal-backdrop" href="?page=subscriptions"></a><section class="modal-panel renewal-panel"><header><div><p class="eyebrow">RENOVAÇÃO ASSISTIDA</p><h2>Conferir e receber cobranças</h2><p>Revise os dados. Ao confirmar, cada cobrança será lançada como paga, a assinatura será renovada e todas as alterações ficarão registradas.</p></div><a href="?page=subscriptions" class="modal-close">×</a></header>

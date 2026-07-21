@@ -29,21 +29,26 @@ function render_pagination(array $pagination): void {}
 
 $subscription = [
     'id'=>7,'client_id'=>3,'product_id'=>2,'quantity'=>1,'currency'=>'BRL','unit_price'=>'54.00','discount'=>'0.00',
-    'status'=>'active','start_date'=>'2026-01-01','next_billing_date'=>'2026-07-21','canceled_at'=>null,
+    'status'=>'active','start_date'=>'2026-01-01','next_billing_date'=>(new DateTimeImmutable('tomorrow'))->format('Y-m-d'),'canceled_at'=>null,
     'payment_method'=>'PIX','notes'=>null,'created_at'=>'2026-01-01 10:00:00','updated_at'=>'2026-07-20 10:00:00',
     'client'=>'Cliente Teste','country'=>'BR','product'=>'Plano Mensal','billing_cycle'=>'monthly','recurring_value'=>'54.00',
     'pending_payment_id'=>null,'pending_due_date'=>null,'pending_amount'=>null,'pending_fee_amount'=>null,
-    'pending_payment_method'=>null,'pending_external_reference'=>null,'pending_notes'=>null,
+    'pending_payment_method'=>null,'pending_external_reference'=>null,'pending_notes'=>null,'due_in_days'=>1,
 ];
 $product = ['id'=>2,'name'=>'Plano Mensal','price_brl'=>'54.00','price_usd'=>'18.00','pricing_mode'=>'manual','billing_cycle'=>'monthly','active'=>1];
 $db = new class($subscription, $product) {
     public function __construct(private array $subscription, private array $product) {}
     public function value(string $sql, array $params = []): int { return 1; }
-    public function fetch(string $sql, array $params = []): ?array { return null; }
+    public function fetch(string $sql, array $params = []): ?array
+    {
+        if (str_contains($sql, 'tomorrow_count')) return ['overdue'=>0,'today_count'=>0,'tomorrow_count'=>1,'two_days_count'=>0,'next_7_count'=>1];
+        return null;
+    }
     public function fetchAll(string $sql, array $params = []): array
     {
         if (str_contains($sql, 'FROM products ORDER BY active DESC')) return [$this->product];
         if (str_contains($sql, 'pending.id pending_payment_id')) return [$this->subscription];
+        if (str_contains($sql, 'ORDER BY c.name LIMIT 20')) return [$this->subscription];
         if (str_contains($sql, 'recurring_value')) return [$this->subscription];
         return [];
     }
@@ -64,6 +69,10 @@ $checks = [
     'renewals[7][amount]',
     'Confirmar e receber 1 renovação(ões)',
     'Pagamento / resgate',
+    'data-due-filter',
+    'RADAR DE RENOVAÇÕES',
+    'data-due-alert',
+    'urgency-tomorrow',
 ];
 foreach ($checks as $check) {
     if (!str_contains($html, $check)) {
