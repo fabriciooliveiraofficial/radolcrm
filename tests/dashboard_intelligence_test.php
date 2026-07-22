@@ -18,6 +18,10 @@ $contracts = [
     'clientes vencidos' => str_contains($view, 'Clientes vencidos'),
     'copiloto de gestão' => str_contains($view, 'COPILOTO DE GESTÃO'),
     'pipeline de renovação' => str_contains($view, 'PIPELINE DE RENOVAÇÕES'),
+    'consulta de assinaturas que vencem amanhã' => str_contains($view, "s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)"),
+    'tabela de vencimentos do dia seguinte' => str_contains($view, 'Assinaturas a vencer no dia seguinte'),
+    'nome, país e vencimento na tabela' => str_contains($view, '<th>Nome</th><th>País</th><th>Data de vencimento</th>'),
+    'bandeira do país nos vencimentos' => str_contains($view, "country_flag_icon(\$item['country'])"),
     'layout executivo responsivo' => str_contains($css, '.executive-hero') && str_contains($css, '.customer-status-grid'),
 ];
 

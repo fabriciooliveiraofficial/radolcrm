@@ -70,6 +70,15 @@ $upcoming = $db->fetchAll(
        AND s.next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 30 DAY)
      ORDER BY s.next_billing_date LIMIT 6"
 );
+$tomorrowSubscriptions = $db->fetchAll(
+    "SELECT s.id,s.next_billing_date,c.name client,c.country,p.name product
+     FROM subscriptions s
+     JOIN clients c ON c.id=s.client_id
+     JOIN products p ON p.id=s.product_id
+     WHERE s.status IN ('active','trial','past_due')
+       AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)
+     ORDER BY c.name,p.name"
+);
 $recent = $db->fetchAll(
     "SELECT p.id,p.payment_date,p.settlement_date,p.amount,p.currency,p.amount_brl,p.status,c.name client
      FROM payments p JOIN clients c ON c.id=p.client_id
@@ -128,6 +137,28 @@ $recent = $db->fetchAll(
         <a href="?page=clients&status=lead"><i class="status-signal lead">✦</i><span><small>Leads</small><strong><?= (int) ($clients['leads'] ?? 0) ?></strong><em>potencial de conversão</em></span></a>
         <a href="?page=subscriptions&status=active"><i class="status-signal recurring">↻</i><span><small>Clientes recorrentes</small><strong><?= (int) ($subscriptions['recurring_clients'] ?? 0) ?></strong><em>com assinatura vigente</em></span></a>
         <a href="?page=subscriptions&due=overdue" class="<?= (int) ($subscriptions['overdue_clients'] ?? 0) > 0 ? 'needs-attention' : '' ?>"><i class="status-signal overdue">!</i><span><small>Clientes vencidos</small><strong><?= (int) ($subscriptions['overdue_clients'] ?? 0) ?></strong><em>precisam de acompanhamento</em></span><b class="status-chevron">→</b></a>
+    </div>
+</section>
+
+<section class="card tomorrow-subscriptions">
+    <div class="card-header">
+        <div><p class="eyebrow">VENCEM AMANHÃ · <?= count($tomorrowSubscriptions) ?></p><h2>Assinaturas a vencer no dia seguinte</h2><p class="card-subtitle">Acompanhe antecipadamente as cobranças previstas para amanhã.</p></div>
+        <a href="?page=subscriptions&due=tomorrow">Ver no radar →</a>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Nome</th><th>País</th><th>Data de vencimento</th></tr></thead>
+            <tbody>
+                <?php if (!$tomorrowSubscriptions): ?><tr><td colspan="3" class="empty-cell">Nenhuma assinatura vence amanhã.</td></tr><?php endif; ?>
+                <?php foreach ($tomorrowSubscriptions as $item): ?>
+                    <tr>
+                        <td><div class="entity"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span><span><b><?= h($item['client']) ?></b><small><?= h($item['product']) ?></small></span></div></td>
+                        <td><span class="country-cell"><?= country_flag_icon($item['country']) ?><span><?= $item['country'] === 'BR' ? 'Brasil' : 'Estados Unidos' ?></span></span></td>
+                        <td><span class="tomorrow-date"><b><?= date_br($item['next_billing_date']) ?></b><small>Amanhã</small></span></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
 </section>
 
