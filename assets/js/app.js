@@ -360,6 +360,7 @@
     const checkAllRenewals = qs('[data-renewal-check-all]', renewalForm);
     const selectedLabel = qs('[data-renewal-selected]', renewalForm);
     const submitRenewals = qs('[data-renewal-submit]', renewalForm);
+    const singleRenewal = renewalForm.dataset.singleRenewal === '1';
     const cycleMonths = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 };
 
     const formatCurrency = (value, currency) => new Intl.NumberFormat('pt-BR', {
@@ -375,13 +376,15 @@
     const refreshForm = () => {
       const selectedRows = rows.filter((row) => qs('[data-renewal-check]', row).checked);
       const invalidRows = selectedRows.filter((row) => row.dataset.valid !== '1');
-      selectedLabel.textContent = selectedRows.length;
-      checkAllRenewals.checked = selectedRows.length === rows.length;
-      checkAllRenewals.indeterminate = selectedRows.length > 0 && selectedRows.length < rows.length;
+      if (selectedLabel) selectedLabel.textContent = selectedRows.length;
+      if (checkAllRenewals) {
+        checkAllRenewals.checked = selectedRows.length === rows.length;
+        checkAllRenewals.indeterminate = selectedRows.length > 0 && selectedRows.length < rows.length;
+      }
       submitRenewals.disabled = selectedRows.length === 0 || invalidRows.length > 0;
       submitRenewals.textContent = invalidRows.length > 0
-        ? `Revise ${invalidRows.length} valor(es) divergente(s)`
-        : `Confirmar e receber ${selectedRows.length} renovação(ões)`;
+        ? (singleRenewal ? 'Revise o valor divergente' : `Revise ${invalidRows.length} valor(es) divergente(s)`)
+        : (singleRenewal ? 'Confirmar e receber' : `Confirmar e receber ${selectedRows.length} renovação(ões)`);
     };
 
     rows.forEach((row) => {
@@ -445,10 +448,12 @@
       calculate();
     });
 
-    checkAllRenewals.addEventListener('change', () => {
-      rows.forEach((row) => { qs('[data-renewal-check]', row).checked = checkAllRenewals.checked; });
-      refreshForm();
-    });
+    if (checkAllRenewals) {
+      checkAllRenewals.addEventListener('change', () => {
+        rows.forEach((row) => { qs('[data-renewal-check]', row).checked = checkAllRenewals.checked; });
+        refreshForm();
+      });
+    }
     refreshForm();
   }
 

@@ -81,4 +81,28 @@ foreach ($checks as $check) {
     }
 }
 
+$_GET = ['renewal' => '7'];
+$_SERVER['REQUEST_URI'] = '?page=subscriptions&renewal=7';
+ob_start();
+require dirname(__DIR__) . '/app/Views/pages/subscriptions.php';
+$individualHtml = (string) ob_get_clean();
+
+$individualChecks = [
+    'href="?page=subscriptions&renewal=7"',
+    'data-single-renewal="1"',
+    'Renovar e receber cobrança',
+    'renewals[7][selected]',
+    'Confirmar e receber',
+];
+foreach ($individualChecks as $check) {
+    if (!str_contains($individualHtml, $check)) {
+        fwrite(STDERR, "Falha ao renderizar renovação individual: {$check}\n");
+        exit(1);
+    }
+}
+if (str_contains($individualHtml, 'Selecionar todas')) {
+    fwrite(STDERR, "A renovação individual não deve exibir seleção em lote.\n");
+    exit(1);
+}
+
 echo "Tela de renovação renderizada com sucesso.\n";

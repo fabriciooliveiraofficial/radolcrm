@@ -27,7 +27,9 @@ $pagination = pagination($db, $countSql, $dataSql, $params);
 
 $edit = isset($_GET['edit']) ? $db->fetch('SELECT * FROM subscriptions WHERE id=?', [(int) $_GET['edit']]) : null;
 $showForm = isset($_GET['new']) || $edit;
-$showRenewals = isset($_GET['renewals']);
+$individualRenewalId = max(0, (int) ($_GET['renewal'] ?? 0));
+$isIndividualRenewal = $individualRenewalId > 0;
+$showRenewals = isset($_GET['renewals']) || $isIndividualRenewal;
 $productRate = null;
 if ($showForm || $showRenewals) {
     $productRate = (float) $rates->current()['bid'];
@@ -69,6 +71,13 @@ $tomorrowSubscriptions = $db->fetchAll(
 $renewalRows = [];
 $renewalProducts = [];
 if ($showRenewals) {
+    $renewalWhere = $isIndividualRenewal
+        ? "s.id=? AND s.status IN ('active','trial','past_due') AND s.next_billing_date IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid')"
+        : "s.status IN ('active','trial','past_due')
+           AND (pending.id IS NOT NULL OR (s.next_billing_date IS NOT NULL AND s.next_billing_date<=?
+                AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid')))";
+    $renewalParams = [$isIndividualRenewal ? $individualRenewalId : $cutoff];
     $renewalRows = $db->fetchAll(
         "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,
                 p.price_brl product_price_brl,p.price_usd product_price_usd,p.pricing_mode product_pricing_mode,
@@ -82,12 +91,10 @@ if ($showRenewals) {
          LEFT JOIN payments pending ON pending.id=(
              SELECT MIN(p2.id) FROM payments p2 WHERE p2.subscription_id=s.id AND p2.status='pending'
          )
-         WHERE s.status IN ('active','trial','past_due')
-           AND (pending.id IS NOT NULL OR (s.next_billing_date IS NOT NULL AND s.next_billing_date<=?
-                AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid')))
+         WHERE {$renewalWhere}
          ORDER BY COALESCE(pending.due_date,s.next_billing_date),c.name
-         LIMIT 100",
-        [$cutoff]
+         LIMIT " . ($isIndividualRenewal ? '1' : '100'),
+        $renewalParams
     );
     $renewalProducts = $db->fetchAll('SELECT * FROM products ORDER BY active DESC,name');
     foreach ($renewalProducts as $key => $product) {
@@ -138,18 +145,19 @@ if ($historyId > 0) {
     $urgency = $dueDays === null ? 'none' : ($dueDays < 0 ? 'overdue' : ($dueDays === 0 ? 'today' : ($dueDays === 1 ? 'tomorrow' : ($dueDays === 2 ? 'two-days' : ($dueDays <= 7 ? 'week' : 'none')))));
     $dueLabel = match ($urgency) { 'overdue'=>'Vencida há ' . abs($dueDays) . ' dia(s)', 'today'=>'Vence hoje', 'tomorrow'=>'Vence amanhã', 'two-days'=>'Vence em 2 dias', 'week'=>'Vence em ' . $dueDays . ' dias', default=>'Próxima renovação' };
     $dueIcon = match ($urgency) { 'overdue'=>'!', 'today'=>'●', 'tomorrow'=>'→', 'two-days'=>'2', 'week'=>'◷', default=>'◇' };
-?><tr class="subscription-row urgency-<?= h($urgency) ?>"><td><div class="entity"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span><span><b><?= h($item['client']) ?></b><small class="entity-country"><?= h($item['product']) ?> · <?= country_flag_icon($item['country']) ?></small></span></div></td><td><b><?= money($item['recurring_value'], $item['currency']) ?></b><small class="block"><?= (int) $item['quantity'] ?> unidade(s)</small></td><td><?= cycle_label($item['billing_cycle']) ?></td><td><div class="due-date-cell <?= h($urgency) ?>"><span><?= $dueIcon ?></span><div><b><?= date_br($item['next_billing_date']) ?></b><small><?= h($dueLabel) ?></small></div></div></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td><td><div class="row-actions"><a href="?page=subscriptions&history=<?= (int) $item['id'] ?>" title="Histórico">Histórico</a><?php if ($auth->canWrite()): ?><a class="row-action" href="?page=subscriptions&edit=<?= (int) $item['id'] ?>" title="Editar">•••</a><?php endif; ?></div></td></tr><?php endforeach; ?>
+    $canRenewIndividual = $auth->canWrite() && $item['next_billing_date'] && in_array($item['status'], ['active','trial','past_due'], true);
+?><tr class="subscription-row urgency-<?= h($urgency) ?>"><td><?php if ($canRenewIndividual): ?><a class="entity subscription-renew-link" href="?page=subscriptions&renewal=<?= (int) $item['id'] ?>" title="Renovar e receber cobrança" aria-label="Renovar assinatura de <?= h($item['client']) ?>"><?php else: ?><div class="entity"><?php endif; ?><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span><span><b><?= h($item['client']) ?></b><small class="entity-country"><?= h($item['product']) ?> · <?= country_flag_icon($item['country']) ?></small></span><?php if ($canRenewIndividual): ?></a><?php else: ?></div><?php endif; ?></td><td><b><?= money($item['recurring_value'], $item['currency']) ?></b><small class="block"><?= (int) $item['quantity'] ?> unidade(s)</small></td><td><?= cycle_label($item['billing_cycle']) ?></td><td><div class="due-date-cell <?= h($urgency) ?>"><span><?= $dueIcon ?></span><div><b><?= date_br($item['next_billing_date']) ?></b><small><?= h($dueLabel) ?></small></div></div></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td><td><div class="row-actions"><a href="?page=subscriptions&history=<?= (int) $item['id'] ?>" title="Histórico">Histórico</a><?php if ($auth->canWrite()): ?><a class="row-action" href="?page=subscriptions&edit=<?= (int) $item['id'] ?>" title="Editar">•••</a><?php endif; ?></div></td></tr><?php endforeach; ?>
 </tbody></table></div><?= render_pagination($pagination) ?></section>
 </div>
 
-<?php if ($tomorrowSubscriptions): ?><div class="due-alert-overlay" data-due-alert data-alert-key="<?= date('Y-m-d') ?>"><section class="due-alert-popup" role="dialog" aria-modal="true" aria-labelledby="due-alert-title"><button type="button" class="due-alert-close" data-due-alert-close aria-label="Fechar">×</button><header><span class="due-alert-symbol">→</span><div><p class="eyebrow">ALERTA DE RENOVAÇÕES</p><h2 id="due-alert-title"><?= count($tomorrowSubscriptions) ?> assinatura(s) vencem amanhã</h2><p>Revise os valores e prepare os recebimentos antes do vencimento.</p></div></header><div class="due-alert-list"><?php foreach (array_slice($tomorrowSubscriptions, 0, 8) as $dueItem): $dueValue=max(0,((float)$dueItem['unit_price']*(int)$dueItem['quantity'])-(float)$dueItem['discount']); ?><a href="?page=subscriptions&edit=<?= (int) $dueItem['id'] ?>"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($dueItem['client'],0,1))) ?></span><span><b><?= h($dueItem['client']) ?></b><small><?= h($dueItem['product']) ?></small></span><strong><?= money($dueValue,$dueItem['currency']) ?></strong></a><?php endforeach; ?></div><?php if (count($tomorrowSubscriptions)>8): ?><p class="due-alert-more">+ <?= count($tomorrowSubscriptions)-8 ?> assinatura(s) na lista completa</p><?php endif; ?><footer><button type="button" class="button ghost" data-due-alert-close>Dispensar hoje</button><a class="button primary" href="?page=subscriptions&due=tomorrow">Ver vencimentos de amanhã</a></footer></section></div><?php endif; ?>
+<?php if ($tomorrowSubscriptions): ?><div class="due-alert-overlay" data-due-alert data-alert-key="<?= date('Y-m-d') ?>"><section class="due-alert-popup" role="dialog" aria-modal="true" aria-labelledby="due-alert-title"><button type="button" class="due-alert-close" data-due-alert-close aria-label="Fechar">×</button><header><span class="due-alert-symbol">→</span><div><p class="eyebrow">ALERTA DE RENOVAÇÕES</p><h2 id="due-alert-title"><?= count($tomorrowSubscriptions) ?> assinatura(s) vencem amanhã</h2><p>Revise os valores e prepare os recebimentos antes do vencimento.</p></div></header><div class="due-alert-list"><?php foreach (array_slice($tomorrowSubscriptions, 0, 8) as $dueItem): $dueValue=max(0,((float)$dueItem['unit_price']*(int)$dueItem['quantity'])-(float)$dueItem['discount']); ?><a href="?page=subscriptions&renewal=<?= (int) $dueItem['id'] ?>"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($dueItem['client'],0,1))) ?></span><span><b><?= h($dueItem['client']) ?></b><small><?= h($dueItem['product']) ?></small></span><strong><?= money($dueValue,$dueItem['currency']) ?></strong></a><?php endforeach; ?></div><?php if (count($tomorrowSubscriptions)>8): ?><p class="due-alert-more">+ <?= count($tomorrowSubscriptions)-8 ?> assinatura(s) na lista completa</p><?php endif; ?><footer><button type="button" class="button ghost" data-due-alert-close>Dispensar hoje</button><a class="button primary" href="?page=subscriptions&due=tomorrow">Ver vencimentos de amanhã</a></footer></section></div><?php endif; ?>
 
 <?php if ($showRenewals): ?>
-<div class="modal open"><a class="modal-backdrop" href="?page=subscriptions"></a><section class="modal-panel renewal-panel"><header><div><p class="eyebrow">RENOVAÇÃO ASSISTIDA</p><h2>Conferir e receber cobranças</h2><p>Revise os dados. Ao confirmar, cada cobrança será lançada como paga, a assinatura será renovada e todas as alterações ficarão registradas.</p></div><a href="?page=subscriptions" class="modal-close">×</a></header>
-<?php if (!$renewalRows): ?><div class="empty-renewals"><b>Tudo em dia</b><p>Não há cobranças pendentes ou previstas nos próximos 45 dias.</p><a class="button secondary" href="?page=subscriptions">Voltar</a></div><?php else: ?>
-<form method="post" data-renewal-form data-confirm="Confirmar as renovações selecionadas como pagas e recebidas? Pagamentos, novas datas e alterações de plano serão registrados juntos.">
-    <?= csrf_field() ?><input type="hidden" name="action" value="process_subscription_renewals"><input type="hidden" name="_return" value="?page=subscriptions&renewals=1">
-    <div class="renewal-toolbar"><label><input type="checkbox" data-renewal-check-all checked> Selecionar todas</label><span><b data-renewal-selected><?= count($renewalRows) ?></b> de <?= count($renewalRows) ?> selecionadas</span></div>
+<div class="modal open"><a class="modal-backdrop" href="?page=subscriptions"></a><section class="modal-panel renewal-panel <?= $isIndividualRenewal ? 'individual-renewal-panel' : '' ?>"><header><div><p class="eyebrow">RENOVAÇÃO ASSISTIDA</p><h2><?= $isIndividualRenewal ? 'Renovar e receber cobrança' : 'Conferir e receber cobranças' ?></h2><p>Revise os dados. Ao confirmar, <?= $isIndividualRenewal ? 'a cobrança será lançada como paga e a assinatura será renovada' : 'cada cobrança será lançada como paga e as assinaturas serão renovadas' ?> com registro completo no histórico.</p></div><a href="?page=subscriptions" class="modal-close">×</a></header>
+<?php if (!$renewalRows): ?><div class="empty-renewals"><b><?= $isIndividualRenewal ? 'Cobrança indisponível' : 'Tudo em dia' ?></b><p><?= $isIndividualRenewal ? 'Esta assinatura não está disponível para renovação.' : 'Não há cobranças pendentes ou previstas nos próximos 45 dias.' ?></p><a class="button secondary" href="?page=subscriptions">Voltar</a></div><?php else: ?>
+<form method="post" data-renewal-form data-single-renewal="<?= $isIndividualRenewal ? '1' : '0' ?>" data-confirm="<?= $isIndividualRenewal ? 'Confirmar esta cobrança como paga e recebida? O pagamento e a nova data serão registrados juntos.' : 'Confirmar as renovações selecionadas como pagas e recebidas? Pagamentos, novas datas e alterações de plano serão registrados juntos.' ?>">
+    <?= csrf_field() ?><input type="hidden" name="action" value="process_subscription_renewals"><input type="hidden" name="_return" value="<?= $isIndividualRenewal ? '?page=subscriptions&renewal=' . $individualRenewalId : '?page=subscriptions&renewals=1' ?>">
+    <?php if (!$isIndividualRenewal): ?><div class="renewal-toolbar"><label><input type="checkbox" data-renewal-check-all checked> Selecionar todas</label><span><b data-renewal-selected><?= count($renewalRows) ?></b> de <?= count($renewalRows) ?> selecionadas</span></div><?php endif; ?>
     <div class="renewal-list">
     <?php foreach ($renewalRows as $row):
         $subscriptionId = (int) $row['id'];
@@ -178,7 +186,7 @@ if ($historyId > 0) {
     </article>
     <?php endforeach; ?>
     </div>
-    <footer class="renewal-footer"><p><b>Operação rastreável:</b> pagamento, cotação, renovação e mudanças comerciais serão salvos no histórico.</p><div><a class="button ghost" href="?page=subscriptions">Cancelar</a><button class="button primary" data-renewal-submit>Confirmar e receber <?= count($renewalRows) ?> renovação(ões)</button></div></footer>
+    <footer class="renewal-footer"><p><b>Operação rastreável:</b> pagamento, cotação, renovação e mudanças comerciais serão salvos no histórico.</p><div><a class="button ghost" href="?page=subscriptions">Cancelar</a><button class="button primary" data-renewal-submit><?= $isIndividualRenewal ? 'Confirmar e receber' : 'Confirmar e receber ' . count($renewalRows) . ' renovação(ões)' ?></button></div></footer>
 </form>
 <?php endif; ?></section></div>
 <?php endif; ?>
