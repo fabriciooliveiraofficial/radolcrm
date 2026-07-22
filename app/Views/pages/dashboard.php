@@ -71,13 +71,12 @@ $upcoming = $db->fetchAll(
      ORDER BY s.next_billing_date LIMIT 6"
 );
 $tomorrowSubscriptions = $db->fetchAll(
-    "SELECT s.id,s.next_billing_date,c.name client,c.country,p.name product
+    "SELECT s.id,s.next_billing_date,c.name client,c.country
      FROM subscriptions s
      JOIN clients c ON c.id=s.client_id
-     JOIN products p ON p.id=s.product_id
      WHERE s.status IN ('active','trial','past_due')
        AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)
-     ORDER BY c.name,p.name"
+     ORDER BY c.name"
 );
 $recent = $db->fetchAll(
     "SELECT p.id,p.payment_date,p.settlement_date,p.amount,p.currency,p.amount_brl,p.status,c.name client
@@ -142,8 +141,7 @@ $recent = $db->fetchAll(
 
 <section class="card tomorrow-subscriptions">
     <div class="card-header">
-        <div><p class="eyebrow">VENCEM AMANHÃ · <?= count($tomorrowSubscriptions) ?></p><h2>Assinaturas a vencer no dia seguinte</h2><p class="card-subtitle">Acompanhe antecipadamente as cobranças previstas para amanhã.</p></div>
-        <a href="?page=subscriptions&due=tomorrow">Ver no radar →</a>
+        <div><p class="eyebrow">VENCEM AMANHÃ</p><h2>Assinaturas a vencer no dia seguinte</h2></div>
     </div>
     <div class="table-wrap">
         <table>
@@ -152,9 +150,9 @@ $recent = $db->fetchAll(
                 <?php if (!$tomorrowSubscriptions): ?><tr><td colspan="3" class="empty-cell">Nenhuma assinatura vence amanhã.</td></tr><?php endif; ?>
                 <?php foreach ($tomorrowSubscriptions as $item): ?>
                     <tr>
-                        <td><div class="entity"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span><span><b><?= h($item['client']) ?></b><small><?= h($item['product']) ?></small></span></div></td>
-                        <td><span class="country-cell"><?= country_flag_icon($item['country']) ?><span><?= $item['country'] === 'BR' ? 'Brasil' : 'Estados Unidos' ?></span></span></td>
-                        <td><span class="tomorrow-date"><b><?= date_br($item['next_billing_date']) ?></b><small>Amanhã</small></span></td>
+                        <td><b><?= h($item['client']) ?></b></td>
+                        <td><?= country_flag_icon($item['country']) ?></td>
+                        <td><b><?= date_br($item['next_billing_date']) ?></b></td>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
