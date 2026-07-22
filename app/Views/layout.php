@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="theme-color" content="#102a2b"><title><?= h($pageTitles[$page][0]) ?> · <?= h($config['app']['name']) ?></title>
-    <link rel="stylesheet" href="assets/css/app.css?v=9">
+    <link rel="stylesheet" href="assets/css/app.css?v=10">
 </head>
 <body class="app-body">
 <aside class="sidebar" id="sidebar">

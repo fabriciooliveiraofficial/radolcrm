@@ -22,6 +22,8 @@ $contracts = [
     'tabela de vencimentos do dia seguinte' => str_contains($view, 'Assinaturas a vencer no dia seguinte'),
     'nome, país e vencimento na tabela' => str_contains($view, '<th>Nome</th><th>País</th><th>Data de vencimento</th>'),
     'bandeira do país nos vencimentos' => str_contains($view, "country_flag_icon(\$item['country'])"),
+    'cards inferiores contidos no mobile' => str_contains($css, '.lower-grid .card { min-width:0;max-width:100%')
+        && str_contains($css, 'grid-template-columns:minmax(0,1fr)'),
     'layout executivo responsivo' => str_contains($css, '.executive-hero') && str_contains($css, '.customer-status-grid'),
 ];
 

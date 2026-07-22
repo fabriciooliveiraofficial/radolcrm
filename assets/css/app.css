@@ -166,7 +166,7 @@ td b { color: var(--ink); }
 .pagination a { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 11px; }
 .pagination a.active { color: white; border-color: var(--green-700); background: var(--green-700); }
 
-.lower-grid .card { min-height: 275px; }
+.lower-grid .card { min-width:0;max-width:100%;min-height:275px; }
 .upcoming-list a { display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 11px; padding: 10px 0; border-top: 1px solid #edf0ee; }
 .upcoming-list a:first-of-type { border: 0; }
 .upcoming-list a > span:nth-child(2) b, .upcoming-list a > span:nth-child(2) small { display: block; }
@@ -373,7 +373,7 @@ td b { color: var(--ink); }
   .app-shell { margin-left:0; }
   .menu-button { display:grid; }
   .topbar { height:78px;padding:0 20px; }.content{padding:22px 20px 40px}.page-heading p{display:none}.quick-add span{display:none}
-  .dashboard-grid,.reports-grid { grid-template-columns:1fr; }.dashboard-grid .span-2 { grid-column:auto; }
+  .dashboard-grid,.reports-grid { grid-template-columns:minmax(0,1fr); }.dashboard-grid .span-2 { grid-column:auto; }
   .settings-layout { grid-template-columns:1fr; }.settings-nav { position:static;flex-direction:row;overflow:auto; }
   .login-shell,.install-shell { grid-template-columns:1fr; }.login-panel{display:none}.install-intro{min-height:340px}.install-card{margin:30px auto}
   .renewal-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
