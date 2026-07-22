@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="theme-color" content="#102a2b"><title><?= h($pageTitles[$page][0]) ?> · <?= h($config['app']['name']) ?></title>
-    <link rel="stylesheet" href="assets/css/app.css?v=10">
+    <link rel="stylesheet" href="assets/css/app.css?v=11">
 </head>
 <body class="app-body">
 <aside class="sidebar" id="sidebar">
@@ -16,6 +16,7 @@
         <a class="<?= $page === 'clients' ? 'active' : '' ?>" href="?page=clients"><span>♙</span> Clientes</a>
         <a class="<?= $page === 'products' ? 'active' : '' ?>" href="?page=products"><span>◇</span> Produtos</a>
         <a class="<?= $page === 'subscriptions' ? 'active' : '' ?>" href="?page=subscriptions"><span>↻</span> Assinaturas</a>
+        <a class="<?= $page === 'reminders' ? 'active' : '' ?>" href="?page=reminders"><span>◉</span> Lembretes WhatsApp</a>
         <p>FINANCEIRO</p>
         <a class="<?= $page === 'payments' ? 'active' : '' ?>" href="?page=payments"><span>↓</span> Pagamentos</a>
         <a class="<?= $page === 'expenses' ? 'active' : '' ?>" href="?page=expenses"><span>↑</span> Gastos e investimentos</a>
@@ -36,5 +37,5 @@
 </div>
 <div class="sidebar-backdrop" data-menu></div>
 <script>window.NEXO = {baseUrl: <?= json_encode(rtrim($config['app']['url'], '/')) ?>};</script>
-<script src="assets/js/app.js?v=9"></script>
+<script src="assets/js/app.js?v=11"></script>
 </body></html>

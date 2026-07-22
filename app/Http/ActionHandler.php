@@ -9,6 +9,7 @@ use App\Core\Csrf;
 use App\Core\Database;
 use App\Core\Flash;
 use App\Services\ExchangeRateService;
+use App\Services\WhatsAppReminderService;
 use RuntimeException;
 
 final class ActionHandler
@@ -51,6 +52,9 @@ final class ActionHandler
                 'delete_cash' => $this->deleteCash(),
                 'refresh_rate' => $this->refreshRate(),
                 'save_settings' => $this->saveSettings(),
+                'save_whatsapp_reminders' => $this->saveWhatsAppReminders(),
+                'test_whatsapp_connection' => $this->testWhatsAppConnection(),
+                'run_whatsapp_reminders' => $this->runWhatsAppReminders(),
                 'save_profile' => $this->saveProfile(),
                 'save_user' => $this->saveUser(),
                 'toggle_user' => $this->toggleUser(),
@@ -624,6 +628,51 @@ final class ActionHandler
         audit($this->db, 'update', 'settings');
         Flash::add('success', 'Configurações salvas.');
         return '?page=settings';
+    }
+
+    private function saveWhatsAppReminders(): string
+    {
+        if (!$this->auth->isAdmin()) {
+            throw new RuntimeException('Somente administradores podem configurar os lembretes.');
+        }
+        (new WhatsAppReminderService($this->db))->saveConfig($_POST);
+        audit($this->db, 'update', 'whatsapp_reminders', null, [
+            'enabled' => isset($_POST['whatsapp_enabled']),
+            'upcoming_enabled' => isset($_POST['whatsapp_upcoming_enabled']),
+            'overdue_enabled' => isset($_POST['whatsapp_overdue_enabled']),
+        ]);
+        Flash::add('success', 'Configurações dos lembretes salvas.');
+        return '?page=reminders';
+    }
+
+    private function testWhatsAppConnection(): string
+    {
+        if (!$this->auth->isAdmin()) {
+            throw new RuntimeException('Somente administradores podem testar a integração.');
+        }
+        $status = (new WhatsAppReminderService($this->db))->testConnection();
+        if (!$status['connected']) {
+            throw new RuntimeException('A instância respondeu, mas o WhatsApp não está conectado. ' . $status['message']);
+        }
+        Flash::add('success', 'Z-API conectada ao WhatsApp' . ($status['smartphoneConnected'] ? ' e ao telefone.' : '.'));
+        return '?page=reminders';
+    }
+
+    private function runWhatsAppReminders(): string
+    {
+        if (!$this->auth->isAdmin()) {
+            throw new RuntimeException('Somente administradores podem executar os lembretes manualmente.');
+        }
+        $summary = (new WhatsAppReminderService($this->db))->run(true);
+        audit($this->db, 'run', 'whatsapp_reminders', null, $summary);
+        $message = sprintf(
+            'Processamento concluído: %d enviado(s), %d falha(s), %d ignorado(s).',
+            $summary['sent'],
+            $summary['failed'],
+            $summary['skipped']
+        );
+        Flash::add($summary['failed'] > 0 ? 'warning' : 'success', $message);
+        return '?page=reminders';
     }
 
     private function saveProfile(): string

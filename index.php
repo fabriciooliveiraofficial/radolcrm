@@ -52,7 +52,7 @@ if (($_GET['page'] ?? '') === 'export') {
     (new Exporter($db))->download((string) ($_GET['type'] ?? ''));
 }
 
-$allowedPages = ['dashboard','clients','products','subscriptions','payments','expenses','cash','reports','settings'];
+$allowedPages = ['dashboard','clients','products','subscriptions','reminders','payments','expenses','cash','reports','settings'];
 $page = (string) ($_GET['page'] ?? 'dashboard');
 if (!in_array($page, $allowedPages, true)) {
     http_response_code(404);
@@ -64,6 +64,7 @@ $pageTitles = [
     'clients' => ['Clientes', 'Pessoas e empresas que compram de você.'],
     'products' => ['Produtos', 'Planos e preços locais em real e dólar.'],
     'subscriptions' => ['Assinaturas', 'Receita recorrente e próximas cobranças.'],
+    'reminders' => ['Lembretes WhatsApp', 'Automatize avisos de vencimento e acompanhe os envios.'],
     'payments' => ['Pagamentos', 'Recebimentos, taxas e conversões históricas.'],
     'expenses' => ['Gastos e investimentos', 'Tudo que sai para operar e crescer.'],
     'cash' => ['Fluxo de caixa', 'Movimentações avulsas e saldo consolidado.'],

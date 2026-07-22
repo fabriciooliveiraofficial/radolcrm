@@ -452,6 +452,33 @@
     refreshForm();
   }
 
+  const reminderSettings = qs('[data-reminder-settings]');
+  if (reminderSettings) {
+    let previewValues = {};
+    try { previewValues = JSON.parse(reminderSettings.dataset.templateValues || '{}'); } catch (_) { previewValues = {}; }
+    const sources = qsa('[data-template-source]', reminderSettings);
+    let activeSource = sources[0] || null;
+    const renderPreview = (source) => {
+      const preview = qs(`[data-template-preview="${source.dataset.templateSource}"]`, reminderSettings);
+      if (!preview) return;
+      preview.textContent = source.value.replace(/{{([a-z_]+)}}/gi, (match, variable) => previewValues[variable] ?? match);
+    };
+    sources.forEach((source) => {
+      source.addEventListener('focus', () => { activeSource = source; });
+      source.addEventListener('input', () => renderPreview(source));
+      renderPreview(source);
+    });
+    qsa('[data-template-variable]', reminderSettings).forEach((button) => button.addEventListener('click', () => {
+      if (!activeSource) return;
+      const token = `{{${button.dataset.templateVariable}}}`;
+      const start = activeSource.selectionStart ?? activeSource.value.length;
+      const end = activeSource.selectionEnd ?? start;
+      activeSource.setRangeText(token, start, end, 'end');
+      activeSource.focus();
+      activeSource.dispatchEvent(new Event('input', { bubbles: true }));
+    }));
+  }
+
   qsa('[data-chart]').forEach((chart) => {
     let data = [];
     try { data = JSON.parse(chart.dataset.chart); } catch (_) { return; }

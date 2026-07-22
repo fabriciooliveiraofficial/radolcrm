@@ -87,6 +87,29 @@ A página **Assinaturas** possui um radar para atrasadas, vencimentos de hoje, a
 
 Esse fluxo organiza e confirma os recebimentos, mas não dispara uma cobrança bancária, PIX ou cartão. Uma integração com o processador de pagamentos seria necessária para capturar dinheiro automaticamente.
 
+## Lembretes automáticos por WhatsApp
+
+O painel **Lembretes WhatsApp** integra o CRM à [Z-API](https://developer.z-api.io/message/send-text) para enviar mensagens de texto antes e depois do vencimento. A configuração permite:
+
+- ativar separadamente lembretes de assinaturas a vencer e vencidas;
+- definir quantos dias antes ou depois iniciar os avisos;
+- escolher o intervalo e o limite de mensagens por ciclo de cobrança;
+- personalizar os dois modelos com variáveis como `{{primeiro_nome}}`, `{{produto}}`, `{{data_vencimento}}`, `{{valor}}` e `{{empresa}}`;
+- testar o status da instância e executar o processamento manualmente;
+- consultar mensagens enviadas, falhas e clientes sem telefone válido.
+
+Informe o WhatsApp de cada cliente com DDI, DDD e número. O sistema completa automaticamente os códigos do Brasil e dos Estados Unidos quando o telefone local estiver completo. Assinaturas pagas, pausadas ou canceladas não recebem avisos, e uma chave única impede o mesmo lembrete de ser enviado duas vezes.
+
+No painel da Z-API, copie o ID da instância, o token da instância e, se a segurança da conta estiver habilitada, o `Client-Token`. As credenciais ficam no banco de dados do servidor e não são devolvidas ao navegador depois de salvas. Consulte também a documentação oficial sobre o [Client-Token](https://developer.z-api.io/en/security/client-token) e o [status da instância](https://developer.z-api.io/en/instance/status).
+
+Para automatizar, configure no hPanel um cron a cada 15 minutos:
+
+```text
+php /home/SEU_USUARIO/domains/SEU_DOMINIO/public_html/cron/send-whatsapp-reminders.php SEU_CRON_SECRET
+```
+
+O cron pode rodar várias vezes: o horário definido no painel, o limite de tentativas e a prevenção de duplicidade são aplicados pelo CRM. Use um `SEU_CRON_SECRET` longo e igual ao valor `app.cron_secret` de `config/config.php`.
+
 ## Perfis de acesso
 
 - **Administrador:** todos os lançamentos, configurações e usuários.
