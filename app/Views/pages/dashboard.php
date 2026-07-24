@@ -70,13 +70,16 @@ $upcoming = $db->fetchAll(
        AND s.next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 30 DAY)
      ORDER BY s.next_billing_date LIMIT 6"
 );
+$dashboardTimezone = new DateTimeZone((string) ($config['app']['timezone'] ?? 'America/Sao_Paulo'));
+$tomorrowDate = (new DateTimeImmutable('today', $dashboardTimezone))->modify('+1 day')->format('Y-m-d');
 $tomorrowSubscriptions = $db->fetchAll(
     "SELECT s.id,s.next_billing_date,c.name client,c.country
      FROM subscriptions s
      JOIN clients c ON c.id=s.client_id
      WHERE s.status IN ('active','trial','past_due')
-       AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)
-     ORDER BY c.name"
+       AND s.next_billing_date=?
+     ORDER BY c.name",
+    [$tomorrowDate]
 );
 $recent = $db->fetchAll(
     "SELECT p.id,p.payment_date,p.settlement_date,p.amount,p.currency,p.amount_brl,p.status,c.name client
