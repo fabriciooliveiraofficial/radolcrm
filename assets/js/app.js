@@ -418,7 +418,7 @@
         row.dataset.valid = matches ? '1' : '0';
 
         const months = cycleMonths[product.selectedOptions[0]?.dataset.cycle] || 1;
-        next.textContent = addMonths(due.value, months);
+        next.textContent = addMonths(receipt.value, months);
         if (receipt.value < due.value) {
           timing.textContent = 'Pagamento antecipado';
           timing.className = 'early';

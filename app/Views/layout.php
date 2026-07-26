@@ -37,5 +37,5 @@
 </div>
 <div class="sidebar-backdrop" data-menu></div>
 <script>window.NEXO = {baseUrl: <?= json_encode(rtrim($config['app']['url'], '/')) ?>};</script>
-<script src="assets/js/app.js?v=12"></script>
+<script src="assets/js/app.js?v=13"></script>
 </body></html>

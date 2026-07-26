@@ -742,11 +742,7 @@ final class ActionHandler
             || abs((float) $subscription['discount'] - (float) $row['discount']) > 0.009
             || trim((string) $subscription['payment_method']) !== trim((string) $row['payment_method']);
 
-        $calculatedNextDate = $this->addBillingMonths($row['due_date'], (string) $product['billing_cycle']);
-        $nextBillingDate = $calculatedNextDate;
-        if (!$planChanged && $subscription['next_billing_date'] && $subscription['next_billing_date'] > $calculatedNextDate) {
-            $nextBillingDate = $subscription['next_billing_date'];
-        }
+        $nextBillingDate = $this->addBillingMonths($row['receipt_date'], (string) $product['billing_cycle']);
 
         $before = [
             'product_id' => (int) $subscription['product_id'],
