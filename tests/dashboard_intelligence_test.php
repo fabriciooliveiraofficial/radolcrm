@@ -18,8 +18,14 @@ $contracts = [
     'clientes vencidos' => str_contains($view, 'Clientes vencidos'),
     'copiloto de gestão' => str_contains($view, 'COPILOTO DE GESTÃO'),
     'pipeline de renovação' => str_contains($view, 'PIPELINE DE RENOVAÇÕES'),
-    'amanhã calculado no timezone configurado' => str_contains($view, "new DateTimeZone((string) (\$config['app']['timezone'] ?? 'America/Sao_Paulo'))")
-        && str_contains($view, "\$tomorrowDate = (new DateTimeImmutable('today', \$dashboardTimezone))->modify('+1 day')->format('Y-m-d')"),
+    'datas do dashboard calculadas no timezone configurado' => str_contains($view, "new DateTimeZone((string) (\$config['app']['timezone'] ?? 'America/Sao_Paulo'))")
+        && str_contains($view, "\$dashboardToday = new DateTimeImmutable('today', \$dashboardTimezone)")
+        && str_contains($view, "\$tomorrowDate = \$dashboardToday->modify('+1 day')->format('Y-m-d')"),
+    'total de assinaturas vigentes soma quantidades não vencidas' => str_contains($view, 'COALESCE(SUM(s.quantity),0)')
+        && str_contains($view, "s.status='active'")
+        && str_contains($view, 's.next_billing_date>=?')
+        && str_contains($view, '[$todayDate]')
+        && str_contains($view, 'Assinaturas vigentes'),
     'consulta parametrizada de assinaturas que vencem amanhã' => str_contains($view, 's.next_billing_date=?')
         && str_contains($view, '[$tomorrowDate]'),
     'tabela de vencimentos do dia seguinte' => str_contains($view, 'Assinaturas a vencer no dia seguinte'),
@@ -27,7 +33,9 @@ $contracts = [
     'bandeira do país nos vencimentos' => str_contains($view, "country_flag_icon(\$item['country'])"),
     'cards inferiores contidos no mobile' => str_contains($css, '.lower-grid .card { min-width:0;max-width:100%')
         && str_contains($css, 'grid-template-columns:minmax(0,1fr)'),
-    'layout executivo responsivo' => str_contains($css, '.executive-hero') && str_contains($css, '.customer-status-grid'),
+    'layout executivo responsivo' => str_contains($css, '.executive-hero')
+        && str_contains($css, '.customer-status-grid')
+        && str_contains($css, '.executive-metrics { grid-template-columns:repeat(5,minmax(0,1fr)); }'),
 ];
 
 $failed = array_keys(array_filter($contracts, static fn(bool $passed): bool => !$passed));
