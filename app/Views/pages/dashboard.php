@@ -74,9 +74,16 @@ $dashboardTimezone = new DateTimeZone((string) ($config['app']['timezone'] ?? 'A
 $dashboardToday = new DateTimeImmutable('today', $dashboardTimezone);
 $todayDate = $dashboardToday->format('Y-m-d');
 $tomorrowDate = $dashboardToday->modify('+1 day')->format('Y-m-d');
-$currentSubscriptionUnits = (int) $db->value(
-    "SELECT COALESCE(SUM(s.quantity),0)
+$activePointUnits = (int) $db->value(
+    "SELECT COALESCE(SUM(
+                CASE
+                    WHEN LOWER(TRIM(p.name)) REGEXP '^[0-9]+[[:space:]]*pontos?'
+                        THEN CAST(TRIM(p.name) AS UNSIGNED) * s.quantity
+                    ELSE s.quantity
+                END
+            ),0)
      FROM subscriptions s
+     JOIN products p ON p.id=s.product_id
      WHERE s.status='active'
        AND s.next_billing_date>=?",
     [$todayDate]
@@ -133,7 +140,7 @@ $recent = $db->fetchAll(
     <article class="metric-card"><div class="metric-icon green">↗</div><div><span>Faturamento bruto</span><strong><?= money($metrics['gross']) ?></strong><small class="metric-trend <?= $revenueGrowth < 0 ? 'down' : 'up' ?>"><?= $revenueGrowth < 0 ? '↓' : '↑' ?> <?= h($growthLabel) ?></small></div></article>
     <article class="metric-card"><div class="metric-icon gold">◎</div><div><span>Lucro líquido</span><strong class="<?= $metrics['profit'] < 0 ? 'negative' : 'positive' ?>"><?= money($metrics['profit']) ?></strong><small class="<?= $metrics['margin'] < 0 ? 'negative' : 'positive' ?>"><?= number_format($metrics['margin'], 1, ',', '.') ?>% de margem líquida</small></div></article>
     <article class="metric-card"><div class="metric-icon blue">↻</div><div><span>Receita recorrente (MRR)</span><strong><?= money($metrics['mrr']) ?></strong><small><?= (int) $metrics['activeSubscriptions'] ?> assinaturas ativas · ARR <?= money($arr) ?></small></div></article>
-    <article class="metric-card"><div class="metric-icon green">✓</div><div><span>Assinaturas vigentes</span><strong><?= $currentSubscriptionUnits ?></strong><small>ativas e ainda não vencidas</small></div></article>
+    <article class="metric-card"><div class="metric-icon green">✓</div><div><span>Pontos ativos</span><strong><?= $activePointUnits ?></strong><small>unidades pagas e ainda não vencidas</small></div></article>
     <article class="metric-card"><div class="metric-icon purple">▤</div><div><span>Saldo de caixa atual</span><strong class="<?= $balance < 0 ? 'negative' : 'positive' ?>"><?= money($balance) ?></strong><small><?= (int) $metrics['paymentCount'] ?> pagamento(s) em <?= h(mb_strtolower($periodLabel)) ?></small></div></article>
 </section>
 

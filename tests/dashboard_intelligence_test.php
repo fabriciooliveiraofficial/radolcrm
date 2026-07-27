@@ -21,11 +21,14 @@ $contracts = [
     'datas do dashboard calculadas no timezone configurado' => str_contains($view, "new DateTimeZone((string) (\$config['app']['timezone'] ?? 'America/Sao_Paulo'))")
         && str_contains($view, "\$dashboardToday = new DateTimeImmutable('today', \$dashboardTimezone)")
         && str_contains($view, "\$tomorrowDate = \$dashboardToday->modify('+1 day')->format('Y-m-d')"),
-    'total de assinaturas vigentes soma quantidades não vencidas' => str_contains($view, 'COALESCE(SUM(s.quantity),0)')
+    'total de pontos pondera os produtos ativos não vencidos' => str_contains($view, "LOWER(TRIM(p.name)) REGEXP '^[0-9]+[[:space:]]*pontos?'")
+        && str_contains($view, 'CAST(TRIM(p.name) AS UNSIGNED) * s.quantity')
+        && str_contains($view, 'ELSE s.quantity')
+        && str_contains($view, 'JOIN products p ON p.id=s.product_id')
         && str_contains($view, "s.status='active'")
         && str_contains($view, 's.next_billing_date>=?')
         && str_contains($view, '[$todayDate]')
-        && str_contains($view, 'Assinaturas vigentes'),
+        && str_contains($view, 'Pontos ativos'),
     'consulta parametrizada de assinaturas que vencem amanhã' => str_contains($view, 's.next_billing_date=?')
         && str_contains($view, '[$tomorrowDate]'),
     'tabela de vencimentos do dia seguinte' => str_contains($view, 'Assinaturas a vencer no dia seguinte'),
