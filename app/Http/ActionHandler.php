@@ -42,6 +42,7 @@ final class ActionHandler
                 'save_service_badge' => $this->saveServiceBadge(),
                 'delete_service_badge' => $this->deleteServiceBadge(),
                 'save_subscription' => $this->saveSubscription(),
+                'save_subscription_badges' => $this->saveSubscriptionBadges(),
                 'delete_subscription' => $this->deleteSubscription(),
                 'generate_due_payments', 'generate_upcoming_payments' => $this->generateUpcomingPayments(),
                 'process_subscription_renewals' => $this->processSubscriptionRenewals(),
@@ -260,6 +261,36 @@ final class ActionHandler
             });
         }
         Flash::add('success', 'Assinatura salva com sucesso.');
+        return '?page=subscriptions';
+    }
+
+    private function saveSubscriptionBadges(): string
+    {
+        $id = $this->id(true);
+        $badgeIds = $this->postedServiceBadgeIds();
+        $this->db->transaction(function (Database $db) use ($id, $badgeIds): void {
+            if (!$db->fetch('SELECT id FROM subscriptions WHERE id=? FOR UPDATE', [$id])) {
+                throw new RuntimeException('A assinatura não existe mais. Atualize a página.');
+            }
+            $previousBadgeIds = array_map(
+                'intval',
+                array_column(
+                    $db->fetchAll(
+                        'SELECT badge_id FROM subscription_service_badges WHERE subscription_id=? ORDER BY badge_id',
+                        [$id]
+                    ),
+                    'badge_id'
+                )
+            );
+            $this->syncSubscriptionBadges($db, $id, $badgeIds);
+            $details = ['previous_badge_ids' => $previousBadgeIds, 'badge_ids' => $badgeIds];
+            $db->insert(
+                'INSERT INTO subscription_events (subscription_id,user_id,event_type,event_date,summary,details) VALUES (?,?,?,?,?,?)',
+                [$id,$_SESSION['auth_user_id'] ?? null,'subscription_update',date('Y-m-d'),'Badges de serviços atualizados.',json_encode($details, JSON_UNESCAPED_UNICODE)]
+            );
+            audit($db, 'update_badges', 'subscription', $id, $details);
+        });
+        Flash::add('success', 'Badges vinculados à assinatura com sucesso.');
         return '?page=subscriptions';
     }
 

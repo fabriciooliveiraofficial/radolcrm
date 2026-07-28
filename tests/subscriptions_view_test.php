@@ -13,6 +13,7 @@ function status_label(string $status): string { return ['active'=>'Ativo','paid'
 function status_class(string $status): string { return in_array($status, ['active', 'paid'], true) ? 'success' : 'warning'; }
 function csrf_field(): string { return '<input type="hidden" name="_token" value="test">'; }
 function country_flag_icon(string $country): string { return '<span class="flag-icon flag-' . (strtoupper($country) === 'BR' ? 'br' : 'us') . '"></span>'; }
+function service_badge_icon(string $icon): string { return '<svg data-icon="' . h($icon) . '"></svg>'; }
 function product_with_current_prices(array $product, float $rate): array
 {
     $mode = $product['pricing_mode'] ?? 'manual';
@@ -42,10 +43,16 @@ $db = new class($subscription, $product) {
     public function fetch(string $sql, array $params = []): ?array
     {
         if (str_contains($sql, 'tomorrow_count')) return ['overdue'=>0,'today_count'=>0,'tomorrow_count'=>1,'two_days_count'=>0,'next_7_count'=>1];
+        if (str_contains($sql, 'FROM subscriptions s') && str_contains($sql, 'WHERE s.id=?')) {
+            return ['id'=>7,'client'=>'Cliente Teste','product'=>'Plano Mensal'];
+        }
         return null;
     }
     public function fetchAll(string $sql, array $params = []): array
     {
+        if (str_contains($sql, 'SELECT * FROM service_badges')) return [['id'=>3,'name'=>'Suporte premium','icon'=>'diamond','tone'=>'gold','active'=>1]];
+        if (str_contains($sql, 'SELECT badge_id FROM subscription_service_badges')) return [['badge_id'=>3]];
+        if (str_contains($sql, 'FROM subscription_service_badges ssb')) return [['subscription_id'=>7,'id'=>3,'name'=>'Suporte premium','icon'=>'diamond','tone'=>'gold']];
         if (str_contains($sql, 'FROM products ORDER BY active DESC')) return [$this->product];
         if (str_contains($sql, 'pending.id pending_payment_id')) return [$this->subscription];
         if (str_contains($sql, 'ORDER BY c.name LIMIT 20')) return [$this->subscription];
@@ -103,6 +110,18 @@ foreach ($individualChecks as $check) {
 if (str_contains($individualHtml, 'Selecionar todas')) {
     fwrite(STDERR, "A renovação individual não deve exibir seleção em lote.\n");
     exit(1);
+}
+
+$_GET = ['badges' => '7'];
+$_SERVER['REQUEST_URI'] = '?page=subscriptions&badges=7';
+ob_start();
+require dirname(__DIR__) . '/app/Views/pages/subscriptions.php';
+$badgeAssignmentHtml = (string) ob_get_clean();
+foreach (['Vincular badges','save_subscription_badges','Suporte premium','name="badge_ids[]" value="3" checked','Salvar badges'] as $check) {
+    if (!str_contains($badgeAssignmentHtml, $check)) {
+        fwrite(STDERR, "Falha ao renderizar vínculo direto de badges: {$check}\n");
+        exit(1);
+    }
 }
 
 echo "Tela de renovação renderizada com sucesso.\n";

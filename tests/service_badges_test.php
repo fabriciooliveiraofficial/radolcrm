@@ -37,6 +37,10 @@ $contracts = [
     'associação muitos para muitos' => str_contains($actions, 'postedServiceBadgeIds')
         && str_contains($actions, 'syncSubscriptionBadges')
         && str_contains($subscriptions, 'name="badge_ids[]"'),
+    'vínculo direto na lista de assinaturas' => str_contains($actions, "'save_subscription_badges' =>")
+        && str_contains($subscriptions, '?page=subscriptions&badges=')
+        && str_contains($subscriptions, 'name="action" value="save_subscription_badges"')
+        && str_contains($subscriptions, 'Vincular badges'),
     'badges exibidos nas assinaturas' => str_contains($subscriptions, 'serviceBadgesBySubscription')
         && str_contains($subscriptions, 'service-badge compact')
         && str_contains($subscriptions, 'service_badge_icon($serviceBadge'),

@@ -43,6 +43,35 @@ $pagination = pagination($db, $countSql, $dataSql, $params);
 $edit = isset($_GET['edit']) ? $db->fetch('SELECT * FROM subscriptions WHERE id=?', [(int) $_GET['edit']]) : null;
 $showForm = isset($_GET['new']) || $edit;
 $serviceBadgeCatalog = $db->fetchAll('SELECT * FROM service_badges ORDER BY active DESC,name');
+$badgeAssignmentId = max(0, (int) ($_GET['badges'] ?? 0));
+$badgeAssignmentSubscription = null;
+$selectedBadgeAssignmentIds = [];
+if ($badgeAssignmentId > 0 && $auth->canWrite()) {
+    $badgeAssignmentSubscription = $db->fetch(
+        'SELECT s.id,c.name client,p.name product
+         FROM subscriptions s
+         JOIN clients c ON c.id=s.client_id
+         JOIN products p ON p.id=s.product_id
+         WHERE s.id=?',
+        [$badgeAssignmentId]
+    );
+    if ($badgeAssignmentSubscription) {
+        $selectedBadgeAssignmentIds = array_map(
+            'intval',
+            array_column(
+                $db->fetchAll(
+                    'SELECT badge_id FROM subscription_service_badges WHERE subscription_id=?',
+                    [$badgeAssignmentId]
+                ),
+                'badge_id'
+            )
+        );
+    }
+}
+$badgeAssignmentOptions = array_values(array_filter(
+    $serviceBadgeCatalog,
+    static fn(array $badge): bool => (bool) $badge['active'] || in_array((int) $badge['id'], $selectedBadgeAssignmentIds, true)
+));
 $selectedServiceBadgeIds = $edit
     ? array_map(
         'intval',
@@ -227,7 +256,7 @@ if ($historyId > 0) {
     <td><?= cycle_label($item['billing_cycle']) ?></td>
     <td><div class="due-date-cell <?= h($urgency) ?>"><span><?= $dueIcon ?></span><div><b><?= date_br($item['next_billing_date']) ?></b><small><?= h($dueLabel) ?></small></div></div></td>
     <td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td>
-    <td><div class="row-actions"><a href="?page=subscriptions&history=<?= (int) $item['id'] ?>" title="Histórico">Histórico</a><?php if ($auth->canWrite()): ?><a class="row-action" href="?page=subscriptions&edit=<?= (int) $item['id'] ?>" title="Editar">•••</a><?php endif; ?></div></td>
+    <td><div class="row-actions"><a href="?page=subscriptions&history=<?= (int) $item['id'] ?>" title="Histórico">Histórico</a><?php if ($auth->canWrite()): ?><a class="row-badge-action" href="?page=subscriptions&badges=<?= (int) $item['id'] ?>" title="Vincular badges"><?= service_badge_icon('sparkles') ?><span>Badges</span></a><a class="row-action" href="?page=subscriptions&edit=<?= (int) $item['id'] ?>" title="Editar assinatura">•••</a><?php endif; ?></div></td>
 </tr>
 <?php endforeach; ?>
 </tbody></table></div><?= render_pagination($pagination) ?></section>
@@ -279,6 +308,45 @@ if ($historyId > 0) {
 <section class="history-section"><h3>Renovações e alterações</h3><?php if (!$historyEvents): ?><p class="history-empty">Nenhuma renovação processada pelo novo fluxo ainda.</p><?php else: ?><div class="history-timeline"><?php foreach ($historyEvents as $event): ?><article><span class="history-dot <?= $event['event_type'] === 'plan_change' ? 'gold' : '' ?>">↻</span><div><b><?= h($event['summary']) ?></b><p><?= date_br($event['event_date']) ?><?php if ($event['amount'] !== null): ?> · <?= money($event['amount'], $event['currency']) ?><?php endif; ?><?php if ($event['payment_id']): ?> · Pagamento #<?= (int) $event['payment_id'] ?><?php endif; ?></p><small><?= h($event['user_name'] ?: 'Sistema') ?> · <?= date('d/m/Y H:i', strtotime($event['created_at'])) ?></small></div></article><?php endforeach; ?></div><?php endif; ?></section>
 <section class="history-section"><h3>Transações da assinatura</h3><?php if (!$historyPayments): ?><p class="history-empty">Nenhum pagamento vinculado.</p><?php else: ?><div class="table-wrap"><table><thead><tr><th>ID</th><th>Vencimento</th><th>Pagamento</th><th>Valor</th><th>Status</th></tr></thead><tbody><?php foreach ($historyPayments as $payment): ?><tr><td>#<?= (int) $payment['id'] ?></td><td><?= date_br($payment['due_date']) ?></td><td><?= date_br($payment['payment_date']) ?></td><td><b><?= money($payment['amount'], $payment['currency']) ?></b></td><td><span class="badge <?= status_class($payment['status']) ?>"><?= status_label($payment['status']) ?></span></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></section>
 </section></div>
+<?php endif; ?>
+
+<?php if ($badgeAssignmentSubscription): ?>
+<div class="modal open">
+    <a class="modal-backdrop" href="?page=subscriptions"></a>
+    <section class="modal-panel badge-assignment-panel">
+        <header>
+            <div>
+                <p class="eyebrow">IDENTIFICAÇÃO VISUAL</p>
+                <h2>Vincular badges</h2>
+                <p><?= h($badgeAssignmentSubscription['client']) ?> · <?= h($badgeAssignmentSubscription['product']) ?></p>
+            </div>
+            <a href="?page=subscriptions" class="modal-close">×</a>
+        </header>
+        <form method="post" class="badge-assignment-form">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="save_subscription_badges">
+            <input type="hidden" name="id" value="<?= (int) $badgeAssignmentSubscription['id'] ?>">
+            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+            <p class="badge-assignment-lead">Selecione um ou mais badges para identificar rapidamente os serviços desta assinatura.</p>
+            <div class="subscription-badge-field">
+                <div><span>Badges de serviços</span><a href="?page=service-badges">Gerenciar biblioteca →</a></div>
+                <?php if (!$badgeAssignmentOptions): ?>
+                    <p>Nenhum badge disponível. <a href="?page=service-badges&new=1">Crie o primeiro badge</a> para começar.</p>
+                <?php else: ?>
+                    <div class="subscription-badge-options">
+                        <?php foreach ($badgeAssignmentOptions as $serviceBadge): ?>
+                            <label class="<?= !$serviceBadge['active'] ? 'inactive' : '' ?>">
+                                <input type="checkbox" name="badge_ids[]" value="<?= (int) $serviceBadge['id'] ?>" <?= in_array((int) $serviceBadge['id'], $selectedBadgeAssignmentIds, true) ? 'checked' : '' ?>>
+                                <span class="service-badge tone-<?= h($serviceBadge['tone']) ?>"><?= service_badge_icon($serviceBadge['icon']) ?><b><?= h($serviceBadge['name']) ?></b></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <footer class="badge-assignment-footer"><a class="button ghost" href="?page=subscriptions">Cancelar</a><button class="button primary">Salvar badges</button></footer>
+        </form>
+    </section>
+</div>
 <?php endif; ?>
 
 <?php if ($showForm): ?>
