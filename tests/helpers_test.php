@@ -17,6 +17,10 @@ $tests = [
     'produto manual preserva preços locais' => product_with_current_prices(['pricing_mode'=>'manual','price_brl'=>50,'price_usd'=>15], 5.5)['price_usd'] === 15.0,
     'bandeira visual do Brasil' => str_contains(country_flag_icon('BR'), 'flag-br'),
     'bandeira visual dos EUA' => str_contains(country_flag_icon('US'), 'flag-us'),
+    'biblioteca de ícones de badges' => count(service_badge_icon_options()) === 10
+        && str_contains(service_badge_icon('diamond'), '<svg')
+        && str_contains(service_badge_icon('diamond'), 'aria-hidden="true"'),
+    'estilos premium de badges' => array_keys(service_badge_tone_options()) === ['emerald','gold','sapphire','amethyst','ruby','graphite'],
 ];
 
 $failed = [];

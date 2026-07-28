@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__);
-$pages = ['clients', 'products', 'subscriptions', 'payments', 'expenses', 'cash'];
+$pages = ['clients', 'products', 'subscriptions', 'service-badges', 'payments', 'expenses', 'cash'];
 $failures = [];
 foreach ($pages as $page) {
     $html = (string) file_get_contents($root . '/app/Views/pages/' . $page . '.php');

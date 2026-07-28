@@ -65,6 +65,53 @@ function country_flag_icon(string $country): string
     return '<span class="flag-icon flag-' . $code . '" role="img" aria-label="' . $label . '"></span>';
 }
 
+function service_badge_icon_options(): array
+{
+    return [
+        'sparkles' => 'Destaque',
+        'diamond' => 'Diamante',
+        'crown' => 'Coroa',
+        'shield' => 'Proteção',
+        'bolt' => 'Agilidade',
+        'globe' => 'Global',
+        'rocket' => 'Lançamento',
+        'headset' => 'Suporte',
+        'star' => 'Premium',
+        'layers' => 'Camadas',
+    ];
+}
+
+function service_badge_tone_options(): array
+{
+    return [
+        'emerald' => 'Esmeralda',
+        'gold' => 'Dourado',
+        'sapphire' => 'Safira',
+        'amethyst' => 'Ametista',
+        'ruby' => 'Rubi',
+        'graphite' => 'Grafite',
+    ];
+}
+
+function service_badge_icon(string $icon): string
+{
+    $paths = [
+        'sparkles' => '<path d="M12 2l1.45 4.55L18 8l-4.55 1.45L12 14l-1.45-4.55L6 8l4.55-1.45L12 2Z"/><path d="m19 14 .8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14ZM5 13l1.1 2.9L9 17l-2.9 1.1L5 21l-1.1-2.9L1 17l2.9-1.1L5 13Z"/>',
+        'diamond' => '<path d="m4 8 4-5h8l4 5-8 13L4 8Z"/><path d="m8 3 4 18 4-18M4 8h16"/>',
+        'crown' => '<path d="m3 6 4 4 5-7 5 7 4-4-2 12H5L3 6Z"/><path d="M5 18h14v3H5z"/>',
+        'shield' => '<path d="M12 2 20 5v6c0 5.2-3.4 8.5-8 11-4.6-2.5-8-5.8-8-11V5l8-3Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/>',
+        'bolt' => '<path d="M13.5 2 5 13h6l-.5 9L19 10h-6l.5-8Z"/>',
+        'globe' => '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+        'rocket' => '<path d="M14 4c2.5-2 5.5-2 6-2 .1.5.1 3.5-2 6l-5 5-5-1-1-5 7-3Z"/><path d="m8 12-4 1-2 3 6 1 1 5 3-2 1-7M15 7h.01"/>',
+        'headset' => '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 13h3v7H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 1-2Zm16 0h-3v7h2a2 2 0 0 0 2-2v-3a2 2 0 0 0-1-2ZM17 20c-1 2-3 2-5 2"/>',
+        'star' => '<path d="m12 2.5 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3.1-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 2.5Z"/>',
+        'layers' => '<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/>',
+    ];
+    $selected = $paths[$icon] ?? $paths['sparkles'];
+
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' . $selected . '</svg>';
+}
+
 function csrf_field(): string
 {
     return Csrf::field();

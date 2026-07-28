@@ -39,6 +39,8 @@ final class ActionHandler
                 'delete_client' => $this->deleteClient(),
                 'save_product' => $this->saveProduct(),
                 'delete_product' => $this->deleteProduct(),
+                'save_service_badge' => $this->saveServiceBadge(),
+                'delete_service_badge' => $this->deleteServiceBadge(),
                 'save_subscription' => $this->saveSubscription(),
                 'delete_subscription' => $this->deleteSubscription(),
                 'generate_due_payments', 'generate_upcoming_payments' => $this->generateUpcomingPayments(),
@@ -157,6 +159,55 @@ final class ActionHandler
         return '?page=products';
     }
 
+    private function saveServiceBadge(): string
+    {
+        $id = $this->id();
+        $name = mb_substr($this->required('name', 'Informe o nome do badge.'), 0, 80);
+        $icon = $this->choice('icon', array_keys(service_badge_icon_options()));
+        $tone = $this->choice('tone', array_keys(service_badge_tone_options()));
+        $active = isset($_POST['active']) ? 1 : 0;
+        $duplicateParams = [$name];
+        $duplicateSql = 'SELECT id FROM service_badges WHERE LOWER(name)=LOWER(?)';
+        if ($id) {
+            $duplicateSql .= ' AND id<>?';
+            $duplicateParams[] = $id;
+        }
+        if ($this->db->value($duplicateSql, $duplicateParams)) {
+            throw new RuntimeException('Já existe um badge com este nome.');
+        }
+
+        if ($id) {
+            $this->db->query(
+                'UPDATE service_badges SET name=?,icon=?,tone=?,active=? WHERE id=?',
+                [$name,$icon,$tone,$active,$id]
+            );
+            audit($this->db, 'update', 'service_badge', $id, compact('name', 'icon', 'tone', 'active'));
+        } else {
+            $id = $this->db->insert(
+                'INSERT INTO service_badges (name,icon,tone,active) VALUES (?,?,?,?)',
+                [$name,$icon,$tone,$active]
+            );
+            audit($this->db, 'create', 'service_badge', $id, compact('name', 'icon', 'tone', 'active'));
+        }
+        Flash::add('success', 'Badge de serviço salvo com sucesso.');
+        return '?page=service-badges';
+    }
+
+    private function deleteServiceBadge(): string
+    {
+        $id = $this->id(true);
+        $assignments = (int) $this->db->value(
+            'SELECT COUNT(*) FROM subscription_service_badges WHERE badge_id=?',
+            [$id]
+        );
+        $this->db->query('DELETE FROM service_badges WHERE id=?', [$id]);
+        audit($this->db, 'delete', 'service_badge', $id, ['removed_assignments' => $assignments]);
+        Flash::add('success', $assignments > 0
+            ? 'Badge excluído e removido das assinaturas vinculadas.'
+            : 'Badge excluído.');
+        return '?page=service-badges';
+    }
+
     private function saveSubscription(): string
     {
         $id = $this->id();
@@ -166,6 +217,7 @@ final class ActionHandler
             throw new RuntimeException('Selecione cliente e produto válidos.');
         }
         $status = $this->choice('status', ['trial','active','past_due','paused','canceled']);
+        $badgeIds = $this->postedServiceBadgeIds();
         $canceledAt = $status === 'canceled' ? ($this->nullable('canceled_at') ?: date('Y-m-d')) : null;
         $params = [
             $clientId, $productId, max(1, (int) ($_POST['quantity'] ?? 1)), $this->choice('currency', ['BRL','USD']),
@@ -175,12 +227,13 @@ final class ActionHandler
         ];
         if ($id) {
             $params[] = $id;
-            $this->db->transaction(function (Database $db) use ($id, $params): void {
+            $this->db->transaction(function (Database $db) use ($id, $params, $badgeIds): void {
                 $previous = $db->fetch('SELECT s.*,p.name product FROM subscriptions s JOIN products p ON p.id=s.product_id WHERE s.id=? FOR UPDATE', [$id]);
                 if (!$previous) {
                     throw new RuntimeException('A assinatura não existe mais. Atualize a página.');
                 }
                 $db->query('UPDATE subscriptions SET client_id=?, product_id=?, quantity=?, currency=?, unit_price=?, discount=?, status=?, start_date=?, next_billing_date=?, canceled_at=?, payment_method=?, notes=? WHERE id=?', $params);
+                $this->syncSubscriptionBadges($db, $id, $badgeIds);
                 $current = $db->fetch('SELECT s.*,p.name product FROM subscriptions s JOIN products p ON p.id=s.product_id WHERE s.id=?', [$id]);
                 $eventType = (int) $previous['product_id'] !== (int) $current['product_id'] ? 'plan_change' : 'subscription_update';
                 $summary = $eventType === 'plan_change'
@@ -194,8 +247,9 @@ final class ActionHandler
                 audit($db, $eventType, 'subscription', $id, $details);
             });
         } else {
-            $this->db->transaction(function (Database $db) use (&$id, $params): void {
+            $this->db->transaction(function (Database $db) use (&$id, $params, $badgeIds): void {
                 $id = $db->insert('INSERT INTO subscriptions (client_id, product_id, quantity, currency, unit_price, discount, status, start_date, next_billing_date, canceled_at, payment_method, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', $params);
+                $this->syncSubscriptionBadges($db, $id, $badgeIds);
                 $current = $db->fetch('SELECT s.*,p.name product FROM subscriptions s JOIN products p ON p.id=s.product_id WHERE s.id=?', [$id]);
                 $details = ['current' => $current];
                 $db->insert(
@@ -826,6 +880,43 @@ final class ActionHandler
         ];
         $this->renewSubscription($db, $subscription, $product, $row, (int) $payment['id']);
         return true;
+    }
+
+    private function postedServiceBadgeIds(): array
+    {
+        $posted = $_POST['badge_ids'] ?? [];
+        if (!is_array($posted)) {
+            return [];
+        }
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $posted),
+            static fn(int $id): bool => $id > 0
+        )));
+        if (count($ids) > 30) {
+            throw new RuntimeException('Selecione no máximo 30 badges por assinatura.');
+        }
+        if ($ids) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $existing = (int) $this->db->value(
+                "SELECT COUNT(*) FROM service_badges WHERE id IN ({$placeholders})",
+                $ids
+            );
+            if ($existing !== count($ids)) {
+                throw new RuntimeException('Um dos badges selecionados não existe mais.');
+            }
+        }
+        return $ids;
+    }
+
+    private function syncSubscriptionBadges(Database $db, int $subscriptionId, array $badgeIds): void
+    {
+        $db->query('DELETE FROM subscription_service_badges WHERE subscription_id=?', [$subscriptionId]);
+        foreach ($badgeIds as $badgeId) {
+            $db->query(
+                'INSERT INTO subscription_service_badges (subscription_id,badge_id) VALUES (?,?)',
+                [$subscriptionId, $badgeId]
+            );
+        }
     }
 
     private function addBillingMonths(string $date, string $cycle): string

@@ -2,11 +2,19 @@
 $search = trim((string) ($_GET['q'] ?? ''));
 $status = (string) ($_GET['status'] ?? '');
 $dueFilter = (string) ($_GET['due'] ?? '');
+$badgeFilter = max(0, (int) ($_GET['badge'] ?? 0));
 $where = ' WHERE 1=1';
 $params = [];
 if ($search !== '') {
     $where .= " AND CONCAT_WS(' ',s.id,c.name,c.company,c.email,c.country,CASE c.country WHEN 'BR' THEN 'Brasil' WHEN 'US' THEN 'Estados Unidos' END,p.name,p.sku,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,s.quantity,s.currency,s.unit_price,REPLACE(s.unit_price,'.',','),s.discount,REPLACE(s.discount,'.',','),s.status,CASE s.status WHEN 'active' THEN 'Ativa Ativo' WHEN 'trial' THEN 'Teste' WHEN 'past_due' THEN 'Em atraso Atrasada' WHEN 'paused' THEN 'Pausada' WHEN 'canceled' THEN 'Cancelada' END,s.start_date,DATE_FORMAT(s.start_date,'%d/%m/%Y'),s.next_billing_date,DATE_FORMAT(s.next_billing_date,'%d/%m/%Y'),DATEDIFF(s.next_billing_date,CURDATE()),CASE WHEN s.next_billing_date<CURDATE() THEN 'Vencida atrasada' WHEN s.next_billing_date=CURDATE() THEN 'Vence hoje' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY) THEN 'Vence amanhã' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 2 DAY) THEN 'Vence em 2 dias' WHEN s.next_billing_date<=DATE_ADD(CURDATE(),INTERVAL 7 DAY) THEN 'Próximos 7 dias' END,s.payment_method,s.notes) LIKE ?";
     $params = ['%' . $search . '%'];
+    $where = ' WHERE 1=1 AND (' . substr($where, strlen(' WHERE 1=1 AND '))
+        . " OR EXISTS (
+                SELECT 1 FROM subscription_service_badges search_ssb
+                JOIN service_badges search_badge ON search_badge.id=search_ssb.badge_id
+                WHERE search_ssb.subscription_id=s.id AND search_badge.name LIKE ?
+            ))";
+    $params[] = '%' . $search . '%';
 }
 if (in_array($status, ['trial', 'active', 'past_due', 'paused', 'canceled'], true)) {
     $where .= ' AND s.status=?';
@@ -21,12 +29,49 @@ if (in_array($dueFilter, ['overdue', 'today', 'tomorrow', 'two_days', 'next_7'],
         'next_7' => ' AND s.next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 7 DAY)',
     };
 }
+if ($badgeFilter > 0) {
+    $where .= ' AND EXISTS (
+        SELECT 1 FROM subscription_service_badges filter_ssb
+        WHERE filter_ssb.subscription_id=s.id AND filter_ssb.badge_id=?
+    )';
+    $params[] = $badgeFilter;
+}
 $countSql = 'SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id' . $where;
 $dataSql = "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,((s.unit_price*s.quantity)-s.discount) recurring_value,DATEDIFF(s.next_billing_date,CURDATE()) due_in_days FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id{$where} ORDER BY s.next_billing_date IS NULL,s.next_billing_date,FIELD(s.status,'past_due','trial','active','paused','canceled')";
 $pagination = pagination($db, $countSql, $dataSql, $params);
 
 $edit = isset($_GET['edit']) ? $db->fetch('SELECT * FROM subscriptions WHERE id=?', [(int) $_GET['edit']]) : null;
 $showForm = isset($_GET['new']) || $edit;
+$serviceBadgeCatalog = $db->fetchAll('SELECT * FROM service_badges ORDER BY active DESC,name');
+$selectedServiceBadgeIds = $edit
+    ? array_map(
+        'intval',
+        array_column(
+            $db->fetchAll('SELECT badge_id FROM subscription_service_badges WHERE subscription_id=?', [(int) $edit['id']]),
+            'badge_id'
+        )
+    )
+    : [];
+$assignableServiceBadges = array_values(array_filter(
+    $serviceBadgeCatalog,
+    static fn(array $badge): bool => (bool) $badge['active'] || in_array((int) $badge['id'], $selectedServiceBadgeIds, true)
+));
+$serviceBadgesBySubscription = [];
+$visibleSubscriptionIds = array_map('intval', array_column($pagination['rows'], 'id'));
+if ($visibleSubscriptionIds) {
+    $placeholders = implode(',', array_fill(0, count($visibleSubscriptionIds), '?'));
+    $assignedBadges = $db->fetchAll(
+        "SELECT ssb.subscription_id,b.id,b.name,b.icon,b.tone
+         FROM subscription_service_badges ssb
+         JOIN service_badges b ON b.id=ssb.badge_id
+         WHERE ssb.subscription_id IN ({$placeholders})
+         ORDER BY b.name",
+        $visibleSubscriptionIds
+    );
+    foreach ($assignedBadges as $assignedBadge) {
+        $serviceBadgesBySubscription[(int) $assignedBadge['subscription_id']][] = $assignedBadge;
+    }
+}
 $individualRenewalId = max(0, (int) ($_GET['renewal'] ?? 0));
 $isIndividualRenewal = $individualRenewalId > 0;
 $showRenewals = isset($_GET['renewals']) || $isIndividualRenewal;
@@ -133,8 +178,19 @@ if ($historyId > 0) {
 <section class="subscription-radar card"><header><div><p class="eyebrow">RADAR DE RENOVAÇÕES</p><h2>Agenda inteligente de vencimentos</h2><p>Antecipe cobranças críticas e priorize o que precisa de atenção agora.</p></div><?php if ((int) $dueStats['tomorrow_count'] > 0): ?><button type="button" class="radar-notification" data-due-alert-open><span>♢</span><b><?= (int) $dueStats['tomorrow_count'] ?></b> alerta(s) para amanhã</button><?php endif; ?></header><div class="radar-grid"><a href="?page=subscriptions&due=overdue" class="radar-item overdue <?= $dueFilter === 'overdue' ? 'active' : '' ?>" data-radar-filter="overdue"><span>!</span><div><small>ATRASADAS</small><b><?= (int) $dueStats['overdue'] ?></b><p>Exigem ação imediata</p></div></a><a href="?page=subscriptions&due=today" class="radar-item today <?= $dueFilter === 'today' ? 'active' : '' ?>" data-radar-filter="today"><span>●</span><div><small>VENCEM HOJE</small><b><?= (int) $dueStats['today_count'] ?></b><p>Confirmar recebimentos</p></div></a><a href="?page=subscriptions&due=tomorrow" class="radar-item tomorrow <?= $dueFilter === 'tomorrow' ? 'active' : '' ?>" data-radar-filter="tomorrow"><span>→</span><div><small>VENCEM AMANHÃ</small><b><?= (int) $dueStats['tomorrow_count'] ?></b><p>Preparar cobranças</p></div></a><a href="?page=subscriptions&due=two_days" class="radar-item two-days <?= $dueFilter === 'two_days' ? 'active' : '' ?>" data-radar-filter="two_days"><span>2</span><div><small>EM 2 DIAS</small><b><?= (int) $dueStats['two_days_count'] ?></b><p>Próxima janela</p></div></a><a href="?page=subscriptions&due=next_7" class="radar-item week <?= $dueFilter === 'next_7' ? 'active' : '' ?>" data-radar-filter="next_7"><span>7</span><div><small>PRÓXIMOS 7 DIAS</small><b><?= (int) $dueStats['next_7_count'] ?></b><p>Visão semanal</p></div></a></div></section>
 
 <section class="toolbar list-toolbar">
-    <form class="search-filters" method="get" data-live-filter id="subscription-filters"><input type="hidden" name="page" value="subscriptions"><label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Cliente, produto, valor, moeda, data…" value="<?= h($search) ?>"></label><select name="status"><option value="">Todos os status</option><?php foreach (['active'=>'Ativas','trial'=>'Em teste','past_due'=>'Em atraso','paused'=>'Pausadas','canceled'=>'Canceladas'] as $value => $label): ?><option value="<?= $value ?>" <?= $status === $value ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select><select name="due" data-due-filter><option value="">Todos os vencimentos</option><option value="overdue" <?= $dueFilter === 'overdue' ? 'selected' : '' ?>>Atrasadas</option><option value="today" <?= $dueFilter === 'today' ? 'selected' : '' ?>>Vencem hoje</option><option value="tomorrow" <?= $dueFilter === 'tomorrow' ? 'selected' : '' ?>>Vencem amanhã</option><option value="two_days" <?= $dueFilter === 'two_days' ? 'selected' : '' ?>>Vencem em 2 dias</option><option value="next_7" <?= $dueFilter === 'next_7' ? 'selected' : '' ?>>Próximos 7 dias</option></select><span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span></form>
-    <div><a class="button ghost" href="?page=export&type=subscriptions">⇩ Exportar</a><?php if ($auth->canWrite() && $dueCount > 0): ?><a class="button secondary" href="?page=subscriptions&renewals=1">⚡ Gerar próximas cobranças (<?= $dueCount ?>)</a><?php endif; ?><?php if ($auth->canWrite()): ?><a class="button primary" href="?page=subscriptions&new=1">＋ Nova assinatura</a><?php endif; ?></div>
+    <form class="search-filters" method="get" data-live-filter id="subscription-filters">
+        <input type="hidden" name="page" value="subscriptions">
+        <label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Cliente, produto, badge, valor, data…" value="<?= h($search) ?>"></label>
+        <select name="status"><option value="">Todos os status</option><?php foreach (['active'=>'Ativas','trial'=>'Em teste','past_due'=>'Em atraso','paused'=>'Pausadas','canceled'=>'Canceladas'] as $value => $label): ?><option value="<?= $value ?>" <?= $status === $value ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select>
+        <select name="due" data-due-filter><option value="">Todos os vencimentos</option><option value="overdue" <?= $dueFilter === 'overdue' ? 'selected' : '' ?>>Atrasadas</option><option value="today" <?= $dueFilter === 'today' ? 'selected' : '' ?>>Vencem hoje</option><option value="tomorrow" <?= $dueFilter === 'tomorrow' ? 'selected' : '' ?>>Vencem amanhã</option><option value="two_days" <?= $dueFilter === 'two_days' ? 'selected' : '' ?>>Vencem em 2 dias</option><option value="next_7" <?= $dueFilter === 'next_7' ? 'selected' : '' ?>>Próximos 7 dias</option></select>
+        <select name="badge"><option value="">Todos os badges</option><?php foreach ($serviceBadgeCatalog as $serviceBadge): ?><option value="<?= (int) $serviceBadge['id'] ?>" <?= $badgeFilter === (int) $serviceBadge['id'] ? 'selected' : '' ?>><?= h($serviceBadge['name']) ?><?= $serviceBadge['active'] ? '' : ' (inativo)' ?></option><?php endforeach; ?></select>
+        <span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span>
+    </form>
+    <div>
+        <a class="button ghost" href="?page=export&type=subscriptions">⇩ Exportar</a>
+        <?php if ($auth->canWrite() && $dueCount > 0): ?><a class="button secondary" href="?page=subscriptions&renewals=1">⚡ Gerar próximas cobranças (<?= $dueCount ?>)</a><?php endif; ?>
+        <?php if ($auth->canWrite()): ?><a class="button primary" href="?page=subscriptions&new=1">＋ Nova assinatura</a><?php endif; ?>
+    </div>
 </section>
 
 <div data-live-results>
@@ -146,7 +202,34 @@ if ($historyId > 0) {
     $dueLabel = match ($urgency) { 'overdue'=>'Vencida há ' . abs($dueDays) . ' dia(s)', 'today'=>'Vence hoje', 'tomorrow'=>'Vence amanhã', 'two-days'=>'Vence em 2 dias', 'week'=>'Vence em ' . $dueDays . ' dias', default=>'Próxima renovação' };
     $dueIcon = match ($urgency) { 'overdue'=>'!', 'today'=>'●', 'tomorrow'=>'→', 'two-days'=>'2', 'week'=>'◷', default=>'◇' };
     $canRenewIndividual = $auth->canWrite() && $item['next_billing_date'] && in_array($item['status'], ['active','trial','past_due'], true);
-?><tr class="subscription-row urgency-<?= h($urgency) ?>"><td><?php if ($canRenewIndividual): ?><a class="entity subscription-renew-link" href="?page=subscriptions&renewal=<?= (int) $item['id'] ?>" title="Renovar e receber cobrança" aria-label="Renovar assinatura de <?= h($item['client']) ?>"><?php else: ?><div class="entity"><?php endif; ?><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span><span><b><?= h($item['client']) ?></b><small class="entity-country"><?= h($item['product']) ?> · <?= country_flag_icon($item['country']) ?></small></span><?php if ($canRenewIndividual): ?></a><?php else: ?></div><?php endif; ?></td><td><b><?= money($item['recurring_value'], $item['currency']) ?></b><small class="block"><?= (int) $item['quantity'] ?> unidade(s)</small></td><td><?= cycle_label($item['billing_cycle']) ?></td><td><div class="due-date-cell <?= h($urgency) ?>"><span><?= $dueIcon ?></span><div><b><?= date_br($item['next_billing_date']) ?></b><small><?= h($dueLabel) ?></small></div></div></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td><td><div class="row-actions"><a href="?page=subscriptions&history=<?= (int) $item['id'] ?>" title="Histórico">Histórico</a><?php if ($auth->canWrite()): ?><a class="row-action" href="?page=subscriptions&edit=<?= (int) $item['id'] ?>" title="Editar">•••</a><?php endif; ?></div></td></tr><?php endforeach; ?>
+    $itemServiceBadges = $serviceBadgesBySubscription[(int) $item['id']] ?? [];
+?>
+<tr class="subscription-row urgency-<?= h($urgency) ?>">
+    <td>
+        <?php if ($canRenewIndividual): ?>
+            <a class="entity subscription-renew-link" href="?page=subscriptions&renewal=<?= (int) $item['id'] ?>" title="Renovar e receber cobrança" aria-label="Renovar assinatura de <?= h($item['client']) ?>">
+        <?php else: ?><div class="entity"><?php endif; ?>
+            <span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span>
+            <span>
+                <b><?= h($item['client']) ?></b>
+                <small class="entity-country"><?= h($item['product']) ?> · <?= country_flag_icon($item['country']) ?></small>
+                <?php if ($itemServiceBadges): ?>
+                    <span class="service-badge-list">
+                        <?php foreach ($itemServiceBadges as $serviceBadge): ?>
+                            <span class="service-badge compact tone-<?= h($serviceBadge['tone']) ?>" title="<?= h($serviceBadge['name']) ?>"><?= service_badge_icon($serviceBadge['icon']) ?><b><?= h($serviceBadge['name']) ?></b></span>
+                        <?php endforeach; ?>
+                    </span>
+                <?php endif; ?>
+            </span>
+        <?php if ($canRenewIndividual): ?></a><?php else: ?></div><?php endif; ?>
+    </td>
+    <td><b><?= money($item['recurring_value'], $item['currency']) ?></b><small class="block"><?= (int) $item['quantity'] ?> unidade(s)</small></td>
+    <td><?= cycle_label($item['billing_cycle']) ?></td>
+    <td><div class="due-date-cell <?= h($urgency) ?>"><span><?= $dueIcon ?></span><div><b><?= date_br($item['next_billing_date']) ?></b><small><?= h($dueLabel) ?></small></div></div></td>
+    <td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td>
+    <td><div class="row-actions"><a href="?page=subscriptions&history=<?= (int) $item['id'] ?>" title="Histórico">Histórico</a><?php if ($auth->canWrite()): ?><a class="row-action" href="?page=subscriptions&edit=<?= (int) $item['id'] ?>" title="Editar">•••</a><?php endif; ?></div></td>
+</tr>
+<?php endforeach; ?>
 </tbody></table></div><?= render_pagination($pagination) ?></section>
 </div>
 
@@ -199,6 +282,47 @@ if ($historyId > 0) {
 <?php endif; ?>
 
 <?php if ($showForm): ?>
-<div class="modal open"><a class="modal-backdrop" href="?page=subscriptions"></a><section class="modal-panel wide"><header><div><p class="eyebrow">RECEITA RECORRENTE</p><h2><?= $edit ? 'Editar assinatura' : 'Nova assinatura' ?></h2></div><a href="?page=subscriptions" class="modal-close">×</a></header><form method="post" class="form-grid" data-subscription-form><?= csrf_field() ?><input type="hidden" name="action" value="save_subscription"><input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>"><input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
-<label>Cliente<select name="client_id" required data-sub-client><option value="">Selecione…</option><?php foreach ($clients as $client): ?><option value="<?= (int) $client['id'] ?>" data-currency="<?= h($client['preferred_currency']) ?>" <?= (int) ($edit['client_id'] ?? 0) === (int) $client['id'] ? 'selected' : '' ?>><?= h($client['name']) ?> · <?= h($client['country']) ?></option><?php endforeach; ?></select></label><label>Produto<select name="product_id" required data-sub-product><option value="">Selecione…</option><?php foreach ($products as $product): ?><option value="<?= (int) $product['id'] ?>" data-brl="<?= h($product['price_brl']) ?>" data-usd="<?= h($product['price_usd']) ?>" <?= (int) ($edit['product_id'] ?? 0) === (int) $product['id'] ? 'selected' : '' ?>><?= h($product['name']) ?> · <?= cycle_label($product['billing_cycle']) ?></option><?php endforeach; ?></select></label><label>Moeda<select name="currency" data-sub-currency><option value="BRL" <?= ($edit['currency'] ?? 'BRL') === 'BRL' ? 'selected' : '' ?>>BRL — Real</option><option value="USD" <?= ($edit['currency'] ?? '') === 'USD' ? 'selected' : '' ?>>USD — Dólar</option></select></label><label>Valor unitário<input name="unit_price" type="number" step="0.01" min="0" required value="<?= decimal_input($edit['unit_price'] ?? 0) ?>" data-sub-price></label><label>Quantidade<input name="quantity" type="number" min="1" required value="<?= (int) ($edit['quantity'] ?? 1) ?>"></label><label>Desconto total<input name="discount" type="number" step="0.01" min="0" value="<?= decimal_input($edit['discount'] ?? 0) ?>"></label><label>Data de início<input name="start_date" type="date" required value="<?= h($edit['start_date'] ?? date('Y-m-d')) ?>"></label><label>Próxima cobrança<input name="next_billing_date" type="date" value="<?= h($edit['next_billing_date'] ?? date('Y-m-d', strtotime('+1 month'))) ?>"></label><label>Status<select name="status"><option value="active" <?= ($edit['status'] ?? 'active') === 'active' ? 'selected' : '' ?>>Ativa</option><option value="trial" <?= ($edit['status'] ?? '') === 'trial' ? 'selected' : '' ?>>Teste</option><option value="past_due" <?= ($edit['status'] ?? '') === 'past_due' ? 'selected' : '' ?>>Em atraso</option><option value="paused" <?= ($edit['status'] ?? '') === 'paused' ? 'selected' : '' ?>>Pausada</option><option value="canceled" <?= ($edit['status'] ?? '') === 'canceled' ? 'selected' : '' ?>>Cancelada</option></select></label><label>Data de cancelamento<input name="canceled_at" type="date" value="<?= h($edit['canceled_at'] ?? '') ?>"></label><label class="span-2">Forma de pagamento<input name="payment_method" value="<?= h($edit['payment_method'] ?? '') ?>" placeholder="Cartão, PIX, Stripe, boleto…"></label><label class="span-2">Observações<textarea name="notes" rows="3"><?= h($edit['notes'] ?? '') ?></textarea></label><footer class="span-2"><a class="button ghost" href="?page=subscriptions">Cancelar</a><button class="button primary">Salvar assinatura</button></footer></form><?php if ($edit && $auth->canWrite()): ?><form method="post" class="danger-zone" data-confirm="Excluir esta assinatura?"><?= csrf_field() ?><input type="hidden" name="action" value="delete_subscription"><input type="hidden" name="id" value="<?= (int) $edit['id'] ?>"><button>Excluir assinatura</button></form><?php endif; ?></section></div>
+<div class="modal open">
+    <a class="modal-backdrop" href="?page=subscriptions"></a>
+    <section class="modal-panel wide">
+        <header><div><p class="eyebrow">RECEITA RECORRENTE</p><h2><?= $edit ? 'Editar assinatura' : 'Nova assinatura' ?></h2></div><a href="?page=subscriptions" class="modal-close">×</a></header>
+        <form method="post" class="form-grid" data-subscription-form>
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="save_subscription">
+            <input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>">
+            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+            <label>Cliente<select name="client_id" required data-sub-client><option value="">Selecione…</option><?php foreach ($clients as $client): ?><option value="<?= (int) $client['id'] ?>" data-currency="<?= h($client['preferred_currency']) ?>" <?= (int) ($edit['client_id'] ?? 0) === (int) $client['id'] ? 'selected' : '' ?>><?= h($client['name']) ?> · <?= h($client['country']) ?></option><?php endforeach; ?></select></label>
+            <label>Produto<select name="product_id" required data-sub-product><option value="">Selecione…</option><?php foreach ($products as $product): ?><option value="<?= (int) $product['id'] ?>" data-brl="<?= h($product['price_brl']) ?>" data-usd="<?= h($product['price_usd']) ?>" <?= (int) ($edit['product_id'] ?? 0) === (int) $product['id'] ? 'selected' : '' ?>><?= h($product['name']) ?> · <?= cycle_label($product['billing_cycle']) ?></option><?php endforeach; ?></select></label>
+            <label>Moeda<select name="currency" data-sub-currency><option value="BRL" <?= ($edit['currency'] ?? 'BRL') === 'BRL' ? 'selected' : '' ?>>BRL — Real</option><option value="USD" <?= ($edit['currency'] ?? '') === 'USD' ? 'selected' : '' ?>>USD — Dólar</option></select></label>
+            <label>Valor unitário<input name="unit_price" type="number" step="0.01" min="0" required value="<?= decimal_input($edit['unit_price'] ?? 0) ?>" data-sub-price></label>
+            <label>Quantidade<input name="quantity" type="number" min="1" required value="<?= (int) ($edit['quantity'] ?? 1) ?>"></label>
+            <label>Desconto total<input name="discount" type="number" step="0.01" min="0" value="<?= decimal_input($edit['discount'] ?? 0) ?>"></label>
+            <label>Data de início<input name="start_date" type="date" required value="<?= h($edit['start_date'] ?? date('Y-m-d')) ?>"></label>
+            <label>Próxima cobrança<input name="next_billing_date" type="date" value="<?= h($edit['next_billing_date'] ?? date('Y-m-d', strtotime('+1 month'))) ?>"></label>
+            <label>Status<select name="status"><option value="active" <?= ($edit['status'] ?? 'active') === 'active' ? 'selected' : '' ?>>Ativa</option><option value="trial" <?= ($edit['status'] ?? '') === 'trial' ? 'selected' : '' ?>>Teste</option><option value="past_due" <?= ($edit['status'] ?? '') === 'past_due' ? 'selected' : '' ?>>Em atraso</option><option value="paused" <?= ($edit['status'] ?? '') === 'paused' ? 'selected' : '' ?>>Pausada</option><option value="canceled" <?= ($edit['status'] ?? '') === 'canceled' ? 'selected' : '' ?>>Cancelada</option></select></label>
+            <label>Data de cancelamento<input name="canceled_at" type="date" value="<?= h($edit['canceled_at'] ?? '') ?>"></label>
+            <label class="span-2">Forma de pagamento<input name="payment_method" value="<?= h($edit['payment_method'] ?? '') ?>" placeholder="Cartão, PIX, Stripe, boleto…"></label>
+            <div class="subscription-badge-field span-2">
+                <div><span>Badges de serviços</span><a href="?page=service-badges">Gerenciar biblioteca →</a></div>
+                <?php if (!$assignableServiceBadges): ?>
+                    <p>Nenhum badge disponível. <a href="?page=service-badges&new=1">Crie o primeiro badge</a> para identificar os serviços desta assinatura.</p>
+                <?php else: ?>
+                    <div class="subscription-badge-options">
+                        <?php foreach ($assignableServiceBadges as $serviceBadge): ?>
+                            <label class="<?= !$serviceBadge['active'] ? 'inactive' : '' ?>">
+                                <input type="checkbox" name="badge_ids[]" value="<?= (int) $serviceBadge['id'] ?>" <?= in_array((int) $serviceBadge['id'], $selectedServiceBadgeIds, true) ? 'checked' : '' ?>>
+                                <span class="service-badge tone-<?= h($serviceBadge['tone']) ?>"><?= service_badge_icon($serviceBadge['icon']) ?><b><?= h($serviceBadge['name']) ?></b></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <label class="span-2">Observações<textarea name="notes" rows="3"><?= h($edit['notes'] ?? '') ?></textarea></label>
+            <footer class="span-2"><a class="button ghost" href="?page=subscriptions">Cancelar</a><button class="button primary">Salvar assinatura</button></footer>
+        </form>
+        <?php if ($edit && $auth->canWrite()): ?>
+            <form method="post" class="danger-zone" data-confirm="Excluir esta assinatura?"><?= csrf_field() ?><input type="hidden" name="action" value="delete_subscription"><input type="hidden" name="id" value="<?= (int) $edit['id'] ?>"><button>Excluir assinatura</button></form>
+        <?php endif; ?>
+    </section>
+</div>
 <?php endif; ?>
