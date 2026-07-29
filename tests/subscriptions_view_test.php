@@ -51,6 +51,13 @@ $db = new class($subscription, $product) {
     }
     public function fetchAll(string $sql, array $params = []): array
     {
+        if (str_contains($sql, 'active_units')) return [
+            ['id'=>1,'name'=>'1 Ponto','active'=>1,'active_subscriptions'=>3,'active_units'=>5],
+            ['id'=>2,'name'=>'2 Pontos','active'=>1,'active_subscriptions'=>1,'active_units'=>2],
+            ['id'=>3,'name'=>'Multi-pontos','active'=>1,'active_subscriptions'=>1,'active_units'=>4],
+            ['id'=>4,'name'=>'+Apps Xcloud/Quick Player','active'=>1,'active_subscriptions'=>2,'active_units'=>3],
+            ['id'=>5,'name'=>'1 App Xcloud/Quick Player','active'=>1,'active_subscriptions'=>1,'active_units'=>1],
+        ];
         if (str_contains($sql, 'SELECT * FROM service_badges')) return [['id'=>3,'name'=>'Suporte premium','icon'=>'diamond','tone'=>'gold','active'=>1]];
         if (str_contains($sql, 'SELECT badge_id FROM subscription_service_badges')) return [['badge_id'=>3]];
         if (str_contains($sql, 'FROM subscription_service_badges ssb')) return [['subscription_id'=>7,'id'=>3,'name'=>'Suporte premium','icon'=>'diamond','tone'=>'gold']];
@@ -85,6 +92,13 @@ $checks = [
     'Linhas por página',
     'name="per_page"',
     'value="200"',
+    'Unidades por produto',
+    'data-total-units="15"',
+    'data-product-units="2"',
+    '2 Pontos',
+    'Multi-pontos',
+    '+Apps Xcloud/Quick Player',
+    '1 App Xcloud/Quick Player',
     'Confirmar e receber 1 renovação(ões)',
     'Pagamento / resgate',
     'data-due-filter',

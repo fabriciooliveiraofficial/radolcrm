@@ -121,6 +121,23 @@ foreach ($products as $key => $product) {
 $activeCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions WHERE status='active'");
 $trialCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions WHERE status='trial'");
 $overdueCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions WHERE status='past_due'");
+$productUnitSummary = $db->fetchAll(
+    "SELECT p.id,p.name,p.active,COUNT(s.id) active_subscriptions,
+            COALESCE(SUM(
+                CASE
+                    WHEN LOWER(TRIM(p.name)) REGEXP '^[0-9]+[[:space:]]*pontos?'
+                        THEN CAST(TRIM(p.name) AS UNSIGNED) * s.quantity
+                    ELSE s.quantity
+                END
+            ),0) active_units
+     FROM products p
+     LEFT JOIN subscriptions s ON s.product_id=p.id AND s.status='active'
+     WHERE p.active=1 OR s.id IS NOT NULL
+     GROUP BY p.id,p.name,p.active
+     ORDER BY p.active DESC,active_units DESC,p.name"
+);
+$totalProductUnits = array_sum(array_map(static fn(array $item): int => (int) $item['active_units'], $productUnitSummary));
+$totalProductSubscriptions = array_sum(array_map(static fn(array $item): int => (int) $item['active_subscriptions'], $productUnitSummary));
 $cutoff = (new DateTimeImmutable('today'))->modify('+45 days')->format('Y-m-d');
 $dueCount = (int) $db->value(
     "SELECT COUNT(*) FROM subscriptions s
@@ -211,6 +228,22 @@ if ($historyId > 0) {
 ?>
 
 <section class="mini-stats"><div><span class="dot green"></span><b><?= $activeCount ?></b><small>Ativas</small></div><div><span class="dot gold"></span><b><?= $trialCount ?></b><small>Em teste</small></div><div><span class="dot red"></span><b><?= $overdueCount ?></b><small>Em atraso</small></div></section>
+
+<section class="subscription-unit-overview">
+    <header><div><p class="eyebrow">CAPACIDADE ATIVA</p><h2>Unidades por produto</h2><p>A soma considera a quantidade real de pontos, multipontos e aplicativos de cada assinatura ativa.</p></div></header>
+    <div class="subscription-unit-grid">
+        <article class="subscription-unit-card total" data-total-units="<?= $totalProductUnits ?>">
+            <span class="subscription-unit-icon">Σ</span>
+            <div><small>TOTAL GERAL</small><strong><?= $totalProductUnits ?></strong><b>unidades ativas</b><p><?= $totalProductSubscriptions ?> assinatura(s) ativa(s)</p></div>
+        </article>
+        <?php foreach ($productUnitSummary as $productSummary): $productSymbol=mb_strtoupper(mb_substr(ltrim((string) $productSummary['name'], '+'),0,1)); ?>
+            <article class="subscription-unit-card <?= !$productSummary['active'] ? 'inactive' : '' ?>" data-product-id="<?= (int) $productSummary['id'] ?>" data-product-units="<?= (int) $productSummary['active_units'] ?>">
+                <span class="subscription-unit-icon"><?= h($productSymbol) ?></span>
+                <div><small>PRODUTO</small><strong><?= (int) $productSummary['active_units'] ?></strong><b><?= h($productSummary['name']) ?></b><p><?= (int) $productSummary['active_subscriptions'] ?> assinatura(s) · unidades ativas</p></div>
+            </article>
+        <?php endforeach; ?>
+    </div>
+</section>
 
 <section class="subscription-radar card"><header><div><p class="eyebrow">RADAR DE RENOVAÇÕES</p><h2>Agenda inteligente de vencimentos</h2><p>Antecipe cobranças críticas e priorize o que precisa de atenção agora.</p></div><?php if ((int) $dueStats['tomorrow_count'] > 0): ?><button type="button" class="radar-notification" data-due-alert-open><span>♢</span><b><?= (int) $dueStats['tomorrow_count'] ?></b> alerta(s) para amanhã</button><?php endif; ?></header><div class="radar-grid"><a href="?page=subscriptions&due=overdue" class="radar-item overdue <?= $dueFilter === 'overdue' ? 'active' : '' ?>" data-radar-filter="overdue"><span>!</span><div><small>ATRASADAS</small><b><?= (int) $dueStats['overdue'] ?></b><p>Exigem ação imediata</p></div></a><a href="?page=subscriptions&due=today" class="radar-item today <?= $dueFilter === 'today' ? 'active' : '' ?>" data-radar-filter="today"><span>●</span><div><small>VENCEM HOJE</small><b><?= (int) $dueStats['today_count'] ?></b><p>Confirmar recebimentos</p></div></a><a href="?page=subscriptions&due=tomorrow" class="radar-item tomorrow <?= $dueFilter === 'tomorrow' ? 'active' : '' ?>" data-radar-filter="tomorrow"><span>→</span><div><small>VENCEM AMANHÃ</small><b><?= (int) $dueStats['tomorrow_count'] ?></b><p>Preparar cobranças</p></div></a><a href="?page=subscriptions&due=two_days" class="radar-item two-days <?= $dueFilter === 'two_days' ? 'active' : '' ?>" data-radar-filter="two_days"><span>2</span><div><small>EM 2 DIAS</small><b><?= (int) $dueStats['two_days_count'] ?></b><p>Próxima janela</p></div></a><a href="?page=subscriptions&due=next_7" class="radar-item week <?= $dueFilter === 'next_7' ? 'active' : '' ?>" data-radar-filter="next_7"><span>7</span><div><small>PRÓXIMOS 7 DIAS</small><b><?= (int) $dueStats['next_7_count'] ?></b><p>Visão semanal</p></div></a></div></section>
 
