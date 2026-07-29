@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 6;
+    private const VERSION = 7;
 
     public function __construct(private readonly Database $db)
     {
@@ -146,6 +146,35 @@ final class MigrationService
                     INDEX idx_subscription_badges_badge (badge_id, subscription_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
             );
+        }
+        if ($version < 7) {
+            if (!$this->columnExists('payments', 'base_amount')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN base_amount DECIMAL(15,2) NULL AFTER amount");
+            }
+            if (!$this->columnExists('payments', 'discount_amount')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN discount_amount DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER base_amount");
+            }
+            if (!$this->columnExists('payments', 'surcharge_amount')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN surcharge_amount DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER discount_amount");
+            }
+            if (!$this->columnExists('payments', 'manual_adjustment_amount')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN manual_adjustment_amount DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER surcharge_amount");
+            }
+            if (!$this->columnExists('payments', 'renewal_mode')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN renewal_mode ENUM('months','date') NULL AFTER manual_adjustment_amount");
+            }
+            if (!$this->columnExists('payments', 'renewal_months')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN renewal_months TINYINT UNSIGNED NULL AFTER renewal_mode");
+            }
+            if (!$this->columnExists('payments', 'renewal_days')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN renewal_days SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER renewal_months");
+            }
+            if (!$this->columnExists('payments', 'renewal_start_date')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN renewal_start_date DATE NULL AFTER renewal_days");
+            }
+            if (!$this->columnExists('payments', 'renewal_end_date')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN renewal_end_date DATE NULL AFTER renewal_start_date, ADD INDEX idx_payments_renewal_end (renewal_end_date)");
+            }
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",

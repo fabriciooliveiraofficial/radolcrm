@@ -11,6 +11,8 @@ $tests = [
     'escape HTML' => h('<script>') === '&lt;script&gt;',
     'data brasileira' => date_br('2026-07-21') === '21/07/2026',
     'ciclo mensal' => cycle_label('monthly') === 'Mensal',
+    'período de renovação em meses e dias' => renewal_period_label(4, 15) === '4 meses e 15 dias'
+        && renewal_period_label(1, 1) === '1 mês e 1 dia',
     'status pago' => status_label('paid') === 'Pago',
     'produto cotado em USD converte para BRL' => product_with_current_prices(['pricing_mode'=>'usd','price_brl'=>0,'price_usd'=>15], 5.5)['price_brl'] === 82.5,
     'produto cotado em BRL converte para USD' => product_with_current_prices(['pricing_mode'=>'brl','price_brl'=>55,'price_usd'=>0], 5.5)['price_usd'] === 10.0,

@@ -337,14 +337,31 @@ final class ActionHandler
             $unitPrice = normalize_decimal($posted['unit_price'] ?? 0);
             $quantity = max(1, (int) ($posted['quantity'] ?? 1));
             $discount = max(0, normalize_decimal($posted['discount'] ?? 0));
-            $expected = round(($unitPrice * $quantity) - $discount, 2);
-            $received = normalize_decimal($posted['amount'] ?? 0);
-            $fee = max(0, normalize_decimal($posted['fee_amount'] ?? 0));
-            if ($unitPrice <= 0 || $expected <= 0 || $received <= 0 || $fee > $received) {
-                throw new RuntimeException('Revise os valores da renovação. O total e o valor recebido devem ser positivos.');
+            $contractCycleAmount = round(($unitPrice * $quantity) - $discount, 2);
+            $renewalMode = in_array(($posted['renewal_mode'] ?? ''), ['months', 'date'], true)
+                ? (string) $posted['renewal_mode']
+                : 'months';
+            if ($renewalMode === 'date') {
+                $renewalEndDate = trim((string) ($posted['renewal_end_date'] ?? ''));
+                $this->validateDate($renewalEndDate, false, 'Informe uma próxima cobrança válida para a renovação.');
+                [$renewalMonths, $renewalDays] = $this->renewalPeriodBetween($receiptDate, $renewalEndDate);
+            } else {
+                $renewalMonths = (int) ($posted['renewal_months'] ?? 1);
+                if ($renewalMonths < 1 || $renewalMonths > 24) {
+                    throw new RuntimeException('A renovação automática deve cobrir entre 1 e 24 meses.');
+                }
+                $renewalDays = 0;
+                $renewalEndDate = $this->addCalendarMonths($receiptDate, $renewalMonths);
             }
-            if (abs($expected - $received) > 0.009) {
-                throw new RuntimeException('O valor recebido deve ser igual ao total devido. Revise quantidade, preço e desconto.');
+            $baseAmount = normalize_decimal($posted['base_amount'] ?? 0);
+            $paymentDiscount = max(0, normalize_decimal($posted['payment_discount'] ?? 0));
+            $surchargeAmount = max(0, normalize_decimal($posted['surcharge_amount'] ?? 0));
+            $calculatedFinal = round($baseAmount - $paymentDiscount + $surchargeAmount, 2);
+            $received = normalize_decimal($posted['amount'] ?? 0);
+            $manualAdjustment = round($received - $calculatedFinal, 2);
+            $fee = max(0, normalize_decimal($posted['fee_amount'] ?? 0));
+            if ($unitPrice <= 0 || $contractCycleAmount <= 0 || $baseAmount <= 0 || $received <= 0 || $fee > $received) {
+                throw new RuntimeException('Revise os valores da renovação. O plano, a base e o valor final recebido devem ser positivos.');
             }
 
             $rows[] = [
@@ -356,6 +373,15 @@ final class ActionHandler
                 'unit_price' => $unitPrice,
                 'quantity' => $quantity,
                 'discount' => $discount,
+                'renewal_mode' => $renewalMode,
+                'renewal_months' => $renewalMonths,
+                'renewal_days' => $renewalDays,
+                'renewal_start_date' => $receiptDate,
+                'renewal_end_date' => $renewalEndDate,
+                'base_amount' => $baseAmount,
+                'payment_discount' => $paymentDiscount,
+                'surcharge_amount' => $surchargeAmount,
+                'manual_adjustment_amount' => $manualAdjustment,
                 'amount' => $received,
                 'fee_amount' => $fee,
                 'due_date' => $dueDate,
@@ -432,19 +458,43 @@ final class ActionHandler
                 $amountBrl = round($row['amount'] * $rate, 2);
                 $feeBrl = round($row['fee_amount'] * $rate, 2);
                 $netBrl = $amountBrl - $feeBrl;
-                $description = 'Renovação · ' . $product['name'];
+                $periodLabel = $this->renewalPeriodLabel($row['renewal_months'], $row['renewal_days']);
+                $description = ($row['renewal_months'] > $this->billingCycleMonths((string) $product['billing_cycle']) || $row['renewal_days'] > 0
+                    ? 'Renovação antecipada · '
+                    : 'Renovação · ') . $periodLabel . ' · ' . $product['name'];
                 $settlementDate = $row['currency'] === 'USD' ? $row['receipt_date'] : null;
 
                 if ($payment) {
                     $paymentId = (int) $payment['id'];
                     $db->query(
-                        "UPDATE payments SET client_id=?,description=?,amount=?,currency=?,exchange_rate=?,exchange_rate_source=?,amount_brl=?,fee_amount=?,fee_brl=?,net_brl=?,status='paid',due_date=?,payment_date=?,settlement_date=?,payment_method=?,external_reference=?,notes=? WHERE id=? AND status='pending'",
-                        [$subscription['client_id'],$description,$row['amount'],$row['currency'],$rate,$quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],$settlementDate,$row['payment_method'] ?: null,$row['external_reference'] ?: null,$row['notes'] ?: null,$paymentId]
+                        "UPDATE payments SET client_id=?,description=?,amount=?,base_amount=?,discount_amount=?,surcharge_amount=?,manual_adjustment_amount=?,
+                            renewal_mode=?,renewal_months=?,renewal_days=?,renewal_start_date=?,renewal_end_date=?,
+                            currency=?,exchange_rate=?,exchange_rate_source=?,amount_brl=?,fee_amount=?,fee_brl=?,net_brl=?,status='paid',
+                            due_date=?,payment_date=?,settlement_date=?,payment_method=?,external_reference=?,notes=?
+                         WHERE id=? AND status='pending'",
+                        [
+                            $subscription['client_id'],$description,$row['amount'],$row['base_amount'],$row['payment_discount'],
+                            $row['surcharge_amount'],$row['manual_adjustment_amount'],$row['renewal_mode'],$row['renewal_months'],
+                            $row['renewal_days'],$row['renewal_start_date'],$row['renewal_end_date'],$row['currency'],$rate,
+                            $quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],
+                            $settlementDate,$row['payment_method'] ?: null,$row['external_reference'] ?: null,$row['notes'] ?: null,$paymentId,
+                        ]
                     );
                 } else {
                     $paymentId = $db->insert(
-                        "INSERT INTO payments (subscription_id,client_id,description,amount,currency,exchange_rate,exchange_rate_source,amount_brl,fee_amount,fee_brl,net_brl,status,due_date,payment_date,settlement_date,payment_method,external_reference,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,'paid',?,?,?,?,?,?)",
-                        [$row['subscription_id'],$subscription['client_id'],$description,$row['amount'],$row['currency'],$rate,$quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],$settlementDate,$row['payment_method'] ?: null,$row['external_reference'] ?: null,$row['notes'] ?: null]
+                        "INSERT INTO payments (
+                            subscription_id,client_id,description,amount,base_amount,discount_amount,surcharge_amount,manual_adjustment_amount,
+                            renewal_mode,renewal_months,renewal_days,renewal_start_date,renewal_end_date,
+                            currency,exchange_rate,exchange_rate_source,amount_brl,fee_amount,fee_brl,net_brl,status,
+                            due_date,payment_date,settlement_date,payment_method,external_reference,notes
+                         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'paid',?,?,?,?,?,?)",
+                        [
+                            $row['subscription_id'],$subscription['client_id'],$description,$row['amount'],$row['base_amount'],
+                            $row['payment_discount'],$row['surcharge_amount'],$row['manual_adjustment_amount'],$row['renewal_mode'],
+                            $row['renewal_months'],$row['renewal_days'],$row['renewal_start_date'],$row['renewal_end_date'],$row['currency'],
+                            $rate,$quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],
+                            $settlementDate,$row['payment_method'] ?: null,$row['external_reference'] ?: null,$row['notes'] ?: null,
+                        ]
                     );
                 }
 
@@ -457,6 +507,13 @@ final class ActionHandler
                     'due_date' => $row['due_date'],
                     'payment_date' => $row['receipt_date'],
                     'amount' => $row['amount'],
+                    'base_amount' => $row['base_amount'],
+                    'discount_amount' => $row['payment_discount'],
+                    'surcharge_amount' => $row['surcharge_amount'],
+                    'manual_adjustment_amount' => $row['manual_adjustment_amount'],
+                    'renewal_months' => $row['renewal_months'],
+                    'renewal_days' => $row['renewal_days'],
+                    'renewal_end_date' => $row['renewal_end_date'],
                     'currency' => $row['currency'],
                     'exchange_rate' => $rate,
                     'amount_brl' => $amountBrl,
@@ -531,6 +588,10 @@ final class ActionHandler
                 $id = $db->insert('INSERT INTO payments (subscription_id, client_id, description, amount, currency, exchange_rate, exchange_rate_source, amount_brl, fee_amount, fee_brl, net_brl, status, due_date, payment_date, settlement_date, payment_method, external_reference, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
                 audit($db, 'create', 'payment', $id, ['amount_brl' => $amountBrl]);
             }
+            $db->query(
+                'UPDATE payments SET manual_adjustment_amount=ROUND(amount-(base_amount-discount_amount+surcharge_amount),2) WHERE id=? AND base_amount IS NOT NULL',
+                [$id]
+            );
             if ($status === 'paid' && $previousStatus !== 'paid' && $subscriptionId) {
                 $savedPayment = $db->fetch('SELECT * FROM payments WHERE id=?', [$id]);
                 if ($savedPayment) {
@@ -827,7 +888,7 @@ final class ActionHandler
             || abs((float) $subscription['discount'] - (float) $row['discount']) > 0.009
             || trim((string) $subscription['payment_method']) !== trim((string) $row['payment_method']);
 
-        $nextBillingDate = $this->addBillingMonths($row['receipt_date'], (string) $product['billing_cycle']);
+        $nextBillingDate = (string) $row['renewal_end_date'];
 
         $before = [
             'product_id' => (int) $subscription['product_id'],
@@ -860,13 +921,25 @@ final class ActionHandler
         );
 
         $eventType = $planChanged ? 'plan_change' : ($termsChanged ? 'renewal_adjusted' : 'renewal');
+        $periodLabel = $this->renewalPeriodLabel((int) $row['renewal_months'], (int) $row['renewal_days']);
         $summary = $planChanged
-            ? 'Plano alterado de ' . $subscription['product'] . ' para ' . $product['name'] . ' durante a renovação.'
-            : ($termsChanged ? 'Assinatura renovada com ajustes nas condições comerciais.' : 'Assinatura renovada após a confirmação do pagamento.');
+            ? 'Plano alterado de ' . $subscription['product'] . ' para ' . $product['name'] . ' durante a renovação de ' . $periodLabel . '.'
+            : ($termsChanged
+                ? 'Assinatura renovada por ' . $periodLabel . ' com ajustes nas condições comerciais.'
+                : 'Assinatura renovada por ' . $periodLabel . ' após a confirmação do pagamento.');
         $details = [
             'payment_id' => $paymentId,
             'due_date' => $row['due_date'],
             'payment_date' => $row['receipt_date'],
+            'renewal_mode' => $row['renewal_mode'],
+            'renewal_months' => (int) $row['renewal_months'],
+            'renewal_days' => (int) $row['renewal_days'],
+            'renewal_start_date' => $row['renewal_start_date'],
+            'renewal_end_date' => $row['renewal_end_date'],
+            'base_amount' => (float) $row['base_amount'],
+            'discount_amount' => (float) $row['payment_discount'],
+            'surcharge_amount' => (float) $row['surcharge_amount'],
+            'manual_adjustment_amount' => (float) $row['manual_adjustment_amount'],
             'amount' => (float) $row['amount'],
             'currency' => $row['currency'],
             'previous' => $before,
@@ -899,16 +972,54 @@ final class ActionHandler
             return false;
         }
         $dueDate = $payment['due_date'] ?: $subscription['next_billing_date'] ?: $receiptDate;
+        $renewalMode = in_array(($payment['renewal_mode'] ?? ''), ['months', 'date'], true)
+            ? (string) $payment['renewal_mode']
+            : 'months';
+        $renewalMonths = max(1, min(24, (int) ($payment['renewal_months'] ?? $this->billingCycleMonths((string) $product['billing_cycle']))));
+        $renewalDays = max(0, (int) ($payment['renewal_days'] ?? 0));
+        $renewalEndDate = (string) ($payment['renewal_end_date'] ?? '');
+        if ($renewalMode !== 'date' || $renewalEndDate === '' || $renewalEndDate <= $receiptDate) {
+            $renewalMode = 'months';
+            $renewalDays = 0;
+            $renewalEndDate = $this->addCalendarMonths($receiptDate, $renewalMonths);
+        } else {
+            [$renewalMonths, $renewalDays] = $this->renewalPeriodBetween($receiptDate, $renewalEndDate);
+        }
+        $baseAmount = ($payment['base_amount'] ?? null) !== null
+            ? (float) $payment['base_amount']
+            : (float) $payment['amount'];
+        $paymentDiscount = (float) ($payment['discount_amount'] ?? 0);
+        $surchargeAmount = (float) ($payment['surcharge_amount'] ?? 0);
+        $manualAdjustment = (float) ($payment['manual_adjustment_amount']
+            ?? round((float) $payment['amount'] - ($baseAmount - $paymentDiscount + $surchargeAmount), 2));
         $row = [
             'quantity' => (int) $subscription['quantity'],
             'currency' => $subscription['currency'],
             'unit_price' => (float) $subscription['unit_price'],
             'discount' => (float) $subscription['discount'],
+            'renewal_mode' => $renewalMode,
+            'renewal_months' => $renewalMonths,
+            'renewal_days' => $renewalDays,
+            'renewal_start_date' => $receiptDate,
+            'renewal_end_date' => $renewalEndDate,
+            'base_amount' => $baseAmount,
+            'payment_discount' => $paymentDiscount,
+            'surcharge_amount' => $surchargeAmount,
+            'manual_adjustment_amount' => $manualAdjustment,
             'payment_method' => $payment['payment_method'] ?: $subscription['payment_method'],
             'due_date' => $dueDate,
             'receipt_date' => $receiptDate,
             'amount' => (float) $payment['amount'],
         ];
+        $db->query(
+            'UPDATE payments SET base_amount=?,discount_amount=?,surcharge_amount=?,manual_adjustment_amount=?,
+                renewal_mode=?,renewal_months=?,renewal_days=?,renewal_start_date=?,renewal_end_date=? WHERE id=?',
+            [
+                $row['base_amount'],$row['payment_discount'],$row['surcharge_amount'],$row['manual_adjustment_amount'],
+                $row['renewal_mode'],$row['renewal_months'],$row['renewal_days'],$row['renewal_start_date'],
+                $row['renewal_end_date'],$payment['id'],
+            ]
+        );
         $this->renewSubscription($db, $subscription, $product, $row, (int) $payment['id']);
         return true;
     }
@@ -950,14 +1061,59 @@ final class ActionHandler
         }
     }
 
-    private function addBillingMonths(string $date, string $cycle): string
+    private function billingCycleMonths(string $cycle): int
     {
-        $months = ['monthly' => 1, 'quarterly' => 3, 'semiannual' => 6, 'annual' => 12][$cycle] ?? 1;
+        return ['monthly' => 1, 'quarterly' => 3, 'semiannual' => 6, 'annual' => 12][$cycle] ?? 1;
+    }
+
+    private function addCalendarMonths(string $date, int $months): string
+    {
+        $months = max(1, min(24, $months));
         $source = new \DateTimeImmutable($date);
         $day = (int) $source->format('d');
         $target = $source->modify('first day of this month')->modify('+' . $months . ' months');
         $targetDay = min($day, (int) $target->format('t'));
         return $target->setDate((int) $target->format('Y'), (int) $target->format('m'), $targetDay)->format('Y-m-d');
+    }
+
+    private function addBillingMonths(string $date, string $cycle): string
+    {
+        return $this->addCalendarMonths($date, $this->billingCycleMonths($cycle));
+    }
+
+    private function renewalPeriodBetween(string $startDate, string $endDate): array
+    {
+        $start = new \DateTimeImmutable($startDate);
+        $end = new \DateTimeImmutable($endDate);
+        if ($end <= $start) {
+            throw new RuntimeException('A próxima cobrança deve ser posterior à data do pagamento.');
+        }
+        if ($end > new \DateTimeImmutable($this->addCalendarMonths($startDate, 24))) {
+            throw new RuntimeException('O período máximo de uma renovação é de 24 meses.');
+        }
+
+        $months = 0;
+        for ($candidate = 1; $candidate <= 24; $candidate++) {
+            if ($this->addCalendarMonths($startDate, $candidate) > $endDate) {
+                break;
+            }
+            $months = $candidate;
+        }
+        $anchor = new \DateTimeImmutable($months > 0 ? $this->addCalendarMonths($startDate, $months) : $startDate);
+        $days = (int) $anchor->diff($end)->days;
+        return [$months, $days];
+    }
+
+    private function renewalPeriodLabel(int $months, int $days): string
+    {
+        $parts = [];
+        if ($months > 0) {
+            $parts[] = $months . ' ' . ($months === 1 ? 'mês' : 'meses');
+        }
+        if ($days > 0) {
+            $parts[] = $days . ' ' . ($days === 1 ? 'dia' : 'dias');
+        }
+        return $parts ? implode(' e ', $parts) : '1 mês';
     }
 
     private function validateDate(string $value, bool $notFuture, string $message): void

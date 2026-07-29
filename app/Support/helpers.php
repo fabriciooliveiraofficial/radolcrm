@@ -192,6 +192,20 @@ function cycle_label(string $cycle): string
     return ['monthly' => 'Mensal', 'quarterly' => 'Trimestral', 'semiannual' => 'Semestral', 'annual' => 'Anual'][$cycle] ?? $cycle;
 }
 
+function renewal_period_label(int|string|null $months, int|string|null $days = 0): string
+{
+    $months = max(0, (int) $months);
+    $days = max(0, (int) $days);
+    $parts = [];
+    if ($months > 0) {
+        $parts[] = $months . ' ' . ($months === 1 ? 'mês' : 'meses');
+    }
+    if ($days > 0) {
+        $parts[] = $days . ' ' . ($days === 1 ? 'dia' : 'dias');
+    }
+    return $parts ? implode(' e ', $parts) : '—';
+}
+
 function audit(Database $db, string $action, string $entityType, ?int $entityId = null, array $details = []): void
 {
     $db->query(

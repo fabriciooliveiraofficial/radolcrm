@@ -367,10 +367,43 @@
       style: 'currency', currency
     }).format(value || 0);
     const addMonths = (dateValue, months) => {
+      if (!dateValue) return '';
       const [year, month, day] = dateValue.split('-').map(Number);
       const lastDay = new Date(year, month - 1 + months + 1, 0).getDate();
       const target = new Date(year, month - 1 + months, Math.min(day, lastDay), 12);
-      return target.toLocaleDateString('pt-BR');
+      return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+    };
+    const addDays = (dateValue, days) => {
+      if (!dateValue) return '';
+      const [year, month, day] = dateValue.split('-').map(Number);
+      const target = new Date(year, month - 1, day + days, 12);
+      return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+    };
+    const formatDate = (dateValue) => {
+      if (!dateValue) return '—';
+      const [year, month, day] = dateValue.split('-').map(Number);
+      return new Date(year, month - 1, day, 12).toLocaleDateString('pt-BR');
+    };
+    const daysBetween = (startValue, endValue) => {
+      const [sy, sm, sd] = startValue.split('-').map(Number);
+      const [ey, em, ed] = endValue.split('-').map(Number);
+      return Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000);
+    };
+    const periodBetween = (startValue, endValue) => {
+      if (!startValue || !endValue || endValue <= startValue || endValue > addMonths(startValue, 24)) return null;
+      let months = 0;
+      for (let candidate = 1; candidate <= 24; candidate += 1) {
+        if (addMonths(startValue, candidate) > endValue) break;
+        months = candidate;
+      }
+      const anchor = months > 0 ? addMonths(startValue, months) : startValue;
+      return { months, days: daysBetween(anchor, endValue), end: endValue };
+    };
+    const periodLabel = ({ months, days }) => {
+      const parts = [];
+      if (months > 0) parts.push(`${months} ${months === 1 ? 'mês' : 'meses'}`);
+      if (days > 0) parts.push(`${days} ${days === 1 ? 'dia' : 'dias'}`);
+      return parts.join(' e ') || 'Período inválido';
     };
 
     const refreshForm = () => {
@@ -383,7 +416,7 @@
       }
       submitRenewals.disabled = selectedRows.length === 0 || invalidRows.length > 0;
       submitRenewals.textContent = invalidRows.length > 0
-        ? (singleRenewal ? 'Revise o valor divergente' : `Revise ${invalidRows.length} valor(es) divergente(s)`)
+        ? (singleRenewal ? 'Revise os dados da renovação' : `Revise ${invalidRows.length} renovação(ões)`)
         : (singleRenewal ? 'Confirmar e receber' : `Confirmar e receber ${selectedRows.length} renovação(ões)`);
     };
 
@@ -397,6 +430,21 @@
       const amount = qs('[data-renewal-amount]', row);
       const due = qs('[data-renewal-due]', row);
       const receipt = qs('[data-renewal-receipt]', row);
+      const renewalModes = qsa('[data-renewal-mode]', row);
+      const renewalMonths = qs('[data-renewal-months]', row);
+      const customDate = qs('[data-renewal-custom-date]', row);
+      const monthsField = qs('[data-renewal-months-field]', row);
+      const dateField = qs('[data-renewal-date-field]', row);
+      const periodBadge = qs('[data-renewal-period-label]', row);
+      const periodSummary = qs('[data-renewal-period-summary]', row);
+      const nextInline = qs('[data-renewal-next-inline]', row);
+      const base = qs('[data-renewal-base]', row);
+      const paymentDiscount = qs('[data-renewal-payment-discount]', row);
+      const surcharge = qs('[data-renewal-surcharge]', row);
+      const fee = qs('[data-renewal-fee]', row);
+      const monthlyValue = qs('[data-renewal-monthly-value]', row);
+      const finalValue = qs('[data-renewal-final]', row);
+      const resetCalculation = qs('[data-renewal-reset]', row);
       const total = qs('[data-renewal-total]', row);
       const balance = qs('[data-renewal-balance]', row);
       const useTotal = qs('[data-renewal-use-total]', row);
@@ -404,21 +452,71 @@
       const next = qs('[data-renewal-next]', row);
       const timing = qs('[data-payment-timing]', row);
 
-      const calculate = () => {
-        const expected = Math.max(0, (Number(price.value || 0) * Number(quantity.value || 0)) - Number(discount.value || 0));
-        const received = Number(amount.value || 0);
-        const difference = received - expected;
-        row.dataset.expected = expected.toFixed(2);
-        const matches = expected > 0 && Math.abs(difference) < 0.009;
-        total.textContent = formatCurrency(expected, currency.value);
-        balance.textContent = matches ? 'Valor integral confirmado' : `Diferença: ${formatCurrency(difference, currency.value)}`;
-        balance.className = matches ? 'positive' : 'negative';
-        match.textContent = matches ? '✓ Valor confere' : '! Valor divergente';
-        match.classList.toggle('invalid', !matches);
-        row.dataset.valid = matches ? '1' : '0';
+      const selectedMode = () => renewalModes.find((input) => input.checked)?.value || 'months';
+      const setModeState = () => {
+        const byDate = selectedMode() === 'date';
+        renewalMonths.disabled = byDate;
+        customDate.disabled = !byDate;
+        monthsField.classList.toggle('inactive', byDate);
+        dateField.classList.toggle('inactive', !byDate);
+        if (byDate && !customDate.value && receipt.value) {
+          customDate.value = addMonths(receipt.value, Math.max(1, Math.min(24, Number(renewalMonths.value || 1))));
+        }
+      };
+      const currentPeriod = () => {
+        if (!receipt.value) return null;
+        customDate.min = addDays(receipt.value, 1);
+        customDate.max = addMonths(receipt.value, 24);
+        if (selectedMode() === 'date') return periodBetween(receipt.value, customDate.value);
+        const months = Number(renewalMonths.value || 0);
+        if (!Number.isInteger(months) || months < 1 || months > 24) return null;
+        return { months, days: 0, end: addMonths(receipt.value, months) };
+      };
 
-        const months = cycleMonths[product.selectedOptions[0]?.dataset.cycle] || 1;
-        next.textContent = addMonths(receipt.value, months);
+      const calculate = ({ recalculateBase = false, recalculateAmount = false } = {}) => {
+        const contractCycleAmount = Math.max(0, (Number(price.value || 0) * Number(quantity.value || 0)) - Number(discount.value || 0));
+        const billingMonths = cycleMonths[product.selectedOptions[0]?.dataset.cycle] || 1;
+        const monthlyContractAmount = contractCycleAmount / billingMonths;
+        const period = currentPeriod();
+        const suggestedBase = period ? monthlyContractAmount * (period.months + (period.days / 30)) : 0;
+        if (recalculateBase && suggestedBase > 0) {
+          base.value = suggestedBase.toFixed(2);
+          row.dataset.baseManual = '0';
+        }
+        const baseAmount = Number(base.value || 0);
+        const automaticFinal = baseAmount - Number(paymentDiscount.value || 0) + Number(surcharge.value || 0);
+        if (recalculateAmount && automaticFinal > 0) {
+          amount.value = automaticFinal.toFixed(2);
+          row.dataset.amountManual = '0';
+        }
+        const received = Number(amount.value || 0);
+        const difference = received - automaticFinal;
+        const automatic = Math.abs(difference) < 0.009;
+        row.dataset.expected = automaticFinal.toFixed(2);
+        total.textContent = formatCurrency(baseAmount, currency.value);
+        finalValue.textContent = formatCurrency(received, currency.value);
+        monthlyValue.textContent = `Mensal equivalente: ${formatCurrency(monthlyContractAmount, currency.value)}`;
+        balance.textContent = automatic
+          ? 'Valor final calculado automaticamente'
+          : `Ajuste manual: ${difference >= 0 ? '+' : '−'} ${formatCurrency(Math.abs(difference), currency.value)}`;
+        balance.className = automatic ? 'positive' : 'warning-text';
+        match.textContent = automatic ? '✓ Total automático' : '✎ Valor final ajustado';
+        match.classList.toggle('invalid', !period || baseAmount <= 0 || received <= 0 || Number(fee.value || 0) > received);
+        const valid = Boolean(period && contractCycleAmount > 0 && baseAmount > 0 && received > 0 && Number(fee.value || 0) <= received);
+        row.dataset.valid = valid ? '1' : '0';
+
+        if (period) {
+          const label = periodLabel(period);
+          periodBadge.textContent = label;
+          periodSummary.textContent = label;
+          next.textContent = formatDate(period.end);
+          nextInline.textContent = `Próxima cobrança: ${formatDate(period.end)}`;
+        } else {
+          periodBadge.textContent = 'Revise o período';
+          periodSummary.textContent = 'Período inválido';
+          next.textContent = 'Revise a data';
+          nextInline.textContent = 'A próxima cobrança deve estar entre 1 dia e 24 meses.';
+        }
         if (receipt.value < due.value) {
           timing.textContent = 'Pagamento antecipado';
           timing.className = 'early';
@@ -434,17 +532,39 @@
       const setProductPrice = () => {
         const option = product.selectedOptions[0];
         price.value = currency.value === 'USD' ? option.dataset.usd : option.dataset.brl;
-        calculate();
+        calculate({ recalculateBase: true, recalculateAmount: true });
       };
 
-      [quantity, price, discount, amount, receipt].forEach((input) => input.addEventListener('input', calculate));
+      [quantity, price, discount, receipt, renewalMonths, customDate].forEach((input) => input.addEventListener('input', () => {
+        calculate({ recalculateBase: true, recalculateAmount: true });
+      }));
+      [paymentDiscount, surcharge].forEach((input) => input.addEventListener('input', () => {
+        calculate({ recalculateAmount: true });
+      }));
+      base.addEventListener('input', () => {
+        row.dataset.baseManual = '1';
+        calculate({ recalculateAmount: true });
+      });
+      amount.addEventListener('input', () => {
+        row.dataset.amountManual = '1';
+        calculate();
+      });
+      fee.addEventListener('input', calculate);
       useTotal.addEventListener('click', () => {
         amount.value = row.dataset.expected;
         calculate();
       });
+      resetCalculation.addEventListener('click', () => {
+        calculate({ recalculateBase: true, recalculateAmount: true });
+      });
+      renewalModes.forEach((input) => input.addEventListener('change', () => {
+        setModeState();
+        calculate({ recalculateBase: true, recalculateAmount: true });
+      }));
       product.addEventListener('change', setProductPrice);
       currency.addEventListener('change', setProductPrice);
       check.addEventListener('change', refreshForm);
+      setModeState();
       calculate();
     });
 

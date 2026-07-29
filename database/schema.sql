@@ -128,6 +128,15 @@ CREATE TABLE IF NOT EXISTS payments (
     client_id BIGINT UNSIGNED NOT NULL,
     description VARCHAR(190) NULL,
     amount DECIMAL(15,2) NOT NULL,
+    base_amount DECIMAL(15,2) NULL,
+    discount_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    surcharge_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    manual_adjustment_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    renewal_mode ENUM('months','date') NULL,
+    renewal_months TINYINT UNSIGNED NULL,
+    renewal_days SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    renewal_start_date DATE NULL,
+    renewal_end_date DATE NULL,
     currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
     exchange_rate DECIMAL(15,6) NOT NULL DEFAULT 1,
     exchange_rate_source VARCHAR(80) NULL,
@@ -148,6 +157,7 @@ CREATE TABLE IF NOT EXISTS payments (
     CONSTRAINT fk_payments_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
     INDEX idx_payments_status_date (status, payment_date),
     INDEX idx_payments_settlement_date (settlement_date),
+    INDEX idx_payments_renewal_end (renewal_end_date),
     INDEX idx_payments_client (client_id),
     INDEX idx_payments_subscription (subscription_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -268,7 +278,7 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('whatsapp_overdue_message', 'Olá, {{primeiro_nome}}! Identificamos que sua assinatura {{produto}}, no valor de {{valor}}, venceu em {{data_vencimento}}. Entre em contato conosco para regularizar. Se já realizou o pagamento, desconsidere esta mensagem. Atenciosamente, {{empresa}}.'),
 ('whatsapp_last_run_at', ''),
 ('whatsapp_last_run_summary', ''),
-('schema_version', '6')
+('schema_version', '7')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
 
 SET FOREIGN_KEY_CHECKS = 1;

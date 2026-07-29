@@ -14,6 +14,7 @@ function status_class(string $status): string { return in_array($status, ['activ
 function csrf_field(): string { return '<input type="hidden" name="_token" value="test">'; }
 function country_flag_icon(string $country): string { return '<span class="flag-icon flag-' . (strtoupper($country) === 'BR' ? 'br' : 'us') . '"></span>'; }
 function service_badge_icon(string $icon): string { return '<svg data-icon="' . h($icon) . '"></svg>'; }
+function renewal_period_label(int|string|null $months, int|string|null $days = 0): string { return ((int) $months) . ' meses e ' . ((int) $days) . ' dias'; }
 function product_with_current_prices(array $product, float $rate): array
 {
     $mode = $product['pricing_mode'] ?? 'manual';
@@ -74,6 +75,13 @@ $checks = [
     'renewals[7][selected]',
     'renewals[7][product_id]',
     'renewals[7][amount]',
+    'renewals[7][renewal_mode]',
+    'renewals[7][renewal_months]',
+    'renewals[7][renewal_end_date]',
+    'renewals[7][base_amount]',
+    'renewals[7][payment_discount]',
+    'renewals[7][surcharge_amount]',
+    'Valor mensal ÷ 30 dias',
     'Confirmar e receber 1 renovação(ões)',
     'Pagamento / resgate',
     'data-due-filter',

@@ -157,6 +157,10 @@ if ($showRenewals) {
                 p.price_brl product_price_brl,p.price_usd product_price_usd,p.pricing_mode product_pricing_mode,
                 pending.id pending_payment_id,pending.due_date pending_due_date,
                 pending.amount pending_amount,pending.fee_amount pending_fee_amount,
+                pending.base_amount pending_base_amount,pending.discount_amount pending_discount_amount,
+                pending.surcharge_amount pending_surcharge_amount,pending.manual_adjustment_amount pending_manual_adjustment_amount,
+                pending.renewal_mode pending_renewal_mode,pending.renewal_months pending_renewal_months,
+                pending.renewal_days pending_renewal_days,pending.renewal_end_date pending_renewal_end_date,
                 pending.payment_method pending_payment_method,pending.external_reference pending_external_reference,
                 pending.notes pending_notes
          FROM subscriptions s
@@ -194,10 +198,10 @@ if ($historyId > 0) {
     $historySubscription = $db->fetch('SELECT s.id,c.name client,p.name product FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id WHERE s.id=?', [$historyId]);
     if ($historySubscription) {
         $historyEvents = $db->fetchAll(
-            'SELECT e.*,u.name user_name,p.amount,p.currency,p.due_date,p.payment_date FROM subscription_events e LEFT JOIN users u ON u.id=e.user_id LEFT JOIN payments p ON p.id=e.payment_id WHERE e.subscription_id=? ORDER BY e.created_at DESC,e.id DESC LIMIT 100',
+            'SELECT e.*,u.name user_name,p.amount,p.currency,p.due_date,p.payment_date,p.renewal_months,p.renewal_days,p.renewal_end_date FROM subscription_events e LEFT JOIN users u ON u.id=e.user_id LEFT JOIN payments p ON p.id=e.payment_id WHERE e.subscription_id=? ORDER BY e.created_at DESC,e.id DESC LIMIT 100',
             [$historyId]
         );
-        $historyPayments = $db->fetchAll('SELECT id,description,amount,currency,status,due_date,payment_date,settlement_date FROM payments WHERE subscription_id=? ORDER BY COALESCE(payment_date,due_date) DESC,id DESC LIMIT 30', [$historyId]);
+        $historyPayments = $db->fetchAll('SELECT id,description,amount,currency,status,due_date,payment_date,settlement_date,renewal_months,renewal_days,renewal_end_date,base_amount,discount_amount,surcharge_amount,manual_adjustment_amount FROM payments WHERE subscription_id=? ORDER BY COALESCE(payment_date,due_date) DESC,id DESC LIMIT 30', [$historyId]);
     }
 }
 ?>
@@ -276,9 +280,24 @@ if ($historyId > 0) {
         $dueDate = $row['pending_due_date'] ?: $row['next_billing_date'];
         $renewalUnitPrice = (float) ($row['renewal_unit_price'] ?? $row['unit_price']);
         $contractAmount = round(max(0, ($renewalUnitPrice * (int) $row['quantity']) - (float) $row['discount']), 2);
-        $receivedAmount = $row['pending_payment_id'] ? (float) $row['pending_amount'] : $contractAmount;
+        $cycleMonthCount = ['monthly'=>1,'quarterly'=>3,'semiannual'=>6,'annual'=>12][$row['billing_cycle']] ?? 1;
+        $initialRenewalMode = in_array(($row['pending_renewal_mode'] ?? ''), ['months','date'], true) ? $row['pending_renewal_mode'] : 'months';
+        $storedRenewalMonths = ($row['pending_renewal_months'] ?? null) !== null ? (int) $row['pending_renewal_months'] : null;
+        $initialRenewalMonths = $storedRenewalMonths !== null
+            ? max(1, min(24, $storedRenewalMonths))
+            : $cycleMonthCount;
+        $initialRenewalDays = max(0, (int) ($row['pending_renewal_days'] ?? 0));
+        $calculationRenewalMonths = $initialRenewalMode === 'date' ? max(0, $storedRenewalMonths ?? 0) : $initialRenewalMonths;
+        $suggestedBaseAmount = round(($contractAmount / $cycleMonthCount) * ($calculationRenewalMonths + ($initialRenewalDays / 30)), 2);
+        $renewalBaseAmount = ($row['pending_base_amount'] ?? null) !== null ? (float) $row['pending_base_amount'] : $suggestedBaseAmount;
+        $renewalDiscountAmount = (float) ($row['pending_discount_amount'] ?? 0);
+        $renewalSurchargeAmount = (float) ($row['pending_surcharge_amount'] ?? 0);
+        $automaticFinalAmount = round($renewalBaseAmount - $renewalDiscountAmount + $renewalSurchargeAmount, 2);
+        $receivedAmount = $row['pending_payment_id'] ? (float) $row['pending_amount'] : $automaticFinalAmount;
+        $hasBaseOverride = abs($renewalBaseAmount - $suggestedBaseAmount) > 0.009;
+        $hasFinalOverride = abs($receivedAmount - $automaticFinalAmount) > 0.009;
     ?>
-    <article class="renewal-card" data-renewal-row data-current-product="<?= (int) $row['product_id'] ?>">
+    <article class="renewal-card" data-renewal-row data-current-product="<?= (int) $row['product_id'] ?>" data-base-manual="<?= $hasBaseOverride ? '1' : '0' ?>" data-amount-manual="<?= $hasFinalOverride ? '1' : '0' ?>">
         <div class="renewal-card-head"><label class="renewal-selector"><input type="checkbox" name="renewals[<?= $subscriptionId ?>][selected]" value="1" data-renewal-check checked><span></span></label><div class="entity"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($row['client'], 0, 1))) ?></span><span><b><?= h($row['client']) ?></b><small class="entity-country"><?= h($row['product']) ?> · <?= country_flag_icon($row['country']) ?> <?= $row['country'] === 'BR' ? 'Brasil' : 'Estados Unidos' ?></small></span></div><div class="renewal-due"><small>Vencimento</small><b><?= date_br($dueDate) ?></b><span data-payment-timing>Conferir data</span></div></div>
         <input type="hidden" name="renewals[<?= $subscriptionId ?>][subscription_updated_at]" value="<?= h($row['updated_at']) ?>"><input type="hidden" name="renewals[<?= $subscriptionId ?>][pending_payment_id]" value="<?= (int) ($row['pending_payment_id'] ?? 0) ?>"><input type="hidden" name="renewals[<?= $subscriptionId ?>][due_date]" value="<?= h($dueDate) ?>" data-renewal-due>
         <div class="renewal-grid">
@@ -286,15 +305,35 @@ if ($historyId > 0) {
             <label>Moeda<select name="renewals[<?= $subscriptionId ?>][currency]" data-renewal-currency><option value="BRL" <?= $row['currency'] === 'BRL' ? 'selected' : '' ?>>BRL</option><option value="USD" <?= $row['currency'] === 'USD' ? 'selected' : '' ?>>USD</option></select></label>
             <label>Quantidade<input name="renewals[<?= $subscriptionId ?>][quantity]" type="number" min="1" value="<?= (int) $row['quantity'] ?>" data-renewal-quantity></label>
             <label>Valor unitário<input name="renewals[<?= $subscriptionId ?>][unit_price]" type="number" min="0.01" step="0.01" value="<?= decimal_input($renewalUnitPrice) ?>" data-renewal-price><?php if (($row['product_pricing_mode'] ?? 'manual') !== 'manual'): ?><small>Atualizado pela cotação diária do produto</small><?php endif; ?></label>
-            <label>Desconto total<input name="renewals[<?= $subscriptionId ?>][discount]" type="number" min="0" step="0.01" value="<?= decimal_input($row['discount']) ?>" data-renewal-discount></label>
-            <label>Valor recebido<input name="renewals[<?= $subscriptionId ?>][amount]" type="number" min="0.01" step="0.01" value="<?= decimal_input($receivedAmount) ?>" data-renewal-amount><small data-renewal-balance></small><button type="button" class="renewal-use-total" data-renewal-use-total>Usar total devido</button></label>
-            <label>Taxa da plataforma<input name="renewals[<?= $subscriptionId ?>][fee_amount]" type="number" min="0" step="0.01" value="<?= decimal_input($row['pending_fee_amount'] ?? 0) ?>"></label>
+            <label>Desconto recorrente do plano<input name="renewals[<?= $subscriptionId ?>][discount]" type="number" min="0" step="0.01" value="<?= decimal_input($row['discount']) ?>" data-renewal-discount><small>Altera o valor mensal futuro da assinatura.</small></label>
             <label>Pagamento / resgate<input name="renewals[<?= $subscriptionId ?>][receipt_date]" type="date" max="<?= date('Y-m-d') ?>" value="<?= date('Y-m-d') ?>" data-renewal-receipt required><small>Para USD, esta data define a cotação diária.</small></label>
+            <section class="renewal-period-config">
+                <header><div><b>Período desta renovação</b><small>Escolha meses completos ou uma próxima cobrança personalizada.</small></div><span data-renewal-period-label>Calculando…</span></header>
+                <div class="renewal-mode-switch">
+                    <label><input type="radio" name="renewals[<?= $subscriptionId ?>][renewal_mode]" value="months" data-renewal-mode <?= $initialRenewalMode === 'months' ? 'checked' : '' ?>><span>Por meses</span></label>
+                    <label><input type="radio" name="renewals[<?= $subscriptionId ?>][renewal_mode]" value="date" data-renewal-mode <?= $initialRenewalMode === 'date' ? 'checked' : '' ?>><span>Por próxima data</span></label>
+                </div>
+                <div class="renewal-period-fields">
+                    <label data-renewal-months-field>Meses renovados<input name="renewals[<?= $subscriptionId ?>][renewal_months]" type="number" min="1" max="24" value="<?= $initialRenewalMonths ?>" data-renewal-months><small>De 1 a 24 meses.</small></label>
+                    <label data-renewal-date-field>Próxima cobrança<input name="renewals[<?= $subscriptionId ?>][renewal_end_date]" type="date" value="<?= h($row['pending_renewal_end_date'] ?? '') ?>" data-renewal-custom-date><small>O período será calculado em meses e dias.</small></label>
+                    <div class="renewal-period-result"><small>Regra proporcional</small><b>Valor mensal ÷ 30 dias</b><span data-renewal-next-inline>Próxima cobrança: calculando…</span></div>
+                </div>
+            </section>
+            <section class="renewal-financial-breakdown">
+                <header><div><b>Composição do pagamento</b><small>Todos os valores podem ser ajustados antes da confirmação.</small></div><button type="button" data-renewal-reset>Recalcular automaticamente</button></header>
+                <div>
+                    <label>Valor-base do período<input name="renewals[<?= $subscriptionId ?>][base_amount]" type="number" min="0.01" step="0.01" value="<?= decimal_input($renewalBaseAmount) ?>" data-renewal-base><small data-renewal-monthly-value></small></label>
+                    <label>Desconto desta renovação<input name="renewals[<?= $subscriptionId ?>][payment_discount]" type="number" min="0" step="0.01" value="<?= decimal_input($renewalDiscountAmount) ?>" data-renewal-payment-discount></label>
+                    <label>Acréscimo<input name="renewals[<?= $subscriptionId ?>][surcharge_amount]" type="number" min="0" step="0.01" value="<?= decimal_input($renewalSurchargeAmount) ?>" data-renewal-surcharge></label>
+                    <label>Valor final recebido<input name="renewals[<?= $subscriptionId ?>][amount]" type="number" min="0.01" step="0.01" value="<?= decimal_input($receivedAmount) ?>" data-renewal-amount><small data-renewal-balance></small><button type="button" class="renewal-use-total" data-renewal-use-total>Usar total calculado</button></label>
+                    <label>Taxa da plataforma<input name="renewals[<?= $subscriptionId ?>][fee_amount]" type="number" min="0" step="0.01" value="<?= decimal_input($row['pending_fee_amount'] ?? 0) ?>" data-renewal-fee></label>
+                </div>
+            </section>
             <label>Forma de pagamento<input name="renewals[<?= $subscriptionId ?>][payment_method]" value="<?= h($row['pending_payment_method'] ?: $row['payment_method']) ?>" placeholder="PIX, Stripe, cartão…"></label>
             <label class="span-2">Referência externa<input name="renewals[<?= $subscriptionId ?>][external_reference]" value="<?= h($row['pending_external_reference'] ?? '') ?>" placeholder="ID bancário, Stripe ou nota fiscal"></label>
             <label class="span-2">Observações<textarea name="renewals[<?= $subscriptionId ?>][notes]" rows="2" placeholder="Observação opcional desta renovação"><?= h($row['pending_notes'] ?? '') ?></textarea></label>
         </div>
-        <div class="renewal-summary"><span>Total devido <b data-renewal-total><?= money($contractAmount, $row['currency']) ?></b></span><span>Próxima cobrança <b data-renewal-next>Calculando…</b></span><strong class="renewal-match" data-renewal-match>✓ Valor confere</strong></div>
+        <div class="renewal-summary"><span>Período renovado <b data-renewal-period-summary>Calculando…</b></span><span>Valor-base <b data-renewal-total><?= money($renewalBaseAmount, $row['currency']) ?></b></span><span>Valor final <b data-renewal-final><?= money($receivedAmount, $row['currency']) ?></b></span><span>Próxima cobrança <b data-renewal-next>Calculando…</b></span><strong class="renewal-match" data-renewal-match>✓ Total automático</strong></div>
     </article>
     <?php endforeach; ?>
     </div>
@@ -305,8 +344,8 @@ if ($historyId > 0) {
 
 <?php if ($historySubscription): ?>
 <div class="modal open"><a class="modal-backdrop" href="?page=subscriptions"></a><section class="modal-panel wide history-panel"><header><div><p class="eyebrow">TRILHA RASTREÁVEL</p><h2><?= h($historySubscription['client']) ?></h2><p><?= h($historySubscription['product']) ?> · pagamentos, renovações e mudanças de plano</p></div><a href="?page=subscriptions" class="modal-close">×</a></header>
-<section class="history-section"><h3>Renovações e alterações</h3><?php if (!$historyEvents): ?><p class="history-empty">Nenhuma renovação processada pelo novo fluxo ainda.</p><?php else: ?><div class="history-timeline"><?php foreach ($historyEvents as $event): ?><article><span class="history-dot <?= $event['event_type'] === 'plan_change' ? 'gold' : '' ?>">↻</span><div><b><?= h($event['summary']) ?></b><p><?= date_br($event['event_date']) ?><?php if ($event['amount'] !== null): ?> · <?= money($event['amount'], $event['currency']) ?><?php endif; ?><?php if ($event['payment_id']): ?> · Pagamento #<?= (int) $event['payment_id'] ?><?php endif; ?></p><small><?= h($event['user_name'] ?: 'Sistema') ?> · <?= date('d/m/Y H:i', strtotime($event['created_at'])) ?></small></div></article><?php endforeach; ?></div><?php endif; ?></section>
-<section class="history-section"><h3>Transações da assinatura</h3><?php if (!$historyPayments): ?><p class="history-empty">Nenhum pagamento vinculado.</p><?php else: ?><div class="table-wrap"><table><thead><tr><th>ID</th><th>Vencimento</th><th>Pagamento</th><th>Valor</th><th>Status</th></tr></thead><tbody><?php foreach ($historyPayments as $payment): ?><tr><td>#<?= (int) $payment['id'] ?></td><td><?= date_br($payment['due_date']) ?></td><td><?= date_br($payment['payment_date']) ?></td><td><b><?= money($payment['amount'], $payment['currency']) ?></b></td><td><span class="badge <?= status_class($payment['status']) ?>"><?= status_label($payment['status']) ?></span></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></section>
+<section class="history-section"><h3>Renovações e alterações</h3><?php if (!$historyEvents): ?><p class="history-empty">Nenhuma renovação processada pelo novo fluxo ainda.</p><?php else: ?><div class="history-timeline"><?php foreach ($historyEvents as $event): ?><article><span class="history-dot <?= $event['event_type'] === 'plan_change' ? 'gold' : '' ?>">↻</span><div><b><?= h($event['summary']) ?></b><p><?= date_br($event['event_date']) ?><?php if ($event['amount'] !== null): ?> · <?= money($event['amount'], $event['currency']) ?><?php endif; ?><?php if ($event['renewal_months'] !== null): ?> · até <?= date_br($event['renewal_end_date']) ?><?php endif; ?><?php if ($event['payment_id']): ?> · Pagamento #<?= (int) $event['payment_id'] ?><?php endif; ?></p><small><?= h($event['user_name'] ?: 'Sistema') ?> · <?= date('d/m/Y H:i', strtotime($event['created_at'])) ?></small></div></article><?php endforeach; ?></div><?php endif; ?></section>
+<section class="history-section"><h3>Transações da assinatura</h3><?php if (!$historyPayments): ?><p class="history-empty">Nenhum pagamento vinculado.</p><?php else: ?><div class="table-wrap"><table><thead><tr><th>ID</th><th>Pagamento</th><th>Período renovado</th><th>Valor final</th><th>Status</th></tr></thead><tbody><?php foreach ($historyPayments as $payment): ?><tr><td>#<?= (int) $payment['id'] ?></td><td><?= date_br($payment['payment_date']) ?><small class="block">Vencimento: <?= date_br($payment['due_date']) ?></small></td><td><?= renewal_period_label($payment['renewal_months'], $payment['renewal_days']) ?><?php if ($payment['renewal_end_date']): ?><small class="block">Próxima: <?= date_br($payment['renewal_end_date']) ?></small><?php endif; ?></td><td><b><?= money($payment['amount'], $payment['currency']) ?></b><?php if ($payment['base_amount'] !== null): ?><small class="block">Base <?= money($payment['base_amount'], $payment['currency']) ?> · desc. <?= money($payment['discount_amount'], $payment['currency']) ?> · acrésc. <?= money($payment['surcharge_amount'], $payment['currency']) ?></small><?php endif; ?><?php if (abs((float) $payment['manual_adjustment_amount']) > 0.009): ?><small class="block">Ajuste manual: <?= money($payment['manual_adjustment_amount'], $payment['currency']) ?></small><?php endif; ?></td><td><span class="badge <?= status_class($payment['status']) ?>"><?= status_label($payment['status']) ?></span></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></section>
 </section></div>
 <?php endif; ?>
 

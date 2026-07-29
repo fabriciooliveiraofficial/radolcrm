@@ -98,7 +98,8 @@ $tomorrowSubscriptions = $db->fetchAll(
     [$tomorrowDate]
 );
 $recent = $db->fetchAll(
-    "SELECT p.id,p.payment_date,p.settlement_date,p.amount,p.currency,p.amount_brl,p.status,c.name client
+    "SELECT p.id,p.description,p.payment_date,p.settlement_date,p.amount,p.currency,p.amount_brl,p.status,
+            p.renewal_months,p.renewal_days,p.renewal_end_date,c.name client
      FROM payments p JOIN clients c ON c.id=p.client_id
      ORDER BY COALESCE(CASE WHEN p.currency='USD' THEN p.settlement_date ELSE p.payment_date END,p.payment_date,p.due_date) DESC,p.id DESC LIMIT 6"
 );
@@ -263,7 +264,7 @@ $recent = $db->fetchAll(
         <div class="card-header"><div><p class="eyebrow">ÚLTIMOS LANÇAMENTOS</p><h2>Pagamentos recentes</h2></div><a href="?page=payments">Ver todos →</a></div>
         <div class="table-wrap"><table><thead><tr><th>Cliente</th><th>Data</th><th>Original</th><th>Convertido</th><th>Status</th></tr></thead><tbody>
         <?php if (!$recent): ?><tr><td colspan="5" class="empty-cell">Nenhum pagamento registrado.</td></tr><?php endif; ?>
-        <?php foreach ($recent as $item): ?><tr><td><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span> <b><?= h($item['client']) ?></b></td><td><?= date_br($item['currency'] === 'USD' ? ($item['settlement_date'] ?: $item['payment_date']) : $item['payment_date']) ?></td><td><?= money($item['amount'], $item['currency']) ?></td><td><b><?= money($item['amount_brl']) ?></b></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td></tr><?php endforeach; ?>
+        <?php foreach ($recent as $item): ?><tr><td><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span> <b><?= h($item['client']) ?></b><?php if ($item['renewal_months'] !== null): ?><small class="block"><?= renewal_period_label($item['renewal_months'], $item['renewal_days']) ?> · próxima <?= date_br($item['renewal_end_date']) ?></small><?php endif; ?></td><td><?= date_br($item['currency'] === 'USD' ? ($item['settlement_date'] ?: $item['payment_date']) : $item['payment_date']) ?></td><td><?= money($item['amount'], $item['currency']) ?></td><td><b><?= money($item['amount_brl']) ?></b></td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td></tr><?php endforeach; ?>
         </tbody></table></div>
     </article>
     <article class="card upcoming-card">
