@@ -98,6 +98,11 @@
   };
   initializePaymentBulk();
 
+  document.addEventListener('change', (event) => {
+    const select = event.target.closest('[data-page-size-select]');
+    if (select) select.form?.submit();
+  });
+
   qsa('form[data-live-filter]').forEach((form) => {
     const results = qsa('[data-live-results]');
     const indicator = qs('[data-live-filter-indicator]', form);

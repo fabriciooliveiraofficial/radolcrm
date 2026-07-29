@@ -3,6 +3,8 @@ $search = trim((string) ($_GET['q'] ?? ''));
 $status = (string) ($_GET['status'] ?? '');
 $dueFilter = (string) ($_GET['due'] ?? '');
 $badgeFilter = max(0, (int) ($_GET['badge'] ?? 0));
+$pageSizeOptions = [20,50,100,200];
+$perPage = in_array((int) ($_GET['per_page'] ?? 20), $pageSizeOptions, true) ? (int) ($_GET['per_page'] ?? 20) : 20;
 $where = ' WHERE 1=1';
 $params = [];
 if ($search !== '') {
@@ -38,7 +40,9 @@ if ($badgeFilter > 0) {
 }
 $countSql = 'SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id' . $where;
 $dataSql = "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,((s.unit_price*s.quantity)-s.discount) recurring_value,DATEDIFF(s.next_billing_date,CURDATE()) due_in_days FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id{$where} ORDER BY s.next_billing_date IS NULL,s.next_billing_date,FIELD(s.status,'past_due','trial','active','paused','canceled')";
-$pagination = pagination($db, $countSql, $dataSql, $params);
+$pagination = pagination($db, $countSql, $dataSql, $params, $perPage);
+$displayedFrom = $pagination['total'] > 0 ? (($pagination['page'] - 1) * $perPage) + 1 : 0;
+$displayedTo = $pagination['total'] > 0 ? $displayedFrom + count($pagination['rows']) - 1 : 0;
 
 $edit = isset($_GET['edit']) ? $db->fetch('SELECT * FROM subscriptions WHERE id=?', [(int) $_GET['edit']]) : null;
 $showForm = isset($_GET['new']) || $edit;
@@ -213,6 +217,7 @@ if ($historyId > 0) {
 <section class="toolbar list-toolbar">
     <form class="search-filters" method="get" data-live-filter id="subscription-filters">
         <input type="hidden" name="page" value="subscriptions">
+        <input type="hidden" name="per_page" value="<?= $perPage ?>">
         <label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Cliente, produto, badge, valor, data…" value="<?= h($search) ?>"></label>
         <select name="status"><option value="">Todos os status</option><?php foreach (['active'=>'Ativas','trial'=>'Em teste','past_due'=>'Em atraso','paused'=>'Pausadas','canceled'=>'Canceladas'] as $value => $label): ?><option value="<?= $value ?>" <?= $status === $value ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select>
         <select name="due" data-due-filter><option value="">Todos os vencimentos</option><option value="overdue" <?= $dueFilter === 'overdue' ? 'selected' : '' ?>>Atrasadas</option><option value="today" <?= $dueFilter === 'today' ? 'selected' : '' ?>>Vencem hoje</option><option value="tomorrow" <?= $dueFilter === 'tomorrow' ? 'selected' : '' ?>>Vencem amanhã</option><option value="two_days" <?= $dueFilter === 'two_days' ? 'selected' : '' ?>>Vencem em 2 dias</option><option value="next_7" <?= $dueFilter === 'next_7' ? 'selected' : '' ?>>Próximos 7 dias</option></select>
@@ -227,7 +232,7 @@ if ($historyId > 0) {
 </section>
 
 <div data-live-results>
-<section class="card table-card subscription-table"><div class="table-meta"><span><b><?= $pagination['total'] ?></b> assinaturas</span><div class="urgency-legend"><span class="tomorrow">Amanhã</span><span class="two-days">Em 2 dias</span><span class="overdue">Atrasada</span></div></div><div class="table-wrap"><table><thead><tr><th>Cliente / Produto</th><th>Valor recorrente</th><th>Ciclo</th><th>Próxima cobrança</th><th>Status</th><th></th></tr></thead><tbody>
+<section class="card table-card subscription-table"><div class="table-meta with-page-size"><span class="table-range-summary"><b><?= $pagination['total'] ?></b> assinaturas<small>Exibindo <?= $displayedFrom ?>–<?= $displayedTo ?> de <?= $pagination['total'] ?></small></span><div class="table-meta-actions"><div class="urgency-legend"><span class="tomorrow">Amanhã</span><span class="two-days">Em 2 dias</span><span class="overdue">Atrasada</span></div><form class="page-size-form" method="get"><input type="hidden" name="page" value="subscriptions"><?php if($search!==''): ?><input type="hidden" name="q" value="<?= h($search) ?>"><?php endif; ?><?php if($status!==''): ?><input type="hidden" name="status" value="<?= h($status) ?>"><?php endif; ?><?php if($dueFilter!==''): ?><input type="hidden" name="due" value="<?= h($dueFilter) ?>"><?php endif; ?><?php if($badgeFilter>0): ?><input type="hidden" name="badge" value="<?= $badgeFilter ?>"><?php endif; ?><label>Linhas por página<select name="per_page" data-page-size-select><?php foreach($pageSizeOptions as $pageSize): ?><option value="<?= $pageSize ?>" <?= $perPage===$pageSize?'selected':'' ?>><?= $pageSize ?></option><?php endforeach; ?></select></label></form></div></div><div class="table-wrap"><table><thead><tr><th>Cliente / Produto</th><th>Valor recorrente</th><th>Ciclo</th><th>Próxima cobrança</th><th>Status</th><th></th></tr></thead><tbody>
 <?php if (!$pagination['rows']): ?><tr><td colspan="6" class="empty-cell">Nenhuma assinatura encontrada.</td></tr><?php endif; ?>
 <?php foreach ($pagination['rows'] as $item):
     $dueDays = $item['due_in_days'] === null ? null : (int) $item['due_in_days'];
