@@ -4,7 +4,7 @@
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="theme-color" content="#102a2b"><title><?= h($pageTitles[$page][0]) ?> · <?= h($config['app']['name']) ?></title>
     <link rel="icon" href="assets/images/favicon.svg?v=1" type="image/svg+xml">
-    <link rel="stylesheet" href="assets/css/app.css?v=19">
+    <link rel="stylesheet" href="assets/css/app.css?v=20">
 </head>
 <body class="app-body">
 <aside class="sidebar" id="sidebar">

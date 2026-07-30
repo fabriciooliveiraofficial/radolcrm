@@ -433,3 +433,79 @@ td b { color: var(--ink); }
   .reminder-hero{align-items:flex-start;flex-direction:column;padding:20px 16px}.reminder-hero h2{font-size:21px}.reminder-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.reminder-metrics article{padding:14px 12px}.reminder-section{padding:18px 14px}.reminder-section .settings-heading{align-items:flex-start;flex-wrap:wrap}.switch-control{width:100%;margin:4px 0 0}.frequency-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.template-grid{grid-template-columns:1fr}.reminder-save,.reminder-operations{align-items:stretch;flex-direction:column}.reminder-save .button{width:100%}.reminder-operations>div:last-child{display:grid;grid-template-columns:1fr}.reminder-history{padding:18px 13px}.cron-note{flex-direction:column}.cron-note b{white-space:normal}.guardrail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.weekday-picker label span{min-width:36px}.automation-safety-note{grid-template-columns:1fr}.automation-safety-note b{white-space:normal}.automation-flow .rule-heading{grid-template-columns:36px 1fr}.automation-flow .rule-heading .flow-switch{grid-column:1/-1;width:100%}.automation-step{padding:13px 10px}.automation-step>header{grid-template-columns:28px minmax(0,1fr) auto 27px}.step-core-grid{grid-template-columns:1fr 1fr}.step-core-grid label:first-child{grid-column:1/-1}.step-assets-grid{grid-template-columns:1fr}.step-message-layout{grid-template-columns:1fr}.step-preview em{min-height:110px}.step-variables{max-height:105px;overflow:auto}.whatsapp-test-panel{grid-template-columns:1fr;padding:18px 13px}.whatsapp-test-panel form{grid-template-columns:1fr}.whatsapp-test-panel .button{grid-column:auto}.operation-actions{width:100%}
   .badge-library-hero{align-items:flex-start;flex-direction:column;padding:20px 16px}.badge-hero-preview{justify-content:flex-start}.service-badge-grid{grid-template-columns:1fr}.badge-icon-options{grid-template-columns:repeat(3,minmax(0,1fr))}.badge-tone-options{grid-template-columns:repeat(3,minmax(0,1fr))}.subscription-badge-field>div:first-child{align-items:flex-start;flex-direction:column;gap:4px}.row-badge-action span{display:none}.badge-assignment-footer{align-items:stretch;flex-direction:column-reverse}.badge-assignment-footer .button{width:100%}
 }
+
+/* Escala tipográfica acessível — Lembretes WhatsApp */
+.reminder-hero h2 { font-size:1.625rem;line-height:1.2; }
+.reminder-hero>div>p:last-child { font-size:.875rem;line-height:1.55; }
+.reminder-hero .eyebrow { font-size:.6875rem; }
+.integration-state { font-size:.75rem;line-height:1.2; }
+.reminder-metrics span { font-size:.6875rem;line-height:1.35;letter-spacing:.04em; }
+.reminder-metrics strong { margin:5px 0 3px;font-size:1.75rem;line-height:1.1; }
+.reminder-metrics small { font-size:.75rem;line-height:1.45; }
+.reminder-section .settings-heading h2 { font-size:1.375rem;line-height:1.25; }
+.reminder-section .settings-heading p:last-child { font-size:.8125rem;line-height:1.5; }
+.reminder-section .eyebrow,.reminder-operations .eyebrow,.whatsapp-test-panel .eyebrow,.reminder-history .eyebrow { font-size:.6875rem; }
+.switch-control { font-size:.8125rem;line-height:1.35; }
+.integration-summary b { font-size:.8125rem;line-height:1.35; }
+.integration-summary small { margin-top:2px;font-size:.75rem;line-height:1.45; }
+.reminder-section .form-grid label { font-size:.75rem;line-height:1.4; }
+.reminder-section .form-grid input,.reminder-section .form-grid select,.reminder-section .form-grid textarea { min-height:46px;font-size:.875rem;line-height:1.45; }
+.reminder-section .form-grid label small { font-size:.6875rem;line-height:1.45; }
+.guardrail-grid label,.step-core-grid label,.step-assets-grid label,.whatsapp-test-panel label { font-size:.6875rem;line-height:1.4; }
+.guardrail-grid input,.step-core-grid input,.step-assets-grid input,.whatsapp-test-panel input,.whatsapp-test-panel select {
+  height:46px;
+  font-family:inherit;
+  font-size:.875rem;
+  font-weight:500;
+  line-height:1.4;
+  text-transform:none;
+}
+.guardrail-grid small,.step-assets-grid small { font-size:.6875rem;line-height:1.45; }
+.weekday-picker>span { font-size:.6875rem; }
+.weekday-picker label span { min-width:44px;height:36px;font-size:.75rem; }
+.automation-safety-note { font-size:.75rem;line-height:1.55; }
+.rule-heading h2 { font-size:1.375rem;line-height:1.25; }
+.rule-heading p:last-child { font-size:.8125rem;line-height:1.5; }
+.flow-switch { font-size:.8125rem; }
+.step-sequence { font-size:.75rem; }
+.automation-step>header b { font-size:.8125rem;line-height:1.35; }
+.automation-step>header small { font-size:.6875rem;line-height:1.45; }
+.step-template-field,.step-preview>span { font-size:.6875rem;line-height:1.4; }
+.step-template-field textarea {
+  min-height:170px;
+  font-family:inherit;
+  font-size:.875rem;
+  font-weight:450;
+  line-height:1.6;
+}
+.step-template-field small { font-size:.6875rem;line-height:1.5; }
+.step-preview em { min-height:170px;font-size:.875rem;line-height:1.6; }
+.variable-picker button { min-height:30px;padding:6px 9px;font-size:.6875rem;line-height:1.2; }
+.step-assets-grid input[type=file] { height:46px;padding:10px;font-size:.75rem; }
+.stored-media { font-size:.75rem;line-height:1.45; }
+.add-automation-step { min-height:44px;font-size:.8125rem;line-height:1.3; }
+.reminder-save p { font-size:.75rem;line-height:1.5; }
+.reminder-save .button,.reminder-operations .button,.whatsapp-test-panel .button { min-height:44px;font-size:.875rem; }
+.reminder-operations h2,.whatsapp-test-panel h2,.reminder-history .card-header h2 { font-size:1.375rem;line-height:1.25; }
+.reminder-operations>div>p:last-child,.whatsapp-test-panel>div>p:last-child { font-size:.8125rem;line-height:1.5; }
+.whatsapp-test-panel input,.whatsapp-test-panel select { margin-top:6px; }
+.reminder-history .card-subtitle { font-size:.75rem;line-height:1.5; }
+.reminder-history th { font-size:.6875rem;line-height:1.35; }
+.reminder-history td { font-size:.8125rem;line-height:1.5; }
+.reminder-history td small { font-size:.75rem;line-height:1.45; }
+.history-error { font-size:.6875rem;line-height:1.45; }
+.table-link { font-size:.75rem;line-height:1.3; }
+.cron-note { font-size:.75rem;line-height:1.55; }
+.cron-note code { font-size:.6875rem; }
+
+@media (max-width: 680px) {
+  .reminder-hero h2 { font-size:1.5rem; }
+  .reminder-metrics span { font-size:.625rem; }
+  .reminder-metrics small { font-size:.6875rem; }
+  .reminder-section .settings-heading h2,.rule-heading h2,.reminder-operations h2,.whatsapp-test-panel h2,.reminder-history .card-header h2 { font-size:1.25rem; }
+  .guardrail-grid { grid-template-columns:1fr; }
+  .weekday-picker { gap:8px; }
+  .weekday-picker label span { min-width:42px;height:38px; }
+  .step-template-field textarea,.step-preview em { min-height:150px; }
+  .variable-picker button { min-height:34px;font-size:.75rem; }
+}
