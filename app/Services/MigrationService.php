@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 7;
+    private const VERSION = 8;
 
     public function __construct(private readonly Database $db)
     {
@@ -176,6 +176,115 @@ final class MigrationService
                 $this->db->query("ALTER TABLE payments ADD COLUMN renewal_end_date DATE NULL AFTER renewal_start_date, ADD INDEX idx_payments_renewal_end (renewal_end_date)");
             }
         }
+        if ($version < 8) {
+            if (!$this->columnExists('clients', 'whatsapp_reminders_enabled')) {
+                $this->db->query("ALTER TABLE clients ADD COLUMN whatsapp_reminders_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER phone");
+            }
+            if (!$this->columnExists('subscriptions', 'payment_link')) {
+                $this->db->query("ALTER TABLE subscriptions ADD COLUMN payment_link VARCHAR(1000) NULL AFTER payment_method");
+            }
+
+            $this->db->query(
+                "CREATE TABLE IF NOT EXISTS whatsapp_automation_steps (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    reminder_type ENUM('upcoming','overdue') NOT NULL,
+                    name VARCHAR(100) NOT NULL,
+                    day_offset SMALLINT UNSIGNED NOT NULL,
+                    send_time TIME NOT NULL DEFAULT '09:00:00',
+                    message_template TEXT NOT NULL,
+                    image_url VARCHAR(1000) NULL,
+                    payment_link VARCHAR(1000) NULL,
+                    active TINYINT(1) NOT NULL DEFAULT 1,
+                    position SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE INDEX uq_whatsapp_step_offset (reminder_type, day_offset),
+                    INDEX idx_whatsapp_steps_active (reminder_type, active, position)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+
+            if (!$this->columnExists('whatsapp_reminder_logs', 'automation_step_id')) {
+                $this->db->query("ALTER TABLE whatsapp_reminder_logs ADD COLUMN automation_step_id BIGINT UNSIGNED NULL AFTER client_id");
+            }
+            if (!$this->columnExists('whatsapp_reminder_logs', 'payload_type')) {
+                $this->db->query("ALTER TABLE whatsapp_reminder_logs ADD COLUMN payload_type ENUM('text','image') NOT NULL DEFAULT 'text' AFTER rendered_message");
+            }
+            if (!$this->columnExists('whatsapp_reminder_logs', 'media_url')) {
+                $this->db->query("ALTER TABLE whatsapp_reminder_logs ADD COLUMN media_url VARCHAR(1000) NULL AFTER payload_type");
+            }
+            if (!$this->columnExists('whatsapp_reminder_logs', 'payment_link')) {
+                $this->db->query("ALTER TABLE whatsapp_reminder_logs ADD COLUMN payment_link VARCHAR(1000) NULL AFTER media_url");
+            }
+            if (!$this->columnExists('whatsapp_reminder_logs', 'scheduled_for')) {
+                $this->db->query("ALTER TABLE whatsapp_reminder_logs ADD COLUMN scheduled_for DATETIME NULL AFTER payment_link");
+            }
+            if ($this->indexExists('whatsapp_reminder_logs', 'uq_whatsapp_reminder_cycle')) {
+                $this->db->query('ALTER TABLE whatsapp_reminder_logs DROP INDEX uq_whatsapp_reminder_cycle');
+            }
+            if (!$this->indexExists('whatsapp_reminder_logs', 'uq_whatsapp_reminder_step')) {
+                $this->db->query('ALTER TABLE whatsapp_reminder_logs ADD UNIQUE INDEX uq_whatsapp_reminder_step (subscription_id,due_date,automation_step_id)');
+            }
+            if (!$this->constraintExists('whatsapp_reminder_logs', 'fk_whatsapp_reminder_step')) {
+                $this->db->query(
+                    'ALTER TABLE whatsapp_reminder_logs ADD CONSTRAINT fk_whatsapp_reminder_step
+                     FOREIGN KEY (automation_step_id) REFERENCES whatsapp_automation_steps(id) ON DELETE SET NULL'
+                );
+            }
+
+            $defaults = [
+                'whatsapp_timezone' => 'America/Sao_Paulo',
+                'whatsapp_window_start' => '08:00',
+                'whatsapp_window_end' => '19:00',
+                'whatsapp_allowed_weekdays' => '1,2,3,4,5,6,7',
+                'whatsapp_daily_limit' => '200',
+                'whatsapp_max_per_client_daily' => '2',
+                'whatsapp_max_attempts' => '3',
+                'whatsapp_retry_delay_minutes' => '15',
+                'whatsapp_support_phone' => '',
+                'whatsapp_test_phone' => '',
+                'whatsapp_test_country' => 'BR',
+            ];
+            foreach ($defaults as $key => $value) {
+                $this->db->query(
+                    'INSERT INTO settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_key=VALUES(setting_key)',
+                    [$key,$value]
+                );
+            }
+
+            if ((int) $this->db->value('SELECT COUNT(*) FROM whatsapp_automation_steps') === 0) {
+                $sendTime = (string) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='whatsapp_send_time'") ?: '09:00');
+                $upcomingMessage = (string) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='whatsapp_upcoming_message'") ?: 'Olá, {{primeiro_nome}}! Sua assinatura {{produto}} vence em {{data_vencimento}}.');
+                $overdueMessage = (string) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='whatsapp_overdue_message'") ?: 'Olá, {{primeiro_nome}}! Sua assinatura {{produto}} venceu em {{data_vencimento}}.');
+                $upcomingStart = max(1, (int) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='whatsapp_upcoming_start_days'") ?: 1));
+                $upcomingInterval = max(1, (int) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='whatsapp_upcoming_interval_days'") ?: 1));
+                $upcomingMax = max(1, min(10, (int) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='whatsapp_upcoming_max_sends'") ?: 1)));
+                $overdueStart = max(1, (int) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='whatsapp_overdue_start_days'") ?: 1));
+                $overdueInterval = max(1, (int) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='whatsapp_overdue_interval_days'") ?: 3));
+                $overdueMax = max(1, min(20, (int) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='whatsapp_overdue_max_sends'") ?: 3)));
+
+                for ($position = 1; $position <= $upcomingMax; $position++) {
+                    $offset = $upcomingStart - (($position - 1) * $upcomingInterval);
+                    if ($offset < 1) {
+                        break;
+                    }
+                    $this->db->query(
+                        "INSERT INTO whatsapp_automation_steps
+                         (reminder_type,name,day_offset,send_time,message_template,active,position)
+                         VALUES ('upcoming',?,?,?,?,?,?)",
+                        ['Lembrete ' . $offset . ' dia(s) antes',$offset,$sendTime,$upcomingMessage,1,$position]
+                    );
+                }
+                for ($position = 1; $position <= $overdueMax; $position++) {
+                    $offset = $overdueStart + (($position - 1) * $overdueInterval);
+                    $this->db->query(
+                        "INSERT INTO whatsapp_automation_steps
+                         (reminder_type,name,day_offset,send_time,message_template,active,position)
+                         VALUES ('overdue',?,?,?,?,?,?)",
+                        ['Recuperação ' . $offset . ' dia(s) depois',$offset,$sendTime,$overdueMessage,1,$position]
+                    );
+                }
+            }
+        }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",
             [(string) self::VERSION]
@@ -187,6 +296,22 @@ final class MigrationService
         return (int) $this->db->value(
             'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',
             [$table, $column]
+        ) > 0;
+    }
+
+    private function indexExists(string $table, string $index): bool
+    {
+        return (int) $this->db->value(
+            'SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=?',
+            [$table, $index]
+        ) > 0;
+    }
+
+    private function constraintExists(string $table, string $constraint): bool
+    {
+        return (int) $this->db->value(
+            'SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=? AND CONSTRAINT_NAME=?',
+            [$table, $constraint]
         ) > 0;
     }
 }

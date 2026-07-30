@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS clients (
     company VARCHAR(160) NULL,
     email VARCHAR(190) NULL,
     phone VARCHAR(50) NULL,
+    whatsapp_reminders_enabled TINYINT(1) NOT NULL DEFAULT 1,
     document VARCHAR(60) NULL,
     country ENUM('BR','US') NOT NULL DEFAULT 'BR',
     preferred_currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
@@ -78,6 +79,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     next_billing_date DATE NULL,
     canceled_at DATE NULL,
     payment_method VARCHAR(80) NULL,
+    payment_link VARCHAR(1000) NULL,
     notes TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -179,15 +181,37 @@ CREATE TABLE IF NOT EXISTS subscription_events (
     INDEX idx_subscription_events_payment (payment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS whatsapp_automation_steps (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    reminder_type ENUM('upcoming','overdue') NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    day_offset SMALLINT UNSIGNED NOT NULL,
+    send_time TIME NOT NULL DEFAULT '09:00:00',
+    message_template TEXT NOT NULL,
+    image_url VARCHAR(1000) NULL,
+    payment_link VARCHAR(1000) NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    position SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE INDEX uq_whatsapp_step_offset (reminder_type, day_offset),
+    INDEX idx_whatsapp_steps_active (reminder_type, active, position)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS whatsapp_reminder_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     subscription_id BIGINT UNSIGNED NULL,
     client_id BIGINT UNSIGNED NULL,
+    automation_step_id BIGINT UNSIGNED NULL,
     reminder_type ENUM('upcoming','overdue') NOT NULL,
     reminder_number SMALLINT UNSIGNED NOT NULL DEFAULT 1,
     due_date DATE NOT NULL,
     recipient_phone VARCHAR(30) NOT NULL,
     rendered_message TEXT NOT NULL,
+    payload_type ENUM('text','image') NOT NULL DEFAULT 'text',
+    media_url VARCHAR(1000) NULL,
+    payment_link VARCHAR(1000) NULL,
+    scheduled_for DATETIME NULL,
     status ENUM('pending','sent','failed','skipped') NOT NULL DEFAULT 'pending',
     attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     provider_message_id VARCHAR(190) NULL,
@@ -199,7 +223,8 @@ CREATE TABLE IF NOT EXISTS whatsapp_reminder_logs (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_whatsapp_reminder_subscription FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
     CONSTRAINT fk_whatsapp_reminder_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
-    UNIQUE INDEX uq_whatsapp_reminder_cycle (subscription_id, due_date, reminder_type, reminder_number),
+    CONSTRAINT fk_whatsapp_reminder_step FOREIGN KEY (automation_step_id) REFERENCES whatsapp_automation_steps(id) ON DELETE SET NULL,
+    UNIQUE INDEX uq_whatsapp_reminder_step (subscription_id, due_date, automation_step_id),
     INDEX idx_whatsapp_reminder_status (status, created_at),
     INDEX idx_whatsapp_reminder_client (client_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -278,7 +303,32 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('whatsapp_overdue_message', 'Olá, {{primeiro_nome}}! Identificamos que sua assinatura {{produto}}, no valor de {{valor}}, venceu em {{data_vencimento}}. Entre em contato conosco para regularizar. Se já realizou o pagamento, desconsidere esta mensagem. Atenciosamente, {{empresa}}.'),
 ('whatsapp_last_run_at', ''),
 ('whatsapp_last_run_summary', ''),
-('schema_version', '7')
+('whatsapp_timezone', 'America/Sao_Paulo'),
+('whatsapp_window_start', '08:00'),
+('whatsapp_window_end', '19:00'),
+('whatsapp_allowed_weekdays', '1,2,3,4,5,6,7'),
+('whatsapp_daily_limit', '200'),
+('whatsapp_max_per_client_daily', '2'),
+('whatsapp_max_attempts', '3'),
+('whatsapp_retry_delay_minutes', '15'),
+('whatsapp_support_phone', ''),
+('whatsapp_test_phone', ''),
+('whatsapp_test_country', 'BR'),
+('schema_version', '8')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
+
+INSERT INTO whatsapp_automation_steps
+    (reminder_type,name,day_offset,send_time,message_template,active,position)
+SELECT 'upcoming','Lembrete de amanhã',1,'09:00',
+       'Olá, {{primeiro_nome}}! Sua assinatura {{produto}} vence amanhã, {{data_vencimento}}, no valor de {{valor}}. {{link_pagamento}}',
+       1,1
+WHERE NOT EXISTS (SELECT 1 FROM whatsapp_automation_steps WHERE reminder_type='upcoming');
+
+INSERT INTO whatsapp_automation_steps
+    (reminder_type,name,day_offset,send_time,message_template,active,position)
+SELECT 'overdue','Primeira recuperação',1,'09:00',
+       'Olá, {{primeiro_nome}}! Sua assinatura {{produto}} venceu em {{data_vencimento}}. Regularize pelo link: {{link_pagamento}}',
+       1,1
+WHERE NOT EXISTS (SELECT 1 FROM whatsapp_automation_steps WHERE reminder_type='overdue');
 
 SET FOREIGN_KEY_CHECKS = 1;

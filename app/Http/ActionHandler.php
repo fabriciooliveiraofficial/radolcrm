@@ -57,7 +57,9 @@ final class ActionHandler
                 'save_settings' => $this->saveSettings(),
                 'save_whatsapp_reminders' => $this->saveWhatsAppReminders(),
                 'test_whatsapp_connection' => $this->testWhatsAppConnection(),
+                'send_whatsapp_test' => $this->sendWhatsAppTest(),
                 'run_whatsapp_reminders' => $this->runWhatsAppReminders(),
+                'retry_whatsapp_reminder' => $this->retryWhatsAppReminder(),
                 'save_profile' => $this->saveProfile(),
                 'save_user' => $this->saveUser(),
                 'toggle_user' => $this->toggleUser(),
@@ -83,13 +85,17 @@ final class ActionHandler
         if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new RuntimeException('Informe um e-mail válido.');
         }
-        $params = [$name, $this->nullable('company'), $email, $this->nullable('phone'), $this->nullable('document'), $country, $currency, $status, $this->nullable('notes')];
+        $params = [
+            $name, $this->nullable('company'), $email, $this->nullable('phone'),
+            isset($_POST['whatsapp_reminders_enabled']) ? 1 : 0,
+            $this->nullable('document'), $country, $currency, $status, $this->nullable('notes'),
+        ];
         if ($id) {
             $params[] = $id;
-            $this->db->query('UPDATE clients SET name=?, company=?, email=?, phone=?, document=?, country=?, preferred_currency=?, status=?, notes=? WHERE id=?', $params);
+            $this->db->query('UPDATE clients SET name=?, company=?, email=?, phone=?, whatsapp_reminders_enabled=?, document=?, country=?, preferred_currency=?, status=?, notes=? WHERE id=?', $params);
             audit($this->db, 'update', 'client', $id);
         } else {
-            $id = $this->db->insert('INSERT INTO clients (name, company, email, phone, document, country, preferred_currency, status, notes) VALUES (?,?,?,?,?,?,?,?,?)', $params);
+            $id = $this->db->insert('INSERT INTO clients (name, company, email, phone, whatsapp_reminders_enabled, document, country, preferred_currency, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?)', $params);
             audit($this->db, 'create', 'client', $id);
         }
         Flash::add('success', 'Cliente salvo com sucesso.');
@@ -220,11 +226,15 @@ final class ActionHandler
         $status = $this->choice('status', ['trial','active','past_due','paused','canceled']);
         $badgeIds = $this->postedServiceBadgeIds();
         $canceledAt = $status === 'canceled' ? ($this->nullable('canceled_at') ?: date('Y-m-d')) : null;
+        $paymentLink = $this->nullable('payment_link');
+        if ($paymentLink !== null && (!filter_var($paymentLink, FILTER_VALIDATE_URL) || !preg_match('#^https?://#i', $paymentLink))) {
+            throw new RuntimeException('Informe um link de pagamento HTTP/HTTPS válido.');
+        }
         $params = [
             $clientId, $productId, max(1, (int) ($_POST['quantity'] ?? 1)), $this->choice('currency', ['BRL','USD']),
             normalize_decimal($_POST['unit_price'] ?? 0), max(0, normalize_decimal($_POST['discount'] ?? 0)), $status,
             $this->required('start_date', 'Informe a data de início.'), $this->nullable('next_billing_date'), $canceledAt,
-            $this->nullable('payment_method'), $this->nullable('notes'),
+            $this->nullable('payment_method'), $paymentLink, $this->nullable('notes'),
         ];
         if ($id) {
             $params[] = $id;
@@ -233,7 +243,7 @@ final class ActionHandler
                 if (!$previous) {
                     throw new RuntimeException('A assinatura não existe mais. Atualize a página.');
                 }
-                $db->query('UPDATE subscriptions SET client_id=?, product_id=?, quantity=?, currency=?, unit_price=?, discount=?, status=?, start_date=?, next_billing_date=?, canceled_at=?, payment_method=?, notes=? WHERE id=?', $params);
+                $db->query('UPDATE subscriptions SET client_id=?, product_id=?, quantity=?, currency=?, unit_price=?, discount=?, status=?, start_date=?, next_billing_date=?, canceled_at=?, payment_method=?, payment_link=?, notes=? WHERE id=?', $params);
                 $this->syncSubscriptionBadges($db, $id, $badgeIds);
                 $current = $db->fetch('SELECT s.*,p.name product FROM subscriptions s JOIN products p ON p.id=s.product_id WHERE s.id=?', [$id]);
                 $eventType = (int) $previous['product_id'] !== (int) $current['product_id'] ? 'plan_change' : 'subscription_update';
@@ -249,7 +259,7 @@ final class ActionHandler
             });
         } else {
             $this->db->transaction(function (Database $db) use (&$id, $params, $badgeIds): void {
-                $id = $db->insert('INSERT INTO subscriptions (client_id, product_id, quantity, currency, unit_price, discount, status, start_date, next_billing_date, canceled_at, payment_method, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', $params);
+                $id = $db->insert('INSERT INTO subscriptions (client_id, product_id, quantity, currency, unit_price, discount, status, start_date, next_billing_date, canceled_at, payment_method, payment_link, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
                 $this->syncSubscriptionBadges($db, $id, $badgeIds);
                 $current = $db->fetch('SELECT s.*,p.name product FROM subscriptions s JOIN products p ON p.id=s.product_id WHERE s.id=?', [$id]);
                 $details = ['current' => $current];
@@ -781,13 +791,17 @@ final class ActionHandler
         if (!$this->auth->isAdmin()) {
             throw new RuntimeException('Somente administradores podem configurar os lembretes.');
         }
-        (new WhatsAppReminderService($this->db))->saveConfig($_POST);
+        $input = $_POST;
+        $this->storeReminderUploads($input);
+        (new WhatsAppReminderService($this->db))->saveConfig($input);
         audit($this->db, 'update', 'whatsapp_reminders', null, [
             'enabled' => isset($_POST['whatsapp_enabled']),
             'upcoming_enabled' => isset($_POST['whatsapp_upcoming_enabled']),
             'overdue_enabled' => isset($_POST['whatsapp_overdue_enabled']),
+            'upcoming_steps' => count((array) ($input['steps']['upcoming'] ?? [])),
+            'overdue_steps' => count((array) ($input['steps']['overdue'] ?? [])),
         ]);
-        Flash::add('success', 'Configurações dos lembretes salvas.');
+        Flash::add('success', 'Automações, etapas e mensagens salvas.');
         return '?page=reminders';
     }
 
@@ -804,6 +818,23 @@ final class ActionHandler
         return '?page=reminders';
     }
 
+    private function sendWhatsAppTest(): string
+    {
+        if (!$this->auth->isAdmin()) {
+            throw new RuntimeException('Somente administradores podem enviar mensagens de teste.');
+        }
+        $phone = $this->required('test_phone', 'Informe o telefone que receberá o teste.');
+        $country = $this->choice('test_country', ['BR','US']);
+        $stepId = max(0, (int) ($_POST['step_id'] ?? 0));
+        $response = (new WhatsAppReminderService($this->db))->sendTest($phone, $country, $stepId);
+        audit($this->db, 'test', 'whatsapp_reminders', $stepId, [
+            'phone_suffix' => substr(preg_replace('/\D+/', '', $phone) ?: '', -4),
+            'provider_message_id' => $response['messageId'] ?? $response['id'] ?? null,
+        ]);
+        Flash::add('success', 'Mensagem de teste enviada pela Z-API.');
+        return '?page=reminders';
+    }
+
     private function runWhatsAppReminders(): string
     {
         if (!$this->auth->isAdmin()) {
@@ -812,12 +843,32 @@ final class ActionHandler
         $summary = (new WhatsAppReminderService($this->db))->run(true);
         audit($this->db, 'run', 'whatsapp_reminders', null, $summary);
         $message = sprintf(
-            'Processamento concluído: %d enviado(s), %d falha(s), %d ignorado(s).',
+            'Processamento concluído: %d enviado(s), %d falha(s), %d ignorado(s) e %d duplicado(s) bloqueado(s).',
             $summary['sent'],
             $summary['failed'],
-            $summary['skipped']
+            $summary['skipped'],
+            $summary['duplicates']
         );
+        if (!empty($summary['limit_reached'])) {
+            $message .= ' O limite diário foi alcançado.';
+        }
         Flash::add($summary['failed'] > 0 ? 'warning' : 'success', $message);
+        return '?page=reminders';
+    }
+
+    private function retryWhatsAppReminder(): string
+    {
+        if (!$this->auth->isAdmin()) {
+            throw new RuntimeException('Somente administradores podem reenviar lembretes.');
+        }
+        $id = $this->id(true);
+        $summary = (new WhatsAppReminderService($this->db))->retry($id);
+        audit($this->db, 'retry', 'whatsapp_reminder', $id, $summary);
+        if ($summary['sent'] > 0) {
+            Flash::add('success', 'Lembrete reenviado com sucesso.');
+        } else {
+            Flash::add('warning', 'O reenvio foi processado, mas a Z-API não confirmou o envio.');
+        }
         return '?page=reminders';
     }
 
@@ -1048,6 +1099,55 @@ final class ActionHandler
             }
         }
         return $ids;
+    }
+
+    private function storeReminderUploads(array &$input): void
+    {
+        $uploads = $_FILES['step_image_file'] ?? null;
+        if (!is_array($uploads) || !isset($uploads['tmp_name']) || !is_array($uploads['tmp_name'])) {
+            return;
+        }
+        $allowed = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+        ];
+        $root = dirname(__DIR__, 2);
+        $directory = $root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'reminders';
+
+        foreach ($uploads['tmp_name'] as $type => $files) {
+            if (!in_array($type, ['upcoming','overdue'], true) || !is_array($files)) {
+                continue;
+            }
+            foreach ($files as $key => $temporaryPath) {
+                $error = (int) ($uploads['error'][$type][$key] ?? UPLOAD_ERR_NO_FILE);
+                if ($error === UPLOAD_ERR_NO_FILE) {
+                    continue;
+                }
+                if ($error !== UPLOAD_ERR_OK || !is_uploaded_file((string) $temporaryPath)) {
+                    throw new RuntimeException('Não foi possível receber uma das imagens.');
+                }
+                $size = (int) ($uploads['size'][$type][$key] ?? 0);
+                if ($size < 1 || $size > 6 * 1024 * 1024) {
+                    throw new RuntimeException('Cada imagem deve ter no máximo 6 MB.');
+                }
+                $mime = (new \finfo(FILEINFO_MIME_TYPE))->file((string) $temporaryPath);
+                if (!isset($allowed[$mime])) {
+                    throw new RuntimeException('Envie imagens JPG, PNG ou WebP.');
+                }
+                if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+                    throw new RuntimeException('Não foi possível preparar o armazenamento das imagens.');
+                }
+                $filename = date('Ymd-His') . '-' . bin2hex(random_bytes(8)) . '.' . $allowed[$mime];
+                $target = $directory . DIRECTORY_SEPARATOR . $filename;
+                if (!move_uploaded_file((string) $temporaryPath, $target)) {
+                    throw new RuntimeException('Não foi possível salvar uma das imagens.');
+                }
+                if (isset($input['steps'][$type][$key]) && is_array($input['steps'][$type][$key])) {
+                    $input['steps'][$type][$key]['uploaded_image'] = 'storage/reminders/' . $filename;
+                }
+            }
+        }
     }
 
     private function syncSubscriptionBadges(Database $db, int $subscriptionId, array $badgeIds): void

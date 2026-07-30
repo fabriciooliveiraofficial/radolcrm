@@ -586,27 +586,52 @@
   if (reminderSettings) {
     let previewValues = {};
     try { previewValues = JSON.parse(reminderSettings.dataset.templateValues || '{}'); } catch (_) { previewValues = {}; }
-    const sources = qsa('[data-template-source]', reminderSettings);
-    let activeSource = sources[0] || null;
-    const renderPreview = (source) => {
-      const preview = qs(`[data-template-preview="${source.dataset.templateSource}"]`, reminderSettings);
-      if (!preview) return;
+    const renumberSteps = (type) => {
+      qsa('[data-reminder-step]', qs(`[data-reminder-step-list="${type}"]`, reminderSettings)).forEach((step, index) => {
+        const sequence = qs('[data-step-sequence]', step);
+        if (sequence) sequence.textContent = String(index + 1);
+      });
+    };
+    const renderPreview = (step) => {
+      const source = qs('[data-template-source]', step);
+      const preview = qs('[data-template-preview]', step);
+      if (!source || !preview) return;
       preview.textContent = source.value.replace(/{{([a-z_]+)}}/gi, (match, variable) => previewValues[variable] ?? match);
     };
-    sources.forEach((source) => {
-      source.addEventListener('focus', () => { activeSource = source; });
-      source.addEventListener('input', () => renderPreview(source));
-      renderPreview(source);
-    });
-    qsa('[data-template-variable]', reminderSettings).forEach((button) => button.addEventListener('click', () => {
-      if (!activeSource) return;
-      const token = `{{${button.dataset.templateVariable}}}`;
-      const start = activeSource.selectionStart ?? activeSource.value.length;
-      const end = activeSource.selectionEnd ?? start;
-      activeSource.setRangeText(token, start, end, 'end');
-      activeSource.focus();
-      activeSource.dispatchEvent(new Event('input', { bubbles: true }));
+    const wireStep = (step) => {
+      const source = qs('[data-template-source]', step);
+      if (source) source.addEventListener('input', () => renderPreview(step));
+      qsa('[data-template-variable]', step).forEach((button) => button.addEventListener('click', () => {
+        if (!source) return;
+        const token = `{{${button.dataset.templateVariable}}}`;
+        const start = source.selectionStart ?? source.value.length;
+        const end = source.selectionEnd ?? start;
+        source.setRangeText(token, start, end, 'end');
+        source.focus();
+        source.dispatchEvent(new Event('input', { bubbles: true }));
+      }));
+      const remove = qs('[data-remove-reminder-step]', step);
+      if (remove) remove.addEventListener('click', () => {
+        const type = step.dataset.stepType;
+        step.remove();
+        renumberSteps(type);
+      });
+      renderPreview(step);
+    };
+    qsa('[data-reminder-step]', reminderSettings).forEach(wireStep);
+    qsa('[data-add-reminder-step]', reminderSettings).forEach((button) => button.addEventListener('click', () => {
+      const type = button.dataset.addReminderStep;
+      const template = qs(`[data-reminder-step-template="${type}"]`, reminderSettings);
+      const list = qs(`[data-reminder-step-list="${type}"]`, reminderSettings);
+      if (!template || !list) return;
+      const key = `new-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      list.insertAdjacentHTML('beforeend', template.innerHTML.replaceAll('__KEY__', key));
+      const step = list.lastElementChild;
+      if (step) wireStep(step);
+      renumberSteps(type);
+      step?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
+    ['upcoming', 'overdue'].forEach(renumberSteps);
   }
 
   qsa('[data-chart]').forEach((chart) => {
