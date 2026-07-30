@@ -3,6 +3,7 @@ DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    RewriteRule ^favicon\.ico$ assets/images/favicon.svg [L,NC]
     RewriteRule ^(?:app|config|database|storage|tests)(?:/|$) - [F,L,NC]
 </IfModule>
 
@@ -16,4 +17,3 @@ DirectoryIndex index.php
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
 </IfModule>
-
