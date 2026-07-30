@@ -3,7 +3,8 @@
 <head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Entrar · <?= h($config['app']['name']) ?></title>
-    <link rel="stylesheet" href="assets/css/app.css">
+    <link rel="icon" href="assets/images/favicon.svg?v=1" type="image/svg+xml">
+    <link rel="stylesheet" href="assets/css/app.css?v=19">
 </head>
 <body class="login-page">
 <main class="login-shell">
@@ -27,4 +28,3 @@
 </main>
 <script src="assets/js/app.js"></script>
 </body></html>
-

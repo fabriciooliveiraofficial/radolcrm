@@ -70,6 +70,9 @@ try {
 } catch (Throwable $exception) {
     $migrationError = $exception;
     error_log('[Nexo migration] ' . (string) $exception);
+    if (PHP_SAPI !== 'cli' && !headers_sent()) {
+        header('X-Nexo-Migration: pending-' . substr(hash('sha256', $exception->getMessage()), 0, 8));
+    }
 }
 
 try {
