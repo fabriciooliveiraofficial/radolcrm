@@ -219,13 +219,15 @@ final class MigrationService
                 $this->db->query("ALTER TABLE whatsapp_reminder_logs ADD COLUMN scheduled_for DATETIME NULL AFTER payment_link");
             }
             if ($this->indexExists('whatsapp_reminder_logs', 'uq_whatsapp_reminder_cycle')) {
-                $this->db->query('ALTER TABLE whatsapp_reminder_logs DROP INDEX uq_whatsapp_reminder_cycle');
+                $this->optionalDdl('ALTER TABLE whatsapp_reminder_logs DROP INDEX uq_whatsapp_reminder_cycle');
             }
             if (!$this->indexExists('whatsapp_reminder_logs', 'uq_whatsapp_reminder_step')) {
-                $this->db->query('ALTER TABLE whatsapp_reminder_logs ADD UNIQUE INDEX uq_whatsapp_reminder_step (subscription_id,due_date,automation_step_id)');
+                $this->optionalDdl(
+                    'ALTER TABLE whatsapp_reminder_logs ADD UNIQUE INDEX uq_whatsapp_reminder_step (subscription_id,due_date,automation_step_id)'
+                );
             }
             if (!$this->constraintExists('whatsapp_reminder_logs', 'fk_whatsapp_reminder_step')) {
-                $this->db->query(
+                $this->optionalDdl(
                     'ALTER TABLE whatsapp_reminder_logs ADD CONSTRAINT fk_whatsapp_reminder_step
                      FOREIGN KEY (automation_step_id) REFERENCES whatsapp_automation_steps(id) ON DELETE SET NULL'
                 );
@@ -313,5 +315,14 @@ final class MigrationService
             'SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=? AND CONSTRAINT_NAME=?',
             [$table, $constraint]
         ) > 0;
+    }
+
+    private function optionalDdl(string $sql): void
+    {
+        try {
+            $this->db->query($sql);
+        } catch (\Throwable $exception) {
+            error_log('[Nexo migration optional DDL] ' . $exception->getMessage());
+        }
     }
 }

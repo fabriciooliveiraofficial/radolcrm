@@ -54,8 +54,6 @@ if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE) {
 
 try {
     $db = new Database($config['db']);
-    (new MigrationService($db))->run();
-    $auth = new Auth($db);
 } catch (Throwable $exception) {
     http_response_code(500);
     if (!empty($config['app']['debug'])) {
@@ -63,5 +61,22 @@ try {
     } else {
         echo 'Não foi possível conectar ao banco de dados. Verifique config/config.php.';
     }
+    exit;
+}
+
+$migrationError = null;
+try {
+    (new MigrationService($db))->run();
+} catch (Throwable $exception) {
+    $migrationError = $exception;
+    error_log('[Nexo migration] ' . (string) $exception);
+}
+
+try {
+    $auth = new Auth($db);
+} catch (Throwable $exception) {
+    http_response_code(500);
+    error_log('[Nexo auth bootstrap] ' . (string) $exception);
+    echo 'Não foi possível iniciar a aplicação. Tente novamente em alguns instantes.';
     exit;
 }
