@@ -3,7 +3,8 @@
 <head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="theme-color" content="#102a2b"><title><?= h($pageTitles[$page][0]) ?> · <?= h($config['app']['name']) ?></title>
-    <link rel="stylesheet" href="assets/css/app.css?v=18">
+    <link rel="icon" href="assets/images/favicon.svg?v=1" type="image/svg+xml">
+    <link rel="stylesheet" href="assets/css/app.css?v=19">
 </head>
 <body class="app-body">
 <aside class="sidebar" id="sidebar">
@@ -38,5 +39,5 @@
 </div>
 <div class="sidebar-backdrop" data-menu></div>
 <script>window.NEXO = {baseUrl: <?= json_encode(rtrim($config['app']['url'], '/')) ?>};</script>
-<script src="assets/js/app.js?v=15"></script>
+<script src="assets/js/app.js?v=16"></script>
 </body></html>
