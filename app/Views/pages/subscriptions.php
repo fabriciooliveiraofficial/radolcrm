@@ -5,6 +5,36 @@ $dueFilter = (string) ($_GET['due'] ?? '');
 $badgeFilter = max(0, (int) ($_GET['badge'] ?? 0));
 $pageSizeOptions = [20,50,100,200];
 $perPage = in_array((int) ($_GET['per_page'] ?? 20), $pageSizeOptions, true) ? (int) ($_GET['per_page'] ?? 20) : 20;
+$sortOptions = [
+    'client_product' => 'c.name',
+    'recurring_value' => '((s.unit_price*s.quantity)-s.discount)',
+    'cycle' => "CASE p.billing_cycle WHEN 'annual' THEN 'Anual' WHEN 'monthly' THEN 'Mensal' WHEN 'semiannual' THEN 'Semestral' WHEN 'quarterly' THEN 'Trimestral' ELSE p.billing_cycle END",
+    'next_billing' => 's.next_billing_date',
+    'status' => "CASE s.status WHEN 'active' THEN 'Ativa' WHEN 'canceled' THEN 'Cancelada' WHEN 'past_due' THEN 'Em atraso' WHEN 'trial' THEN 'Em teste' WHEN 'paused' THEN 'Pausada' ELSE s.status END",
+];
+$sort = isset($sortOptions[(string) ($_GET['sort'] ?? '')]) ? (string) $_GET['sort'] : 'next_billing';
+$sortDirection = strtolower((string) ($_GET['dir'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
+$sqlDirection = strtoupper($sortDirection);
+$orderBy = match ($sort) {
+    'client_product' => "c.name {$sqlDirection},p.name {$sqlDirection},s.id ASC",
+    'next_billing' => "s.next_billing_date IS NULL ASC,s.next_billing_date {$sqlDirection},FIELD(s.status,'past_due','trial','active','paused','canceled'),c.name ASC,s.id ASC",
+    default => $sortOptions[$sort] . " {$sqlDirection},c.name ASC,s.id ASC",
+};
+$tableSortHeader = static function (string $key, string $label) use ($sort, $sortDirection): string {
+    $query = $_GET;
+    unset($query['p'], $query['edit'], $query['new'], $query['renewal'], $query['renewals'], $query['badges']);
+    $active = $sort === $key;
+    $nextDirection = $active && $sortDirection === 'asc' ? 'desc' : 'asc';
+    $query['sort'] = $key;
+    $query['dir'] = $nextDirection;
+    $ariaSort = $active ? ($sortDirection === 'asc' ? 'ascending' : 'descending') : 'none';
+    $indicator = $active ? ($sortDirection === 'asc' ? '↑' : '↓') : '↕';
+    $nextLabel = $nextDirection === 'asc' ? 'crescente' : 'decrescente';
+
+    return '<th class="sortable-column' . ($active ? ' is-sorted' : '') . '" aria-sort="' . $ariaSort . '"><a class="table-sort-link" href="?'
+        . h(http_build_query($query)) . '" title="Ordenar por ' . h($label) . '" aria-label="Ordenar por ' . h($label) . ', ordem ' . $nextLabel . '"><span>'
+        . h($label) . '</span><span class="table-sort-indicator" aria-hidden="true">' . $indicator . '</span></a></th>';
+};
 $where = ' WHERE 1=1';
 $params = [];
 if ($search !== '') {
@@ -39,7 +69,7 @@ if ($badgeFilter > 0) {
     $params[] = $badgeFilter;
 }
 $countSql = 'SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id' . $where;
-$dataSql = "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,((s.unit_price*s.quantity)-s.discount) recurring_value,DATEDIFF(s.next_billing_date,CURDATE()) due_in_days FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id{$where} ORDER BY s.next_billing_date IS NULL,s.next_billing_date,FIELD(s.status,'past_due','trial','active','paused','canceled')";
+$dataSql = "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,((s.unit_price*s.quantity)-s.discount) recurring_value,DATEDIFF(s.next_billing_date,CURDATE()) due_in_days FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id{$where} ORDER BY {$orderBy}";
 $pagination = pagination($db, $countSql, $dataSql, $params, $perPage);
 $displayedFrom = $pagination['total'] > 0 ? (($pagination['page'] - 1) * $perPage) + 1 : 0;
 $displayedTo = $pagination['total'] > 0 ? $displayedFrom + count($pagination['rows']) - 1 : 0;
@@ -251,6 +281,8 @@ if ($historyId > 0) {
     <form class="search-filters" method="get" data-live-filter id="subscription-filters">
         <input type="hidden" name="page" value="subscriptions">
         <input type="hidden" name="per_page" value="<?= $perPage ?>">
+        <input type="hidden" name="sort" value="<?= h($sort) ?>">
+        <input type="hidden" name="dir" value="<?= h($sortDirection) ?>">
         <label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Cliente, produto, badge, valor, data…" value="<?= h($search) ?>"></label>
         <select name="status"><option value="">Todos os status</option><?php foreach (['active'=>'Ativas','trial'=>'Em teste','past_due'=>'Em atraso','paused'=>'Pausadas','canceled'=>'Canceladas'] as $value => $label): ?><option value="<?= $value ?>" <?= $status === $value ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select>
         <select name="due" data-due-filter><option value="">Todos os vencimentos</option><option value="overdue" <?= $dueFilter === 'overdue' ? 'selected' : '' ?>>Atrasadas</option><option value="today" <?= $dueFilter === 'today' ? 'selected' : '' ?>>Vencem hoje</option><option value="tomorrow" <?= $dueFilter === 'tomorrow' ? 'selected' : '' ?>>Vencem amanhã</option><option value="two_days" <?= $dueFilter === 'two_days' ? 'selected' : '' ?>>Vencem em 2 dias</option><option value="next_7" <?= $dueFilter === 'next_7' ? 'selected' : '' ?>>Próximos 7 dias</option></select>
@@ -265,7 +297,7 @@ if ($historyId > 0) {
 </section>
 
 <div data-live-results>
-<section class="card table-card subscription-table"><div class="table-meta with-page-size"><span class="table-range-summary"><b><?= $pagination['total'] ?></b> assinaturas<small>Exibindo <?= $displayedFrom ?>–<?= $displayedTo ?> de <?= $pagination['total'] ?></small></span><div class="table-meta-actions"><div class="urgency-legend"><span class="tomorrow">Amanhã</span><span class="two-days">Em 2 dias</span><span class="overdue">Atrasada</span></div><form class="page-size-form" method="get"><input type="hidden" name="page" value="subscriptions"><?php if($search!==''): ?><input type="hidden" name="q" value="<?= h($search) ?>"><?php endif; ?><?php if($status!==''): ?><input type="hidden" name="status" value="<?= h($status) ?>"><?php endif; ?><?php if($dueFilter!==''): ?><input type="hidden" name="due" value="<?= h($dueFilter) ?>"><?php endif; ?><?php if($badgeFilter>0): ?><input type="hidden" name="badge" value="<?= $badgeFilter ?>"><?php endif; ?><label>Linhas por página<select name="per_page" data-page-size-select><?php foreach($pageSizeOptions as $pageSize): ?><option value="<?= $pageSize ?>" <?= $perPage===$pageSize?'selected':'' ?>><?= $pageSize ?></option><?php endforeach; ?></select></label></form></div></div><div class="table-wrap"><table><thead><tr><th>Cliente / Produto</th><th>Valor recorrente</th><th>Ciclo</th><th>Próxima cobrança</th><th>Status</th><th></th></tr></thead><tbody>
+<section class="card table-card subscription-table"><div class="table-meta with-page-size"><span class="table-range-summary"><b><?= $pagination['total'] ?></b> assinaturas<small>Exibindo <?= $displayedFrom ?>–<?= $displayedTo ?> de <?= $pagination['total'] ?></small></span><div class="table-meta-actions"><div class="urgency-legend"><span class="tomorrow">Amanhã</span><span class="two-days">Em 2 dias</span><span class="overdue">Atrasada</span></div><form class="page-size-form" method="get"><input type="hidden" name="page" value="subscriptions"><?php if($search!==''): ?><input type="hidden" name="q" value="<?= h($search) ?>"><?php endif; ?><?php if($status!==''): ?><input type="hidden" name="status" value="<?= h($status) ?>"><?php endif; ?><?php if($dueFilter!==''): ?><input type="hidden" name="due" value="<?= h($dueFilter) ?>"><?php endif; ?><?php if($badgeFilter>0): ?><input type="hidden" name="badge" value="<?= $badgeFilter ?>"><?php endif; ?><input type="hidden" name="sort" value="<?= h($sort) ?>"><input type="hidden" name="dir" value="<?= h($sortDirection) ?>"><label>Linhas por página<select name="per_page" data-page-size-select><?php foreach($pageSizeOptions as $pageSize): ?><option value="<?= $pageSize ?>" <?= $perPage===$pageSize?'selected':'' ?>><?= $pageSize ?></option><?php endforeach; ?></select></label></form></div></div><div class="table-wrap"><table><thead><tr><?= $tableSortHeader('client_product', 'Cliente / Produto') ?><?= $tableSortHeader('recurring_value', 'Valor recorrente') ?><?= $tableSortHeader('cycle', 'Ciclo') ?><?= $tableSortHeader('next_billing', 'Próxima cobrança') ?><?= $tableSortHeader('status', 'Status') ?><th class="actions-column"><span class="sr-only">Ações</span></th></tr></thead><tbody>
 <?php if (!$pagination['rows']): ?><tr><td colspan="6" class="empty-cell">Nenhuma assinatura encontrada.</td></tr><?php endif; ?>
 <?php foreach ($pagination['rows'] as $item):
     $dueDays = $item['due_in_days'] === null ? null : (int) $item['due_in_days'];

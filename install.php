@@ -99,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="pt-BR">
 <head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Instalar Nexo Gestão</title><link rel="icon" href="assets/images/favicon.svg?v=1" type="image/svg+xml"><link rel="stylesheet" href="assets/css/app.css?v=20">
+    <title>Instalar Nexo Gestão</title><link rel="icon" href="assets/images/favicon.svg?v=1" type="image/svg+xml"><link rel="stylesheet" href="assets/css/app.css?v=21">
 </head>
 <body class="install-page">
 <main class="install-shell">

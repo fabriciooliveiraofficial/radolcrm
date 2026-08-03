@@ -3,20 +3,47 @@ $search = trim((string) ($_GET['q'] ?? ''));
 $status = (string) ($_GET['status'] ?? '');
 $pageSizeOptions = [20,50,100,200];
 $perPage = in_array((int) ($_GET['per_page'] ?? 20), $pageSizeOptions, true) ? (int) ($_GET['per_page'] ?? 20) : 20;
+$sortOptions = [
+    'client' => 'c.name',
+    'country' => "CASE c.country WHEN 'BR' THEN 'Brasil' WHEN 'US' THEN 'Estados Unidos' ELSE c.country END",
+    'currency' => 'c.preferred_currency',
+    'subscriptions' => 'active_subscriptions',
+    'status' => "CASE c.status WHEN 'active' THEN 'Ativo' WHEN 'inactive' THEN 'Inativo' WHEN 'lead' THEN 'Lead' ELSE c.status END",
+];
+$sort = isset($sortOptions[(string) ($_GET['sort'] ?? '')]) ? (string) $_GET['sort'] : '';
+$sortDirection = strtolower((string) ($_GET['dir'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
+$orderBy = $sort === ''
+    ? 'c.created_at DESC,c.id DESC'
+    : $sortOptions[$sort] . ' ' . strtoupper($sortDirection) . ',c.name ASC,c.id ASC';
+$tableSortHeader = static function (string $key, string $label) use ($sort, $sortDirection): string {
+    $query = $_GET;
+    unset($query['p'], $query['edit'], $query['new']);
+    $active = $sort === $key;
+    $nextDirection = $active && $sortDirection === 'asc' ? 'desc' : 'asc';
+    $query['sort'] = $key;
+    $query['dir'] = $nextDirection;
+    $ariaSort = $active ? ($sortDirection === 'asc' ? 'ascending' : 'descending') : 'none';
+    $indicator = $active ? ($sortDirection === 'asc' ? '↑' : '↓') : '↕';
+    $nextLabel = $nextDirection === 'asc' ? 'crescente' : 'decrescente';
+
+    return '<th class="sortable-column' . ($active ? ' is-sorted' : '') . '" aria-sort="' . $ariaSort . '"><a class="table-sort-link" href="?'
+        . h(http_build_query($query)) . '" title="Ordenar por ' . h($label) . '" aria-label="Ordenar por ' . h($label) . ', ordem ' . $nextLabel . '"><span>'
+        . h($label) . '</span><span class="table-sort-indicator" aria-hidden="true">' . $indicator . '</span></a></th>';
+};
 $where = ' WHERE 1=1'; $params = [];
 if ($search !== '') { $where .= " AND CONCAT_WS(' ',c.id,c.name,c.company,c.email,c.phone,c.document,c.country,CASE c.country WHEN 'BR' THEN 'Brasil' WHEN 'US' THEN 'Estados Unidos' END,c.preferred_currency,c.status,CASE c.status WHEN 'active' THEN 'Ativo' WHEN 'lead' THEN 'Lead' WHEN 'inactive' THEN 'Inativo' END,c.notes,(SELECT COUNT(*) FROM subscriptions sx WHERE sx.client_id=c.id AND sx.status='active'),'assinaturas') LIKE ?"; $params[]='%'.$search.'%'; }
 if (in_array($status,['lead','active','inactive'],true)) { $where .= ' AND c.status=?'; $params[]=$status; }
-$pagination = pagination($db, 'SELECT COUNT(*) FROM clients c'.$where, "SELECT c.*, (SELECT COUNT(*) FROM subscriptions s WHERE s.client_id=c.id AND s.status='active') active_subscriptions FROM clients c".$where.' ORDER BY c.created_at DESC', $params, $perPage);
+$pagination = pagination($db, 'SELECT COUNT(*) FROM clients c'.$where, "SELECT c.*, (SELECT COUNT(*) FROM subscriptions s WHERE s.client_id=c.id AND s.status='active') active_subscriptions FROM clients c".$where.' ORDER BY '.$orderBy, $params, $perPage);
 $displayedFrom = $pagination['total'] > 0 ? (($pagination['page'] - 1) * $perPage) + 1 : 0;
 $displayedTo = $pagination['total'] > 0 ? $displayedFrom + count($pagination['rows']) - 1 : 0;
 $edit = isset($_GET['edit']) ? $db->fetch('SELECT * FROM clients WHERE id=?',[(int)$_GET['edit']]) : null;
 $showForm = isset($_GET['new']) || $edit;
 ?>
-<section class="toolbar list-toolbar"><form class="search-filters" method="get" data-live-filter><input type="hidden" name="page" value="clients"><input type="hidden" name="per_page" value="<?= $perPage ?>"><label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar qualquer informação" value="<?= h($search) ?>"></label><select name="status"><option value="">Todos os status</option><option value="active" <?= $status==='active'?'selected':'' ?>>Ativos</option><option value="lead" <?= $status==='lead'?'selected':'' ?>>Leads</option><option value="inactive" <?= $status==='inactive'?'selected':'' ?>>Inativos</option></select><span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span></form><div><a class="button ghost" href="?page=export&type=clients">⇩ Exportar</a><?php if($auth->canWrite()): ?><a class="button primary" href="?page=clients&new=1">＋ Novo cliente</a><?php endif; ?></div></section>
+<section class="toolbar list-toolbar"><form class="search-filters" method="get" data-live-filter><input type="hidden" name="page" value="clients"><input type="hidden" name="per_page" value="<?= $perPage ?>"><?php if($sort!==''): ?><input type="hidden" name="sort" value="<?= h($sort) ?>"><input type="hidden" name="dir" value="<?= h($sortDirection) ?>"><?php endif; ?><label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar qualquer informação" value="<?= h($search) ?>"></label><select name="status"><option value="">Todos os status</option><option value="active" <?= $status==='active'?'selected':'' ?>>Ativos</option><option value="lead" <?= $status==='lead'?'selected':'' ?>>Leads</option><option value="inactive" <?= $status==='inactive'?'selected':'' ?>>Inativos</option></select><span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span></form><div><a class="button ghost" href="?page=export&type=clients">⇩ Exportar</a><?php if($auth->canWrite()): ?><a class="button primary" href="?page=clients&new=1">＋ Novo cliente</a><?php endif; ?></div></section>
 <div data-live-results>
 <section class="card table-card">
-    <div class="table-meta with-page-size"><span class="table-range-summary"><b><?= $pagination['total'] ?></b> clientes encontrados<small>Exibindo <?= $displayedFrom ?>–<?= $displayedTo ?> de <?= $pagination['total'] ?></small></span><form class="page-size-form" method="get"><input type="hidden" name="page" value="clients"><?php if($search!==''): ?><input type="hidden" name="q" value="<?= h($search) ?>"><?php endif; ?><?php if($status!==''): ?><input type="hidden" name="status" value="<?= h($status) ?>"><?php endif; ?><label>Linhas por página<select name="per_page" data-page-size-select><?php foreach($pageSizeOptions as $pageSize): ?><option value="<?= $pageSize ?>" <?= $perPage===$pageSize?'selected':'' ?>><?= $pageSize ?></option><?php endforeach; ?></select></label></form></div>
-    <div class="table-wrap"><table><thead><tr><th>Cliente</th><th>País</th><th>Moeda</th><th>Assinaturas</th><th>Status</th><th></th></tr></thead><tbody>
+    <div class="table-meta with-page-size"><span class="table-range-summary"><b><?= $pagination['total'] ?></b> clientes encontrados<small>Exibindo <?= $displayedFrom ?>–<?= $displayedTo ?> de <?= $pagination['total'] ?></small></span><form class="page-size-form" method="get"><input type="hidden" name="page" value="clients"><?php if($search!==''): ?><input type="hidden" name="q" value="<?= h($search) ?>"><?php endif; ?><?php if($status!==''): ?><input type="hidden" name="status" value="<?= h($status) ?>"><?php endif; ?><?php if($sort!==''): ?><input type="hidden" name="sort" value="<?= h($sort) ?>"><input type="hidden" name="dir" value="<?= h($sortDirection) ?>"><?php endif; ?><label>Linhas por página<select name="per_page" data-page-size-select><?php foreach($pageSizeOptions as $pageSize): ?><option value="<?= $pageSize ?>" <?= $perPage===$pageSize?'selected':'' ?>><?= $pageSize ?></option><?php endforeach; ?></select></label></form></div>
+    <div class="table-wrap"><table><thead><tr><?= $tableSortHeader('client', 'Cliente') ?><?= $tableSortHeader('country', 'País') ?><?= $tableSortHeader('currency', 'Moeda') ?><?= $tableSortHeader('subscriptions', 'Assinaturas') ?><?= $tableSortHeader('status', 'Status') ?><th class="actions-column"><span class="sr-only">Ações</span></th></tr></thead><tbody>
     <?php if(!$pagination['rows']): ?><tr><td colspan="6" class="empty-cell">Nenhum cliente encontrado. Cadastre o primeiro cliente para começar.</td></tr><?php endif; ?>
     <?php foreach($pagination['rows'] as $item): ?><tr><td><div class="entity"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['name'],0,1))) ?></span><span><b><?= h($item['name']) ?></b><small><?= h($item['company'] ?: $item['email'] ?: 'Sem contato informado') ?></small></span></div></td><td><span class="country-cell"><?= country_flag_icon($item['country']) ?><span><?= $item['country']==='BR'?'Brasil':'Estados Unidos' ?></span></span></td><td><b><?= h($item['preferred_currency']) ?></b></td><td><?= (int)$item['active_subscriptions'] ?> ativa(s)</td><td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span><small class="block"><?= (int)$item['whatsapp_reminders_enabled']===1 ? 'WhatsApp autorizado' : 'WhatsApp desativado' ?></small></td><td><a class="row-action" href="?page=clients&edit=<?= (int)$item['id'] ?>" aria-label="Editar">•••</a></td></tr><?php endforeach; ?>
     </tbody></table></div><?= render_pagination($pagination) ?>
