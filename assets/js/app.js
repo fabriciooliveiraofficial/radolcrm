@@ -540,8 +540,11 @@
         calculate({ recalculateBase: true, recalculateAmount: true });
       };
 
-      [quantity, price, discount, receipt, renewalMonths, customDate].forEach((input) => input.addEventListener('input', () => {
+      [quantity, price, discount].forEach((input) => input.addEventListener('input', () => {
         calculate({ recalculateBase: true, recalculateAmount: true });
+      }));
+      [receipt, renewalMonths, customDate].forEach((input) => input.addEventListener('input', () => {
+        calculate({ recalculateBase: false, recalculateAmount: true });
       }));
       [paymentDiscount, surcharge].forEach((input) => input.addEventListener('input', () => {
         calculate({ recalculateAmount: true });
@@ -564,7 +567,7 @@
       });
       renewalModes.forEach((input) => input.addEventListener('change', () => {
         setModeState();
-        calculate({ recalculateBase: true, recalculateAmount: true });
+        calculate({ recalculateBase: false, recalculateAmount: true });
       }));
       product.addEventListener('change', setProductPrice);
       currency.addEventListener('change', setProductPrice);
