@@ -376,7 +376,7 @@ if ($historyId > 0) {
             <label>Quantidade<input name="renewals[<?= $subscriptionId ?>][quantity]" type="number" min="1" value="<?= (int) $row['quantity'] ?>" data-renewal-quantity></label>
             <label>Valor unitário<input name="renewals[<?= $subscriptionId ?>][unit_price]" type="number" min="0.01" step="0.01" value="<?= decimal_input($renewalUnitPrice) ?>" data-renewal-price><?php if (($row['product_pricing_mode'] ?? 'manual') !== 'manual'): ?><small>Atualizado pela cotação diária do produto</small><?php endif; ?></label>
             <label>Desconto recorrente do plano<input name="renewals[<?= $subscriptionId ?>][discount]" type="number" min="0" step="0.01" value="<?= decimal_input($row['discount']) ?>" data-renewal-discount><small>Altera o valor mensal futuro da assinatura.</small></label>
-            <label>Pagamento / resgate<input name="renewals[<?= $subscriptionId ?>][receipt_date]" type="date" max="<?= date('Y-m-d') ?>" value="<?= date('Y-m-d') ?>" data-renewal-receipt required><small>Para USD, esta data define a cotação diária.</small></label>
+            <label>Pagamento / resgate<input name="renewals[<?= $subscriptionId ?>][receipt_date]" type="date" value="<?= date('Y-m-d') ?>" data-renewal-receipt required><small>Para USD, esta data define a cotação diária.</small></label>
             <section class="renewal-period-config">
                 <header><div><b>Período desta renovação</b><small>Escolha meses completos ou uma próxima cobrança personalizada.</small></div><span data-renewal-period-label>Calculando…</span></header>
                 <div class="renewal-mode-switch">

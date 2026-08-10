@@ -342,7 +342,7 @@ final class ActionHandler
             $dueDate = trim((string) ($posted['due_date'] ?? ''));
             $receiptDate = trim((string) ($posted['receipt_date'] ?? ''));
             $this->validateDate($dueDate, false, 'O vencimento de uma renovação é inválido.');
-            $this->validateDate($receiptDate, true, 'A data de pagamento/resgate deve ser válida e não pode estar no futuro.');
+            $this->validateDate($receiptDate, false, 'A data de pagamento/resgate deve ser válida.');
 
             $unitPrice = normalize_decimal($posted['unit_price'] ?? 0);
             $quantity = max(1, (int) ($posted['quantity'] ?? 1));

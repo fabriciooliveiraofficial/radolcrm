@@ -75,7 +75,15 @@ final class ExchangeRateService
             }
         }
 
-        return $this->store($this->fetchRemote($date), true);
+        if ($date > date('Y-m-d')) {
+            return $this->current($forceRefresh);
+        }
+
+        try {
+            return $this->store($this->fetchRemote($date), true);
+        } catch (\Throwable $exception) {
+            return $this->current();
+        }
     }
 
     public function latestStored(): ?array
