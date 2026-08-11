@@ -220,10 +220,10 @@ function period_dates(): array
     $period = $_GET['period'] ?? 'month';
     return match ($period) {
         'today' => [$today->format('Y-m-d'), $today->format('Y-m-d'), 'Hoje'],
-        'quarter' => [$today->modify('first day of this month')->modify('-2 months')->format('Y-m-d'), $today->format('Y-m-d'), 'Últimos 3 meses'],
-        'year' => [$today->format('Y-01-01'), $today->format('Y-m-d'), 'Este ano'],
-        'custom' => [$_GET['from'] ?? $today->format('Y-m-01'), $_GET['to'] ?? $today->format('Y-m-d'), 'Período personalizado'],
-        default => [$today->format('Y-m-01'), $today->format('Y-m-d'), 'Este mês'],
+        'quarter' => [$today->modify('first day of this month')->modify('-2 months')->format('Y-m-d'), $today->modify('last day of this month')->format('Y-m-d'), 'Últimos 3 meses'],
+        'year' => [$today->format('Y-01-01'), $today->format('Y-12-31'), 'Este ano'],
+        'custom' => [$_GET['from'] ?? $today->format('Y-m-01'), $_GET['to'] ?? $today->modify('last day of this month')->format('Y-m-d'), 'Período personalizado'],
+        default => [$today->format('Y-m-01'), $today->modify('last day of this month')->format('Y-m-d'), 'Este mês'],
     };
 }
 

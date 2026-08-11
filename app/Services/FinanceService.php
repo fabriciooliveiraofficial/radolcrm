@@ -21,8 +21,11 @@ final class FinanceService
                     COALESCE(SUM(CASE WHEN currency='BRL' THEN amount ELSE 0 END),0) brl,
                     COUNT(*) payment_count
              FROM payments WHERE status = 'paid'
-             AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) BETWEEN ? AND ?",
-            [$from, $to]
+             AND (
+                 (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) BETWEEN ? AND ?
+                 OR DATE(created_at) BETWEEN ? AND ?
+             )",
+            [$from, $to, $from, $to]
         );
         $costs = $this->db->fetch(
             "SELECT COALESCE(SUM(CASE WHEN type='expense' THEN amount_brl ELSE 0 END),0) expenses,
@@ -111,7 +114,7 @@ final class FinanceService
              FROM payments
              WHERE status IN ('paid','failed','pending')
                AND COALESCE(due_date,payment_date,DATE(created_at))
-                   BETWEEN DATE_SUB(CURDATE(),INTERVAL 90 DAY) AND CURDATE()"
+                   BETWEEN DATE_SUB(CURDATE(),INTERVAL 90 DAY) AND DATE_ADD(CURDATE(),INTERVAL 90 DAY)"
         ) ?? [];
         $topProducts = $this->db->fetchAll(
             "SELECT p.id,p.name,COUNT(*) subscriptions,COUNT(DISTINCT s.client_id) clients,
