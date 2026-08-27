@@ -137,8 +137,55 @@ if (str_contains($individualHtml, 'Selecionar todas')) {
     exit(1);
 }
 
+$_GET = ['renewal' => '8'];
+$_SERVER['REQUEST_URI'] = '?page=subscriptions&renewal=8';
+$dbWithNullDate = new class($subscription, $product) {
+    public function __construct(private array $subscription, private array $product) {}
+    public function value(string $sql, array $params = []): int { return 1; }
+    public function fetch(string $sql, array $params = []): ?array
+    {
+        if (str_contains($sql, 'tomorrow_count')) return ['overdue'=>0,'today_count'=>0,'tomorrow_count'=>1,'two_days_count'=>0,'next_7_count'=>1];
+        return null;
+    }
+    public function fetchAll(string $sql, array $params = []): array
+    {
+        if (str_contains($sql, 'WHERE s.id=?')) {
+            $sub = $this->subscription;
+            $sub['id'] = 8;
+            $sub['status'] = 'paused';
+            $sub['next_billing_date'] = null;
+            return [$sub];
+        }
+        if (str_contains($sql, 'FROM products ORDER BY active DESC')) return [$this->product];
+        return [];
+    }
+};
+$db = $dbWithNullDate;
+ob_start();
+require dirname(__DIR__) . '/app/Views/pages/subscriptions.php';
+$nullDateHtml = (string) ob_get_clean();
+if (str_contains($nullDateHtml, 'Cobrança indisponível') || !str_contains($nullDateHtml, 'data-single-renewal="1"')) {
+    fwrite(STDERR, "Falha: assinatura com data nula ou pausada não deveria exibir cobrança indisponível.\n");
+    exit(1);
+}
+
 $_GET = ['badges' => '7'];
 $_SERVER['REQUEST_URI'] = '?page=subscriptions&badges=7';
+$db = new class($subscription, $product) {
+    public function __construct(private array $subscription, private array $product) {}
+    public function value(string $sql, array $params = []): int { return 1; }
+    public function fetch(string $sql, array $params = []): ?array
+    {
+        if (str_contains($sql, 'tomorrow_count')) return ['overdue'=>0,'today_count'=>0,'tomorrow_count'=>1,'two_days_count'=>0,'next_7_count'=>1];
+        return ['id'=>7,'client'=>'Cliente Teste','product'=>'Plano Mensal'];
+    }
+    public function fetchAll(string $sql, array $params = []): array
+    {
+        if (str_contains($sql, 'SELECT * FROM service_badges')) return [['id'=>3,'name'=>'Suporte premium','icon'=>'diamond','tone'=>'gold','active'=>1]];
+        if (str_contains($sql, 'SELECT badge_id FROM subscription_service_badges')) return [['badge_id'=>3]];
+        return [];
+    }
+};
 ob_start();
 require dirname(__DIR__) . '/app/Views/pages/subscriptions.php';
 $badgeAssignmentHtml = (string) ob_get_clean();

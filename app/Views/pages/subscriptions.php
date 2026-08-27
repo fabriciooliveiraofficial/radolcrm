@@ -197,8 +197,7 @@ $renewalRows = [];
 $renewalProducts = [];
 if ($showRenewals) {
     $renewalWhere = $isIndividualRenewal
-        ? "s.id=? AND s.status IN ('active','trial','past_due') AND s.next_billing_date IS NOT NULL
-           AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid')"
+        ? "s.id=?"
         : "s.status IN ('active','trial','past_due')
            AND (pending.id IS NOT NULL OR (s.next_billing_date IS NOT NULL AND s.next_billing_date<=?
                 AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid')))";
@@ -304,7 +303,7 @@ if ($historyId > 0) {
     $urgency = $dueDays === null ? 'none' : ($dueDays < 0 ? 'overdue' : ($dueDays === 0 ? 'today' : ($dueDays === 1 ? 'tomorrow' : ($dueDays === 2 ? 'two-days' : ($dueDays <= 7 ? 'week' : 'none')))));
     $dueLabel = match ($urgency) { 'overdue'=>'Vencida há ' . abs($dueDays) . ' dia(s)', 'today'=>'Vence hoje', 'tomorrow'=>'Vence amanhã', 'two-days'=>'Vence em 2 dias', 'week'=>'Vence em ' . $dueDays . ' dias', default=>'Próxima renovação' };
     $dueIcon = match ($urgency) { 'overdue'=>'!', 'today'=>'●', 'tomorrow'=>'→', 'two-days'=>'2', 'week'=>'◷', default=>'◇' };
-    $canRenewIndividual = $auth->canWrite() && $item['next_billing_date'] && in_array($item['status'], ['active','trial','past_due'], true);
+    $canRenewIndividual = $auth->canWrite();
     $itemServiceBadges = $serviceBadgesBySubscription[(int) $item['id']] ?? [];
 ?>
 <tr class="subscription-row urgency-<?= h($urgency) ?>">
@@ -347,7 +346,7 @@ if ($historyId > 0) {
     <div class="renewal-list">
     <?php foreach ($renewalRows as $row):
         $subscriptionId = (int) $row['id'];
-        $dueDate = $row['pending_due_date'] ?: $row['next_billing_date'];
+        $dueDate = $row['pending_due_date'] ?: ($row['next_billing_date'] ?: date('Y-m-d'));
         $renewalUnitPrice = (float) ($row['renewal_unit_price'] ?? $row['unit_price']);
         $contractAmount = round(max(0, ($renewalUnitPrice * (int) $row['quantity']) - (float) $row['discount']), 2);
         $cycleMonthCount = ['monthly'=>1,'quarterly'=>3,'semiannual'=>6,'annual'=>12][$row['billing_cycle']] ?? 1;

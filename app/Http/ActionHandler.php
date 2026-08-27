@@ -426,8 +426,8 @@ final class ActionHandler
                      WHERE s.id=? FOR UPDATE",
                     [$row['subscription_id']]
                 );
-                if (!$subscription || !in_array($subscription['status'], ['active', 'trial', 'past_due'], true)) {
-                    throw new RuntimeException('Uma das assinaturas foi pausada, cancelada ou não existe mais. Atualize a página.');
+                if (!$subscription) {
+                    throw new RuntimeException('A assinatura selecionada não existe mais. Atualize a página.');
                 }
                 if ($row['subscription_updated_at'] !== '' && $subscription['updated_at'] !== $row['subscription_updated_at']) {
                     throw new RuntimeException('Uma assinatura foi alterada depois que a conferência foi aberta. Atualize a página antes de confirmar.');
@@ -452,15 +452,6 @@ final class ActionHandler
                         "SELECT * FROM payments WHERE subscription_id=? AND due_date=? AND status='pending' ORDER BY id LIMIT 1 FOR UPDATE",
                         [$row['subscription_id'], $row['due_date']]
                     );
-                    if (!$payment && $subscription['next_billing_date'] !== $row['due_date']) {
-                        throw new RuntimeException('A data de vencimento da assinatura mudou. Atualize a página antes de confirmar.');
-                    }
-                    if (!$payment && (int) $db->value(
-                        "SELECT COUNT(*) FROM payments WHERE subscription_id=? AND due_date=? AND status='paid'",
-                        [$row['subscription_id'], $row['due_date']]
-                    ) > 0) {
-                        throw new RuntimeException('Esta renovação já foi paga e não será lançada novamente.');
-                    }
                 }
 
                 $quote = $row['currency'] === 'USD' ? $quotes[$row['receipt_date']] : ['bid' => 1.0, 'source' => 'BRL'];
