@@ -21,11 +21,16 @@ final class Database
             $config['charset'] ?? 'utf8mb4'
         );
 
+        $timezoneOffset = (new \DateTime('now', new \DateTimeZone(date_default_timezone_get())))->format('P');
+
         $this->pdo = new PDO($dsn, $config['username'], $config['password'], [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
+            PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '{$timezoneOffset}'",
         ]);
+
+        $this->pdo->exec("SET time_zone = '{$timezoneOffset}'");
     }
 
     public function pdo(): PDO
