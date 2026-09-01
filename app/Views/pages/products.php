@@ -1,9 +1,11 @@
 <?php
 $search = trim((string) ($_GET['q'] ?? ''));
+$allBusinesses = $db->fetchAll('SELECT id, name, icon, color FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
 $params = [];
 $where = ' WHERE 1=1';
 if ($buFilter !== null) {
-    $where .= ' AND p.business_unit_id=?';
+    $where .= ' AND (p.business_unit_id=? OR (p.business_unit_id IS NULL AND ? = 1))';
+    $params[] = $buFilter;
     $params[] = $buFilter;
 }
 if ($search !== '') {
@@ -46,7 +48,8 @@ $pricingMode = $edit['pricing_mode'] ?? 'manual';
 <?php if ($showForm): ?>
 <div class="modal open"><a class="modal-backdrop" href="?page=products"></a><section class="modal-panel"><header><div><p class="eyebrow">CATÁLOGO</p><h2><?= $edit ? 'Editar produto' : 'Novo produto' ?></h2></div><a href="?page=products" class="modal-close">×</a></header>
 <form method="post" class="form-grid" data-product-pricing data-current-rate="<?= h($currentRate) ?>">
-    <?= csrf_field() ?><input type="hidden" name="action" value="save_product"><input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>"><input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>"><input type="hidden" name="business_unit_id" value="<?= (int)($edit ? ($edit['business_unit_id']??0) : $buFilter) ?>">
+    <?= csrf_field() ?><input type="hidden" name="action" value="save_product"><input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>"><input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+    <label class="span-2">Unidade de Negócio / Empresa<select name="business_unit_id" required><?php $selectedBuProduct = $edit ? (int)($edit['business_unit_id'] ?? 0) : ($buFilter ?: (int)($allBusinesses[0]['id'] ?? 1)); foreach ($allBusinesses as $bu): ?><option value="<?= (int) $bu['id'] ?>" <?= $selectedBuProduct === (int) $bu['id'] ? 'selected' : '' ?>><?= h($bu['icon']) ?> <?= h($bu['name']) ?></option><?php endforeach; ?></select></label>
     <label class="span-2">Nome do produto<input name="name" required value="<?= h($edit['name'] ?? '') ?>"></label>
     <label>SKU<input name="sku" value="<?= h($edit['sku'] ?? '') ?>" placeholder="PLANO-PRO"></label>
     <label>Ciclo de cobrança<select name="billing_cycle"><option value="monthly" <?= ($edit['billing_cycle'] ?? 'monthly') === 'monthly' ? 'selected' : '' ?>>Mensal</option><option value="quarterly" <?= ($edit['billing_cycle'] ?? '') === 'quarterly' ? 'selected' : '' ?>>Trimestral</option><option value="semiannual" <?= ($edit['billing_cycle'] ?? '') === 'semiannual' ? 'selected' : '' ?>>Semestral</option><option value="annual" <?= ($edit['billing_cycle'] ?? '') === 'annual' ? 'selected' : '' ?>>Anual</option></select></label>

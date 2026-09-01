@@ -609,6 +609,16 @@ final class MigrationService
         }
         if ($version < 12) {
             $this->db->query("ALTER TABLE categories MODIFY COLUMN type ENUM('expense','income','investment','both') NOT NULL DEFAULT 'expense'");
+            
+            $mainBuId = (int) $this->db->value("SELECT id FROM business_units WHERE is_personal = 0 ORDER BY sort_order ASC, id ASC LIMIT 1") ?: 1;
+            
+            // Fix any orphaned records without business_unit_id
+            $this->db->query("UPDATE clients SET business_unit_id = ? WHERE business_unit_id IS NULL OR business_unit_id = 0", [$mainBuId]);
+            $this->db->query("UPDATE products SET business_unit_id = ? WHERE business_unit_id IS NULL OR business_unit_id = 0", [$mainBuId]);
+            $this->db->query("UPDATE payments SET business_unit_id = ? WHERE business_unit_id IS NULL OR business_unit_id = 0", [$mainBuId]);
+            $this->db->query("UPDATE expenses SET business_unit_id = ? WHERE business_unit_id IS NULL OR business_unit_id = 0", [$mainBuId]);
+            $this->db->query("UPDATE cash_entries SET business_unit_id = ? WHERE business_unit_id IS NULL OR business_unit_id = 0", [$mainBuId]);
+
             // Map any unmapped expenses to categories
             $expenses = $this->db->fetchAll("SELECT id, category FROM expenses WHERE category_id IS NULL AND category IS NOT NULL AND category != ''");
             foreach ($expenses as $exp) {

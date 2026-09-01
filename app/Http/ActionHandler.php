@@ -469,7 +469,7 @@ final class ActionHandler
         $this->db->query('DELETE FROM recurring_templates WHERE id = ?', [$id]);
         audit($this->db, 'delete', 'recurring_template', $id);
         Flash::add('success', 'Lançamento recorrente e parcelas pendentes excluídas.');
-        return '?page=recurring';
+        return $this->returnUrl('?page=recurring');
     }
 
     private function saveBusinessUnit(): string
@@ -492,7 +492,7 @@ final class ActionHandler
             audit($this->db, 'create', 'business_unit', $id, ['name' => $name]);
         }
         Flash::add('success', 'Negócio salvo com sucesso.');
-        return '?page=businesses';
+        return $this->returnUrl('?page=businesses');
     }
 
     private function deleteBusinessUnit(): string
@@ -505,7 +505,7 @@ final class ActionHandler
         $this->db->query('DELETE FROM business_units WHERE id=?', [$id]);
         audit($this->db, 'delete', 'business_unit', $id);
         Flash::add('success', 'Negócio excluído.');
-        return '?page=businesses';
+        return $this->returnUrl('?page=businesses');
     }
 
     private function saveCategory(): string
@@ -536,7 +536,7 @@ final class ActionHandler
             audit($this->db, 'create', 'category', $id, ['name' => $name]);
         }
         Flash::add('success', 'Categoria salva com sucesso.');
-        return '?page=categories';
+        return $this->returnUrl('?page=categories');
     }
 
     private function deleteCategory(): string
@@ -582,7 +582,7 @@ final class ActionHandler
         $this->db->query('DELETE FROM categories WHERE id=?', [$id]);
         audit($this->db, 'delete', 'category', $id);
         Flash::add('success', 'Categoria excluída e registros desvinculados com segurança.');
-        return '?page=categories';
+        return $this->returnUrl('?page=categories');
     }
 
     private function saveClient(): string
@@ -611,7 +611,7 @@ final class ActionHandler
             audit($this->db, 'create', 'client', $id);
         }
         Flash::add('success', 'Cliente salvo com sucesso.');
-        return '?page=clients';
+        return $this->returnUrl('?page=clients');
     }
 
     private function deleteClient(): string
@@ -624,7 +624,7 @@ final class ActionHandler
         $this->db->query('DELETE FROM clients WHERE id=?', [$id]);
         audit($this->db, 'delete', 'client', $id);
         Flash::add('success', 'Cliente excluído.');
-        return '?page=clients';
+        return $this->returnUrl('?page=clients');
     }
 
     private function saveProduct(): string
@@ -665,7 +665,7 @@ final class ActionHandler
             audit($this->db, 'create', 'product', $id, ['pricing_mode'=>$pricingMode,'price_brl'=>$priceBrl,'price_usd'=>$priceUsd,'exchange_rate'=>$quote['bid'] ?? null]);
         }
         Flash::add('success', $pricingMode === 'manual' ? 'Produto salvo com preços locais.' : 'Produto salvo e convertido pela cotação diária.');
-        return '?page=products';
+        return $this->returnUrl('?page=products');
     }
 
     private function deleteProduct(): string
@@ -677,7 +677,7 @@ final class ActionHandler
         $this->db->query('DELETE FROM products WHERE id=?', [$id]);
         audit($this->db, 'delete', 'product', $id);
         Flash::add('success', 'Produto excluído.');
-        return '?page=products';
+        return $this->returnUrl('?page=products');
     }
 
     private function saveServiceBadge(): string
@@ -785,7 +785,7 @@ final class ActionHandler
             });
         }
         Flash::add('success', 'Assinatura salva com sucesso.');
-        return '?page=subscriptions';
+        return $this->returnUrl('?page=subscriptions');
     }
 
     private function saveSubscriptionBadges(): string
@@ -815,7 +815,7 @@ final class ActionHandler
             audit($db, 'update_badges', 'subscription', $id, $details);
         });
         Flash::add('success', 'Badges vinculados à assinatura com sucesso.');
-        return '?page=subscriptions';
+        return $this->returnUrl('?page=subscriptions');
     }
 
     private function deleteSubscription(): string
@@ -827,7 +827,7 @@ final class ActionHandler
         $this->db->query('DELETE FROM subscriptions WHERE id=?', [$id]);
         audit($this->db, 'delete', 'subscription', $id);
         Flash::add('success', 'Assinatura excluída.');
-        return '?page=subscriptions';
+        return $this->returnUrl('?page=subscriptions');
     }
 
     private function generateUpcomingPayments(): string
@@ -1117,7 +1117,7 @@ final class ActionHandler
             }
         });
         Flash::add('success', 'Pagamento salvo. Conversão registrada em ' . money($amountBrl) . '.');
-        return '?page=payments';
+        return $this->returnUrl('?page=payments');
     }
 
     private function markPaymentsPaid(): string
@@ -1176,7 +1176,7 @@ final class ActionHandler
         });
 
         Flash::add('success', $updated . ' pagamento(s) confirmado(s) e ' . $renewed . ' assinatura(s) renovada(s). O dashboard financeiro foi atualizado.');
-        return '?page=payments&status=paid';
+        return $this->returnUrl('?page=payments&status=paid');
     }
 
     private function deletePayment(): string
@@ -1185,7 +1185,7 @@ final class ActionHandler
         $this->db->query('DELETE FROM payments WHERE id=?', [$id]);
         audit($this->db, 'delete', 'payment', $id);
         Flash::add('success', 'Pagamento excluído.');
-        return '?page=payments';
+        return $this->returnUrl('?page=payments');
     }
 
     private function saveExpense(): string
@@ -1226,7 +1226,7 @@ final class ActionHandler
             audit($this->db, 'create', 'expense', $id);
         }
         Flash::add('success', 'Gasto ou investimento salvo.');
-        return '?page=expenses';
+        return $this->returnUrl('?page=expenses');
     }
 
     private function deleteExpense(): string
@@ -1235,7 +1235,7 @@ final class ActionHandler
         $this->db->query('DELETE FROM expenses WHERE id=?', [$id]);
         audit($this->db, 'delete', 'expense', $id);
         Flash::add('success', 'Lançamento excluído.');
-        return '?page=expenses';
+        return $this->returnUrl('?page=expenses');
     }
 
     private function saveCash(): string
@@ -1275,7 +1275,7 @@ final class ActionHandler
             audit($this->db, 'create', 'cash_entry', $id);
         }
         Flash::add('success', 'Movimentação de caixa salva.');
-        return '?page=cash';
+        return $this->returnUrl('?page=cash');
     }
 
     private function deleteCash(): string
@@ -1284,7 +1284,7 @@ final class ActionHandler
         $this->db->query('DELETE FROM cash_entries WHERE id=?', [$id]);
         audit($this->db, 'delete', 'cash_entry', $id);
         Flash::add('success', 'Movimentação excluída.');
-        return '?page=cash';
+        return $this->returnUrl('?page=cash');
     }
 
     private function refreshRate(): string
@@ -1767,7 +1767,17 @@ final class ActionHandler
     private function businessUnitId(): ?int
     {
         $id = (int) ($_POST['business_unit_id'] ?? 0);
-        return $id > 0 ? $id : null;
+        if ($id > 0) {
+            return $id;
+        }
+        $returnUrl = (string) ($_POST['_return'] ?? '');
+        if (preg_match('/[?&]bu=(\d+)/', $returnUrl, $matches)) {
+            return (int) $matches[1];
+        }
+        if (isset($_GET['bu']) && (int) $_GET['bu'] > 0) {
+            return (int) $_GET['bu'];
+        }
+        return null;
     }
 
     private function categoryId(): ?int
@@ -1806,7 +1816,11 @@ final class ActionHandler
         $isQuery = str_starts_with($url, '?');
         $isLocalPath = str_starts_with($url, '/') && !str_starts_with($url, '//');
         if (($isQuery || $isLocalPath) && !str_contains($url, "\r") && !str_contains($url, "\n")) {
-            return $url;
+            $cleanUrl = preg_replace('/([?&])(new|new_sub|edit|parent|renewal|renewals|badges)(=\d*)?(&|$)/', '$1', $url);
+            $cleanUrl = rtrim($cleanUrl, '?&');
+            if ($cleanUrl !== '' && (str_starts_with($cleanUrl, '?') || str_starts_with($cleanUrl, '/'))) {
+                return $cleanUrl;
+            }
         }
 
         return $fallback;

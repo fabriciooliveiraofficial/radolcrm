@@ -39,13 +39,14 @@ $tableSortHeader = static function (string $key, string $label) use ($sort, $sor
 $where = ' WHERE 1=1';
 $params = [];
 if ($buFilter !== null) {
-    $where .= ' AND c.business_unit_id=?';
+    $where .= ' AND (c.business_unit_id=? OR (c.business_unit_id IS NULL AND ? = 1))';
+    $params[] = $buFilter;
     $params[] = $buFilter;
 }
 if ($search !== '') {
     $where .= " AND CONCAT_WS(' ',s.id,c.name,c.company,c.email,c.country,CASE c.country WHEN 'BR' THEN 'Brasil' WHEN 'US' THEN 'Estados Unidos' END,p.name,p.sku,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,s.quantity,s.currency,s.unit_price,REPLACE(s.unit_price,'.',','),s.discount,REPLACE(s.discount,'.',','),s.status,CASE s.status WHEN 'active' THEN 'Ativa Ativo' WHEN 'trial' THEN 'Teste' WHEN 'past_due' THEN 'Em atraso Atrasada' WHEN 'paused' THEN 'Pausada' WHEN 'canceled' THEN 'Cancelada' END,s.start_date,DATE_FORMAT(s.start_date,'%d/%m/%Y'),s.next_billing_date,DATE_FORMAT(s.next_billing_date,'%d/%m/%Y'),DATEDIFF(s.next_billing_date,CURDATE()),CASE WHEN s.next_billing_date<CURDATE() THEN 'Vencida atrasada' WHEN s.next_billing_date=CURDATE() THEN 'Vence hoje' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY) THEN 'Vence amanhã' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 2 DAY) THEN 'Vence em 2 dias' WHEN s.next_billing_date<=DATE_ADD(CURDATE(),INTERVAL 7 DAY) THEN 'Próximos 7 dias' END,s.payment_method,s.payment_link,s.notes) LIKE ?";
     $params[] = '%' . $search . '%';
-        $where = ' WHERE 1=1' . ($buFilter !== null ? ' AND c.business_unit_id=' . (int)$buFilter : '') . ' AND (' . substr($where, strlen(' WHERE 1=1' . ($buFilter !== null ? ' AND c.business_unit_id=' . (int)$buFilter : '') . ' AND '))
+        $where = ' WHERE 1=1' . ($buFilter !== null ? ' AND (c.business_unit_id=' . (int)$buFilter . ' OR (c.business_unit_id IS NULL AND ' . (int)$buFilter . ' = 1))' : '') . ' AND (' . substr($where, strlen(' WHERE 1=1' . ($buFilter !== null ? ' AND (c.business_unit_id=' . (int)$buFilter . ' OR (c.business_unit_id IS NULL AND ' . (int)$buFilter . ' = 1))' : '') . ' AND '))
         . " OR EXISTS (
                 SELECT 1 FROM subscription_service_badges search_ssb
                 JOIN service_badges search_badge ON search_badge.id=search_ssb.badge_id
@@ -150,7 +151,8 @@ if ($showForm || $showRenewals) {
 $clientsQuery = "SELECT id,name,country,preferred_currency FROM clients WHERE (status!='inactive' OR id=?)";
 $clientsParams = [(int) ($edit['client_id'] ?? 0)];
 if ($buFilter !== null) {
-    $clientsQuery .= " AND business_unit_id=?";
+    $clientsQuery .= " AND (business_unit_id=? OR (business_unit_id IS NULL AND ? = 1))";
+    $clientsParams[] = $buFilter;
     $clientsParams[] = $buFilter;
 }
 $clientsQuery .= " ORDER BY name";
@@ -159,7 +161,8 @@ $clients = $showForm ? $db->fetchAll($clientsQuery, $clientsParams) : [];
 $productsQuery = "SELECT * FROM products WHERE (active=1 OR id=?)";
 $productsParams = [(int) ($edit['product_id'] ?? 0)];
 if ($buFilter !== null) {
-    $productsQuery .= " AND business_unit_id=?";
+    $productsQuery .= " AND (business_unit_id=? OR (business_unit_id IS NULL AND ? = 1))";
+    $productsParams[] = $buFilter;
     $productsParams[] = $buFilter;
 }
 $productsQuery .= " ORDER BY name";
@@ -171,7 +174,8 @@ foreach ($products as $key => $product) {
 $statusWhere = "WHERE 1=1";
 $statusParams = [];
 if ($buFilter !== null) {
-    $statusWhere .= " AND c.business_unit_id=?";
+    $statusWhere .= " AND (c.business_unit_id=? OR (c.business_unit_id IS NULL AND ? = 1))";
+    $statusParams[] = $buFilter;
     $statusParams[] = $buFilter;
 }
 $activeCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id {$statusWhere} AND s.status='active'", $statusParams);
@@ -181,8 +185,8 @@ $overdueCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions s JOIN clie
 $prodWhere = "WHERE 1=1";
 $prodParams = [];
 if ($buFilter !== null) {
-    $prodWhere .= " AND p.business_unit_id=?";
-    $prodParams = [$buFilter, $buFilter];
+    $prodWhere .= " AND (p.business_unit_id=? OR (p.business_unit_id IS NULL AND ? = 1))";
+    $prodParams = [$buFilter, $buFilter, $buFilter, $buFilter];
 } else {
     $prodWhere .= " AND (p.active=1 OR s.id IS NOT NULL)";
 }
@@ -198,7 +202,7 @@ $productUnitSummary = $db->fetchAll(
             ),0) active_units
      FROM products p
      LEFT JOIN subscriptions s ON s.product_id=p.id AND s.status='active'
-     " . ($buFilter !== null ? "LEFT JOIN clients c ON c.id=s.client_id AND c.business_unit_id=?" : "") . "
+     " . ($buFilter !== null ? "LEFT JOIN clients c ON c.id=s.client_id AND (c.business_unit_id=? OR (c.business_unit_id IS NULL AND ? = 1))" : "") . "
      {$prodWhere}
      GROUP BY p.id,p.name,p.active
      ORDER BY p.active DESC,active_units DESC,p.name",
@@ -215,7 +219,8 @@ $dueCountSql = "SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.cl
                 AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid')))";
 $dueCountParams = [$cutoff];
 if ($buFilter !== null) {
-    $dueCountSql .= " AND c.business_unit_id=?";
+    $dueCountSql .= " AND (c.business_unit_id=? OR (c.business_unit_id IS NULL AND ? = 1))";
+    $dueCountParams[] = $buFilter;
     $dueCountParams[] = $buFilter;
 }
 $dueCount = (int) $db->value($dueCountSql, $dueCountParams);
@@ -229,7 +234,8 @@ $dueStatsSql = "SELECT
      FROM subscriptions s JOIN clients c ON c.id=s.client_id WHERE s.status IN ('active','trial','past_due')";
 $dueStatsParams = [];
 if ($buFilter !== null) {
-    $dueStatsSql .= " AND c.business_unit_id=?";
+    $dueStatsSql .= " AND (c.business_unit_id=? OR (c.business_unit_id IS NULL AND ? = 1))";
+    $dueStatsParams[] = $buFilter;
     $dueStatsParams[] = $buFilter;
 }
 $dueStats = $db->fetch($dueStatsSql, $dueStatsParams) ?: ['overdue'=>0,'today_count'=>0,'tomorrow_count'=>0,'two_days_count'=>0,'next_7_count'=>0];
@@ -239,7 +245,8 @@ $tomorrowSql = "SELECT s.id,s.currency,s.unit_price,s.quantity,s.discount,c.name
      WHERE s.status IN ('active','trial','past_due') AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)";
 $tomorrowParams = [];
 if ($buFilter !== null) {
-    $tomorrowSql .= " AND c.business_unit_id=?";
+    $tomorrowSql .= " AND (c.business_unit_id=? OR (c.business_unit_id IS NULL AND ? = 1))";
+    $tomorrowParams[] = $buFilter;
     $tomorrowParams[] = $buFilter;
 }
 $tomorrowSql .= " ORDER BY c.name LIMIT 20";
@@ -255,7 +262,8 @@ if ($showRenewals) {
                 AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid')))";
     $renewalParams = [$isIndividualRenewal ? $individualRenewalId : $cutoff];
     if (!$isIndividualRenewal && $buFilter !== null) {
-        $renewalWhere .= " AND c.business_unit_id=?";
+        $renewalWhere .= " AND (c.business_unit_id=? OR (c.business_unit_id IS NULL AND ? = 1))";
+        $renewalParams[] = $buFilter;
         $renewalParams[] = $buFilter;
     }
     $renewalRows = $db->fetchAll(
@@ -283,7 +291,8 @@ if ($showRenewals) {
     $renProdQuery = "SELECT * FROM products WHERE (active=1 OR id IN (SELECT product_id FROM subscriptions s JOIN clients c ON c.id=s.client_id WHERE s.status='active'))";
     $renProdParams = [];
     if ($buFilter !== null) {
-        $renProdQuery .= " AND business_unit_id=?";
+        $renProdQuery .= " AND (business_unit_id=? OR (business_unit_id IS NULL AND ? = 1))";
+        $renProdParams[] = $buFilter;
         $renProdParams[] = $buFilter;
     }
     $renProdQuery .= " ORDER BY active DESC,name";
