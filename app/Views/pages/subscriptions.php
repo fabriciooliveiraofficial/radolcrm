@@ -1,4 +1,5 @@
 <?php
+$buFilter = $buFilter ?? (isset($_GET['bu']) && $_GET['bu'] !== '' ? (int) $_GET['bu'] : null);
 $search = trim((string) ($_GET['q'] ?? ''));
 $status = (string) ($_GET['status'] ?? '');
 $dueFilter = (string) ($_GET['due'] ?? '');

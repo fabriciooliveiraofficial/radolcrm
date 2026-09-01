@@ -4,47 +4,118 @@
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="theme-color" content="#102a2b"><title><?= h($pageTitles[$page][0]) ?> · <?= h($config['app']['name']) ?></title>
     <link rel="icon" href="assets/images/favicon.svg?v=1" type="image/svg+xml">
-    <link rel="stylesheet" href="assets/css/app.css?v=21">
+    <link rel="stylesheet" href="assets/css/app.css?v=25">
 </head>
 <body class="app-body">
 <aside class="sidebar" id="sidebar">
-    <a class="brand brand-light" href="?page=dashboard"><span class="brand-mark">N</span><span><b>Nexo</b><small>GESTÃO</small></span></a>
+    <div class="sidebar-header">
+        <a class="brand brand-light" href="?page=dashboard">
+            <span class="brand-mark">N</span>
+            <span class="brand-text"><b>Nexo</b><small>GESTÃO</small></span>
+        </a>
+    </div>
     <nav class="main-nav" aria-label="Navegação principal">
-        <p>VISÃO GERAL</p>
-        <a class="<?= $page === 'dashboard' ? 'active' : '' ?>" href="?page=dashboard"><span>⌂</span> Dashboard</a>
-        <a class="<?= $page === 'agenda' ? 'active' : '' ?>" href="?page=agenda"><span>📅</span> Agenda Financeira</a>
-        <a class="<?= $page === 'categories' ? 'active' : '' ?>" href="?page=categories"><span>📁</span> Categorias</a>
-        <a class="<?= $page === 'reports' ? 'active' : '' ?>" href="?page=reports"><span>⌁</span> Relatórios</a>
-        <a class="<?= $page === 'service-badges' ? 'active' : '' ?>" href="?page=service-badges"><span>✦</span> Badges de serviços</a>
-        <a class="<?= $page === 'reminders' ? 'active' : '' ?>" href="?page=reminders"><span>◉</span> Lembretes WhatsApp</a>
-        <a class="<?= $page === 'businesses' ? 'active' : '' ?>" href="?page=businesses"><span>💼</span> Gerenciar Negócios</a>
+        <div class="nav-section-title">
+            <span>Visão Geral</span>
+        </div>
+        <div class="nav-links-group">
+            <a class="nav-item <?= $page === 'dashboard' && !$buFilter ? 'active' : '' ?>" href="?page=dashboard">
+                <span class="nav-icon">⌂</span>
+                <span class="nav-label">Dashboard Global</span>
+            </a>
+            <a class="nav-item <?= $page === 'agenda' && !$buFilter ? 'active' : '' ?>" href="?page=agenda">
+                <span class="nav-icon">📅</span>
+                <span class="nav-label">Agenda Financeira</span>
+            </a>
+            <a class="nav-item <?= $page === 'categories' && !$buFilter ? 'active' : '' ?>" href="?page=categories">
+                <span class="nav-icon">📁</span>
+                <span class="nav-label">Categorias</span>
+            </a>
+            <a class="nav-item <?= $page === 'reports' && !$buFilter ? 'active' : '' ?>" href="?page=reports">
+                <span class="nav-icon">⌁</span>
+                <span class="nav-label">Relatórios</span>
+            </a>
+            <a class="nav-item <?= $page === 'service-badges' && !$buFilter ? 'active' : '' ?>" href="?page=service-badges">
+                <span class="nav-icon">✦</span>
+                <span class="nav-label">Badges de serviços</span>
+            </a>
+            <a class="nav-item <?= $page === 'reminders' && !$buFilter ? 'active' : '' ?>" href="?page=reminders">
+                <span class="nav-icon">◉</span>
+                <span class="nav-label">Lembretes WhatsApp</span>
+            </a>
+            <a class="nav-item <?= $page === 'businesses' && !$buFilter ? 'active' : '' ?>" href="?page=businesses">
+                <span class="nav-icon">💼</span>
+                <span class="nav-label">Gerenciar Negócios</span>
+            </a>
+        </div>
 
-        <p>MEUS NEGÓCIOS</p>
+        <div class="nav-section-title">
+            <span>Meus Negócios</span>
+            <span class="nav-section-badge"><?= count($sidebarBusinesses) ?></span>
+        </div>
+
+        <div class="businesses-list">
         <?php foreach ($sidebarBusinesses as $bu): 
-            $isOpen = $selectedBusiness && $selectedBusiness['id'] === $bu['id'];
+            $isOpen = $selectedBusiness && (int)$selectedBusiness['id'] === (int)$bu['id'];
         ?>
-        <details class="nav-business" <?= $isOpen ? 'open' : '' ?> style="--bu-color: <?= h($bu['color']) ?>;">
-            <summary>
-                <div class="bu-icon" style="color: <?= h($bu['color']) ?>; background: <?= h($bu['color']) ?>22; border-color: <?= h($bu['color']) ?>55;">
-                    <?= h($bu['icon']) ?>
-                </div>
-                <b><?= h($bu['name']) ?></b>
-                <span class="chevron">▾</span>
+        <details class="bu-accordion <?= $isOpen ? 'is-active' : '' ?>" <?= $isOpen ? 'open' : '' ?> style="--bu-color: <?= h($bu['color']) ?>;">
+            <summary class="bu-accordion-trigger">
+                <span class="bu-avatar-icon" style="background: <?= h($bu['color']) ?>1f; color: <?= h($bu['color']) ?>; border-color: <?= h($bu['color']) ?>4d;">
+                    <?= h($bu['icon'] ?: '🏢') ?>
+                </span>
+                <span class="bu-meta">
+                    <span class="bu-meta-name"><?= h($bu['name']) ?></span>
+                    <?php if (!empty($bu['is_personal'])): ?>
+                        <span class="bu-meta-pill">Pessoal</span>
+                    <?php endif; ?>
+                </span>
+                <svg class="bu-chevron-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
             </summary>
-            <div class="sub-nav">
-                <a class="<?= $isOpen && $page === 'clients' ? 'active' : '' ?>" href="?page=clients&bu=<?= (int)$bu['id'] ?>"><span>♙</span> Clientes</a>
-                <a class="<?= $isOpen && $page === 'products' ? 'active' : '' ?>" href="?page=products&bu=<?= (int)$bu['id'] ?>"><span>◇</span> Produtos</a>
-                <a class="<?= $isOpen && $page === 'subscriptions' ? 'active' : '' ?>" href="?page=subscriptions&bu=<?= (int)$bu['id'] ?>"><span>↻</span> Assinaturas</a>
-                <a class="<?= $isOpen && $page === 'payments' ? 'active' : '' ?>" href="?page=payments&bu=<?= (int)$bu['id'] ?>"><span>↓</span> Pagamentos</a>
-                <a class="<?= $isOpen && $page === 'expenses' ? 'active' : '' ?>" href="?page=expenses&bu=<?= (int)$bu['id'] ?>"><span>↑</span> Gastos</a>
-                <a class="<?= $isOpen && $page === 'recurring' ? 'active' : '' ?>" href="?page=recurring&bu=<?= (int)$bu['id'] ?>"><span>🔁</span> Recorrências</a>
-                <a class="<?= $isOpen && $page === 'cards' ? 'active' : '' ?>" href="?page=cards&bu=<?= (int)$bu['id'] ?>"><span>💳</span> Cartões</a>
-                <a class="<?= $isOpen && $page === 'cash' ? 'active' : '' ?>" href="?page=cash&bu=<?= (int)$bu['id'] ?>"><span>▤</span> Fluxo de caixa</a>
+            
+            <div class="bu-subnav-panel">
+                <a class="bu-subnav-link <?= $isOpen && $page === 'clients' ? 'active' : '' ?>" href="?page=clients&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Clientes</span>
+                </a>
+                <a class="bu-subnav-link <?= $isOpen && $page === 'products' ? 'active' : '' ?>" href="?page=products&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Produtos</span>
+                </a>
+                <a class="bu-subnav-link <?= $isOpen && $page === 'subscriptions' ? 'active' : '' ?>" href="?page=subscriptions&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Assinaturas</span>
+                </a>
+                <a class="bu-subnav-link <?= $isOpen && $page === 'payments' ? 'active' : '' ?>" href="?page=payments&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Pagamentos</span>
+                </a>
+                <a class="bu-subnav-link <?= $isOpen && $page === 'expenses' ? 'active' : '' ?>" href="?page=expenses&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Gastos</span>
+                </a>
+                <a class="bu-subnav-link <?= $isOpen && $page === 'recurring' ? 'active' : '' ?>" href="?page=recurring&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Recorrências</span>
+                </a>
+                <a class="bu-subnav-link <?= $isOpen && $page === 'cards' ? 'active' : '' ?>" href="?page=cards&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Cartões</span>
+                </a>
+                <a class="bu-subnav-link <?= $isOpen && $page === 'cash' ? 'active' : '' ?>" href="?page=cash&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Fluxo de Caixa</span>
+                </a>
             </div>
         </details>
         <?php endforeach; ?>
+        </div>
     </nav>
-    <div class="sidebar-bottom"><a class="<?= $page === 'settings' ? 'active' : '' ?>" href="?page=settings"><span>⚙</span> Configurações</a><a href="?logout=1"><span>↪</span> Sair</a></div>
+    <div class="sidebar-bottom">
+        <a class="<?= $page === 'settings' ? 'active' : '' ?>" href="?page=settings"><span>⚙</span> Configurações</a>
+        <a href="?logout=1"><span>↪</span> Sair</a>
+    </div>
 </aside>
 <div class="app-shell">
     <header class="topbar">
