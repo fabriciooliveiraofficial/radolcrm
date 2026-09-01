@@ -236,7 +236,7 @@ td b { color: var(--ink); }
 .flow-icon.in { color: var(--green-600); background: var(--green-100); }
 .lock-icon { color: #aab3b0; }
 
-.cash-hero { display: grid; grid-template-columns: 1.35fr 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+.cash-hero { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
 .cash-hero article { padding: 20px 22px; border: 1px solid var(--line); border-radius: var(--radius); background: white; box-shadow: var(--shadow); }
 .cash-hero span, .cash-hero strong, .cash-hero small { display: block; }
 .cash-hero span { margin-bottom: 7px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
@@ -400,7 +400,7 @@ td b { color: var(--ink); }
 .install-shell { min-height:100vh;display:grid;grid-template-columns:minmax(320px,.75fr) minmax(560px,1.25fr); }.install-intro { display:flex;flex-direction:column;justify-content:center;padding:8%;color:white;background:var(--green-950); }.install-intro .eyebrow{margin-top:30px;color:#ddb974}.install-intro h1{font:700 43px/1.1 Georgia,serif}.install-intro>p:last-of-type{color:#afc2bd}.install-benefits{margin-top:25px;padding:0;list-style:none}.install-benefits li{margin:12px 0;color:#cfddd9}.install-benefits li::before{content:'✓';margin-right:10px;color:#ddb974}.install-card { margin:auto;width:min(680px,calc(100% - 50px));padding:36px;border:1px solid var(--line);border-radius:18px;background:white;box-shadow:var(--shadow); }.install-card h2{margin:4px 0;font:700 27px Georgia,serif}.install-card>.form-grid{margin-top:24px}
 
 @media (max-width: 1180px) {
-  .metric-grid { grid-template-columns: repeat(2,1fr); }
+  .metric-grid, .cash-hero { grid-template-columns: repeat(2,1fr); }
   .product-grid { grid-template-columns: repeat(2,1fr); }
   .radar-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .search-filters { flex-wrap: wrap; }

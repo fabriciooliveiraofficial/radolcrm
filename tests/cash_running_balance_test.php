@@ -81,4 +81,12 @@ assert(abs($displayLedger[1]['balance_after'] - (-1700.00)) < 0.001, "Saldo da l
 assert($displayLedger[2]['id'] === 1 && $displayLedger[2]['source'] === 'expense', "Gasto 1 no final");
 assert(abs($displayLedger[2]['balance_after'] - (-1300.00)) < 0.001, "Saldo da linha do primeiro gasto");
 
-echo "Todos os testes de Saldo Acumulado (Running Balance) passaram com sucesso!\n";
+$view = (string) file_get_contents(dirname(__DIR__) . '/app/Views/pages/cash.php');
+assert(str_contains($view, 'SALDO DE CAIXA CONSOLIDADO'), "Card Saldo Consolidado");
+assert(str_contains($view, 'SALDO NO PERÍODO'), "Card Saldo no Periodo");
+assert(str_contains($view, 'ENTRADAS NO PERÍODO'), "Card Entradas no Periodo");
+assert(str_contains($view, 'SAÍDAS NO PERÍODO'), "Card Saidas no Periodo");
+assert(str_contains($view, 'LEFT JOIN products pr ON pr.id=s.product_id'), "Join de produtos no fluxo de caixa");
+assert(str_contains($view, "item['title']"), "Exibição do nome real da assinatura/produto");
+
+echo "Todos os testes de Saldo Acumulado, Cards e Nomes de Produto do Fluxo de Caixa passaram com sucesso!\n";
