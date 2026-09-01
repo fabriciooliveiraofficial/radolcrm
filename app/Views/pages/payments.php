@@ -2,6 +2,7 @@
 $search=trim((string)($_GET['q']??'')); $status=(string)($_GET['status']??''); $currency=(string)($_GET['currency']??'');
 $from=trim((string)($_GET['from']??'')); $to=trim((string)($_GET['to']??''));
 $where=' WHERE 1=1'; $params=[];
+if($buFilter!==null){ $where.=' AND p.business_unit_id=?'; $params[]=$buFilter; }
 if($search!==''){ $where.=" AND CONCAT_WS(' ',p.id,c.name,c.company,c.email,p.description,p.amount,REPLACE(p.amount,'.',','),p.base_amount,p.discount_amount,p.surcharge_amount,p.manual_adjustment_amount,p.renewal_months,p.renewal_days,p.renewal_end_date,DATE_FORMAT(p.renewal_end_date,'%d/%m/%Y'),p.currency,p.exchange_rate,p.exchange_rate_source,p.amount_brl,REPLACE(p.amount_brl,'.',','),p.fee_amount,p.fee_brl,p.net_brl,REPLACE(p.net_brl,'.',','),p.status,CASE p.status WHEN 'pending' THEN 'Pendente' WHEN 'paid' THEN 'Pago' WHEN 'failed' THEN 'Falhou' WHEN 'refunded' THEN 'Estornado' END,p.due_date,DATE_FORMAT(p.due_date,'%d/%m/%Y'),p.payment_date,DATE_FORMAT(p.payment_date,'%d/%m/%Y'),p.settlement_date,DATE_FORMAT(p.settlement_date,'%d/%m/%Y'),p.payment_method,p.external_reference,p.notes) LIKE ?"; $params[]='%'.$search.'%'; }
 if(in_array($status,['pending','paid','failed','refunded'],true)){ $where.=' AND p.status=?';$params[]=$status; }
 if(in_array($currency,['BRL','USD'],true)){ $where.=' AND p.currency=?';$params[]=$currency; }
@@ -10,13 +11,32 @@ if($from!==''){ $where.=" AND {$dateExpr} >= ?"; $params[]=$from; }
 if($to!==''){ $where.=" AND {$dateExpr} <= ?"; $params[]=$to; }
 $pagination=pagination($db,'SELECT COUNT(*) FROM payments p JOIN clients c ON c.id=p.client_id'.$where,'SELECT p.*,c.name client FROM payments p JOIN clients c ON c.id=p.client_id'.$where." ORDER BY {$dateExpr} DESC,p.id DESC",$params);
 $edit=isset($_GET['edit'])?$db->fetch('SELECT * FROM payments WHERE id=?',[(int)$_GET['edit']]):null; $showForm=isset($_GET['new'])||$edit;
-$clients=$showForm?$db->fetchAll("SELECT id,name,preferred_currency FROM clients WHERE status!='inactive' OR id=? ORDER BY name",[(int)($edit['client_id']??0)]):[];
-$subscriptions=$showForm?$db->fetchAll("SELECT s.id,s.client_id,s.currency,s.unit_price,s.quantity,s.discount,c.name client,p.name product FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id WHERE s.status!='canceled' OR s.id=? ORDER BY c.name,p.name",[(int)($edit['subscription_id']??0)]):[];
+$clientsQuery="SELECT id,name,preferred_currency FROM clients WHERE status!='inactive' OR id=? ORDER BY name";
+$clientsParams=[(int)($edit['client_id']??0)];
+if ($buFilter !== null && !$edit) {
+    $clientsQuery="SELECT id,name,preferred_currency FROM clients WHERE business_unit_id=? AND status!='inactive' ORDER BY name";
+    $clientsParams=[$buFilter];
+}
+$clients=$showForm?$db->fetchAll($clientsQuery, $clientsParams):[];
+
+$subscriptionsQuery="SELECT s.id,s.client_id,s.currency,s.unit_price,s.quantity,s.discount,c.name client,p.name product FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id WHERE s.status!='canceled' OR s.id=? ORDER BY c.name,p.name";
+$subscriptionsParams=[(int)($edit['subscription_id']??0)];
+if ($buFilter !== null && !$edit) {
+    $subscriptionsQuery="SELECT s.id,s.client_id,s.currency,s.unit_price,s.quantity,s.discount,c.name client,p.name product FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id WHERE c.business_unit_id=? AND s.status!='canceled' ORDER BY c.name,p.name";
+    $subscriptionsParams=[$buFilter];
+}
+$subscriptions=$showForm?$db->fetchAll($subscriptionsQuery, $subscriptionsParams):[];
 [$rangeFrom,$rangeTo]=period_dates();
 $statFrom=$from!==''?$from:$rangeFrom;
 $statTo=$to!==''?$to:$rangeTo;
 $statLabel=($from!==''||$to!=='')?'no período':'no mês';
-$paymentTotals=$db->fetch("SELECT COALESCE(SUM(CASE WHEN status='paid' THEN amount_brl ELSE 0 END),0) paid,COALESCE(SUM(CASE WHEN status='pending' THEN amount_brl ELSE 0 END),0) pending,COALESCE(SUM(CASE WHEN status='paid' THEN fee_brl ELSE 0 END),0) fees FROM payments WHERE COALESCE(CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END,payment_date,due_date,DATE(created_at)) BETWEEN ? AND ?",[$statFrom,$statTo]);
+$totalsWhere = "COALESCE(CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END,payment_date,due_date,DATE(created_at)) BETWEEN ? AND ?";
+$totalsParams = [$statFrom,$statTo];
+if ($buFilter !== null) {
+    $totalsWhere .= " AND business_unit_id = ?";
+    $totalsParams[] = $buFilter;
+}
+$paymentTotals=$db->fetch("SELECT COALESCE(SUM(CASE WHEN status='paid' THEN amount_brl ELSE 0 END),0) paid,COALESCE(SUM(CASE WHEN status='pending' THEN amount_brl ELSE 0 END),0) pending,COALESCE(SUM(CASE WHEN status='paid' THEN fee_brl ELSE 0 END),0) fees FROM payments WHERE " . $totalsWhere, $totalsParams);
 $pageHasPending=count(array_filter($pagination['rows'],static fn(array $row):bool=>$row['status']==='pending'))>0;
 ?>
 <section class="mini-stats money-stats" data-live-results><div><span class="dot green"></span><span><small>Recebido <?= $statLabel ?></small><b><?= money($paymentTotals['paid']) ?></b></span></div><div><span class="dot gold"></span><span><small>Pendente <?= $statLabel ?></small><b><?= money($paymentTotals['pending']) ?></b></span></div><div><span class="dot red"></span><span><small>Taxas <?= $statLabel ?></small><b><?= money($paymentTotals['fees']) ?></b></span></div></section>

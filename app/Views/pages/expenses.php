@@ -44,12 +44,18 @@ $pagination = pagination(
 $edit = isset($_GET['edit']) ? $db->fetch('SELECT * FROM expenses WHERE id = ?', [(int) $_GET['edit']]) : null;
 $showForm = isset($_GET['new']) || $edit;
 
+$monthWhere = 'payment_date BETWEEN ? AND ?';
+$monthParams = [date('Y-m-01'), date('Y-m-t')];
+if ($buFilter !== null) {
+    $monthWhere .= ' AND business_unit_id = ?';
+    $monthParams[] = $buFilter;
+}
 $month = $db->fetch(
     "SELECT COALESCE(SUM(CASE WHEN type='expense' AND status='paid' THEN amount_brl ELSE 0 END), 0) expenses,
             COALESCE(SUM(CASE WHEN type='investment' AND status='paid' THEN amount_brl ELSE 0 END), 0) investments,
             COALESCE(SUM(CASE WHEN status='pending' THEN amount_brl ELSE 0 END), 0) pending
-     FROM expenses WHERE payment_date BETWEEN ? AND ?",
-    [date('Y-m-01'), date('Y-m-t')]
+     FROM expenses WHERE " . $monthWhere,
+    $monthParams
 );
 
 $allBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
@@ -83,14 +89,6 @@ $allCategories = $db->fetchAll(
         <input type="hidden" name="page" value="expenses">
         <label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar qualquer informação" value="<?= h($search) ?>"></label>
         
-        <select name="bu">
-            <option value="">Todos os negócios</option>
-            <?php foreach ($allBusinesses as $bu): ?>
-                <option value="<?= (int) $bu['id'] ?>" <?= $buFilter === (int) $bu['id'] ? 'selected' : '' ?>>
-                    <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
-                </option>
-            <?php endforeach; ?>
-        </select>
 
         <select name="type">
             <option value="">Despesas + investimentos</option>
@@ -210,8 +208,10 @@ $allCategories = $db->fetchAll(
                 Unidade de Negócio
                 <select name="business_unit_id">
                     <option value="">Geral / Sem unidade</option>
-                    <?php foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>" <?= ((int) ($edit['business_unit_id'] ?? 0)) === (int) $bu['id'] ? 'selected' : '' ?>>
+                    <?php 
+                    $selectedBuForm = $edit ? (int) ($edit['business_unit_id'] ?? 0) : $buFilter;
+                    foreach ($allBusinesses as $bu): ?>
+                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
                             <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
                         </option>
                     <?php endforeach; ?>

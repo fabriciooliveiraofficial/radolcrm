@@ -70,6 +70,10 @@ foreach ($views as $name => $path) {
 $businessesView = (string) file_get_contents($views['businesses']);
 assert(str_contains($businessesView, 'UNIDADE DE NEGÓCIO'), 'View businesses deve ter cabeçalho de modal');
 assert(str_contains($businessesView, 'save_business_unit'), 'View businesses deve submeter save_business_unit');
+assert(str_contains($businessesView, 'period_dates()'), 'View businesses deve usar helper period_dates');
+assert(str_contains($businessesView, 'name="period"'), 'View businesses deve conter seletor de período');
+assert(str_contains($businessesView, 'name="from"'), 'View businesses deve conter campo de data De');
+assert(str_contains($businessesView, 'name="to"'), 'View businesses deve conter campo de data Até');
 
 $categoriesView = (string) file_get_contents($views['categories']);
 assert(str_contains($categoriesView, 'CATEGORIA'), 'View categories deve ter cabeçalho de modal');
@@ -85,4 +89,4 @@ assert(str_contains($cashView, 'name="bu"'), 'View cash deve permitir filtrar po
 assert(str_contains($cashView, 'bu_name'), 'View cash deve exibir identificação do negócio');
 
 echo "✓ Contratos e formulários de todas as Views validados.\n";
-echo "Todos os 24 testes e contratos da Fase 1 passaram com sucesso!\n";
+echo "Todos os 28 testes e contratos da Fase 1 passaram com sucesso!\n";

@@ -1,10 +1,14 @@
 <?php
 $search = trim((string) ($_GET['q'] ?? ''));
 $params = [];
-$where = '';
+$where = ' WHERE 1=1';
+if ($buFilter !== null) {
+    $where .= ' AND p.business_unit_id=?';
+    $params[] = $buFilter;
+}
 if ($search !== '') {
-    $where = " WHERE CONCAT_WS(' ',p.id,p.name,p.sku,p.description,p.price_brl,REPLACE(p.price_brl,'.',','),p.price_usd,REPLACE(p.price_usd,'.',','),p.pricing_mode,CASE p.pricing_mode WHEN 'manual' THEN 'Preços locais independentes' WHEN 'brl' THEN 'Cotado em BRL real' WHEN 'usd' THEN 'Cotado em USD dólar' END,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,CASE p.active WHEN 1 THEN 'Ativo' ELSE 'Inativo' END,(SELECT COUNT(*) FROM subscriptions sx WHERE sx.product_id=p.id AND sx.status='active'),'assinaturas') LIKE ?";
-    $params = ['%' . $search . '%'];
+    $where .= " AND CONCAT_WS(' ',p.id,p.name,p.sku,p.description,p.price_brl,REPLACE(p.price_brl,'.',','),p.price_usd,REPLACE(p.price_usd,'.',','),p.pricing_mode,CASE p.pricing_mode WHEN 'manual' THEN 'Preços locais independentes' WHEN 'brl' THEN 'Cotado em BRL real' WHEN 'usd' THEN 'Cotado em USD dólar' END,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,CASE p.active WHEN 1 THEN 'Ativo' ELSE 'Inativo' END,(SELECT COUNT(*) FROM subscriptions sx WHERE sx.product_id=p.id AND sx.status='active'),'assinaturas') LIKE ?";
+    $params[] = '%' . $search . '%';
 }
 $currentQuote = $rates->current();
 $currentRate = (float) $currentQuote['bid'];
@@ -42,7 +46,7 @@ $pricingMode = $edit['pricing_mode'] ?? 'manual';
 <?php if ($showForm): ?>
 <div class="modal open"><a class="modal-backdrop" href="?page=products"></a><section class="modal-panel"><header><div><p class="eyebrow">CATÁLOGO</p><h2><?= $edit ? 'Editar produto' : 'Novo produto' ?></h2></div><a href="?page=products" class="modal-close">×</a></header>
 <form method="post" class="form-grid" data-product-pricing data-current-rate="<?= h($currentRate) ?>">
-    <?= csrf_field() ?><input type="hidden" name="action" value="save_product"><input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>"><input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+    <?= csrf_field() ?><input type="hidden" name="action" value="save_product"><input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>"><input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>"><input type="hidden" name="business_unit_id" value="<?= (int)($edit ? ($edit['business_unit_id']??0) : $buFilter) ?>">
     <label class="span-2">Nome do produto<input name="name" required value="<?= h($edit['name'] ?? '') ?>"></label>
     <label>SKU<input name="sku" value="<?= h($edit['sku'] ?? '') ?>" placeholder="PLANO-PRO"></label>
     <label>Ciclo de cobrança<select name="billing_cycle"><option value="monthly" <?= ($edit['billing_cycle'] ?? 'monthly') === 'monthly' ? 'selected' : '' ?>>Mensal</option><option value="quarterly" <?= ($edit['billing_cycle'] ?? '') === 'quarterly' ? 'selected' : '' ?>>Trimestral</option><option value="semiannual" <?= ($edit['billing_cycle'] ?? '') === 'semiannual' ? 'selected' : '' ?>>Semestral</option><option value="annual" <?= ($edit['billing_cycle'] ?? '') === 'annual' ? 'selected' : '' ?>>Anual</option></select></label>

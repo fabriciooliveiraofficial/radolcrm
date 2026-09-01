@@ -85,6 +85,12 @@ final class ActionHandler
             $redirect = $this->returnUrl($redirect);
         }
 
+        if (isset($_GET['bu']) && $_GET['bu'] !== '' && !str_contains($redirect, 'bu=')) {
+            if ($action !== 'delete_business_unit') {
+                $redirect .= (str_contains($redirect, '?') ? '&' : '?') . 'bu=' . (int) $_GET['bu'];
+            }
+        }
+
         header('Location: ' . $redirect);
         exit;
     }

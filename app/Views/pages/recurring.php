@@ -74,10 +74,27 @@ $templates = $db->fetchAll(
 );
 
 // Stats
-$statsMonthDue = (float) $db->value('SELECT COALESCE(SUM(amount_brl), 0) FROM installments WHERE status = "pending" AND due_date BETWEEN ? AND ?', [$monthStart, $monthEnd]);
-$statsMonthPaid = (float) $db->value('SELECT COALESCE(SUM(amount_brl), 0) FROM installments WHERE status = "paid" AND payment_date BETWEEN ? AND ?', [$monthStart, $monthEnd]);
-$statsOverdue = (float) $db->value('SELECT COALESCE(SUM(amount_brl), 0) FROM installments WHERE status = "pending" AND due_date < ?', [$today]);
-$statsFuturePending = (float) $db->value('SELECT COALESCE(SUM(amount_brl), 0) FROM installments WHERE status = "pending"');
+$statsWhereDue = 'status = "pending" AND due_date BETWEEN ? AND ?';
+$statsParamsDue = [$monthStart, $monthEnd];
+$statsWherePaid = 'status = "paid" AND payment_date BETWEEN ? AND ?';
+$statsParamsPaid = [$monthStart, $monthEnd];
+$statsWhereOverdue = 'status = "pending" AND due_date < ?';
+$statsParamsOverdue = [$today];
+$statsWhereFuture = 'status = "pending"';
+$statsParamsFuture = [];
+
+if ($buFilter !== null) {
+    $buCond = ' AND business_unit_id = ?';
+    $statsWhereDue .= $buCond; $statsParamsDue[] = $buFilter;
+    $statsWherePaid .= $buCond; $statsParamsPaid[] = $buFilter;
+    $statsWhereOverdue .= $buCond; $statsParamsOverdue[] = $buFilter;
+    $statsWhereFuture .= $buCond; $statsParamsFuture[] = $buFilter;
+}
+
+$statsMonthDue = (float) $db->value('SELECT COALESCE(SUM(amount_brl), 0) FROM installments WHERE ' . $statsWhereDue, $statsParamsDue);
+$statsMonthPaid = (float) $db->value('SELECT COALESCE(SUM(amount_brl), 0) FROM installments WHERE ' . $statsWherePaid, $statsParamsPaid);
+$statsOverdue = (float) $db->value('SELECT COALESCE(SUM(amount_brl), 0) FROM installments WHERE ' . $statsWhereOverdue, $statsParamsOverdue);
+$statsFuturePending = (float) $db->value('SELECT COALESCE(SUM(amount_brl), 0) FROM installments WHERE ' . $statsWhereFuture, $statsParamsFuture);
 
 $showNewModal = isset($_GET['new']);
 $editInstallment = isset($_GET['edit_inst']) ? $db->fetch('SELECT * FROM installments WHERE id = ?', [(int) $_GET['edit_inst']]) : null;
@@ -330,8 +347,10 @@ $payInstallment = isset($_GET['pay_inst']) ? $db->fetch('SELECT * FROM installme
                 Unidade de Negócio
                 <select name="business_unit_id" required>
                     <option value="">Selecione o negócio ou finança…</option>
-                    <?php foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>">
+                    <?php
+                    $selectedRecBuForm = $buFilter ?? 0;
+                    foreach ($allBusinesses as $bu): ?>
+                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedRecBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
                             <?= h($bu['icon']) ?> <?= h($bu['name']) ?><?= $bu['is_personal'] ? ' (Pessoal)' : '' ?>
                         </option>
                     <?php endforeach; ?>

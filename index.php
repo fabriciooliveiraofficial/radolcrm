@@ -59,6 +59,18 @@ if (!in_array($page, $allowedPages, true)) {
     $page = '404';
 }
 
+$buFilter = isset($_GET['bu']) && $_GET['bu'] !== '' ? (int) $_GET['bu'] : null;
+$sidebarBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
+$selectedBusiness = null;
+if ($buFilter) {
+    foreach ($sidebarBusinesses as $b) {
+        if ((int) $b['id'] === $buFilter) {
+            $selectedBusiness = $b;
+            break;
+        }
+    }
+}
+
 $pageTitles = [
     'dashboard' => ['Visão geral', 'Acompanhe os números que movem seu negócio.'],
     'businesses' => ['Unidades de negócio', 'Gerencie seus negócios e finanças pessoais de forma separada.'],
@@ -78,6 +90,10 @@ $pageTitles = [
     'settings' => ['Configurações', 'Empresa, câmbio, acesso e segurança.'],
     '404' => ['Página não encontrada', 'O endereço acessado não existe.'],
 ];
+
+if ($selectedBusiness && isset($pageTitles[$page])) {
+    $pageTitles[$page][0] .= ' · ' . $selectedBusiness['name'];
+}
 
 $messages = Flash::pull();
 $viewFile = __DIR__ . '/app/Views/pages/' . $page . '.php';

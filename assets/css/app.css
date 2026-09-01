@@ -48,11 +48,28 @@ h1, h2, strong, b { letter-spacing: -.02em; }
 .main-nav a span, .sidebar-bottom a span { width: 19px; color: #789790; text-align: center; font-size: 17px; }
 .main-nav a:hover, .main-nav a.active, .sidebar-bottom a:hover, .sidebar-bottom a.active { color: white; background: rgba(255, 255, 255, .075); }
 .main-nav a.active { box-shadow: inset 3px 0 #d6ad67; }
+.nav-business { margin: 8px 13px; }
+.nav-business > summary { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 9px; color: #aabcb8; font-weight: 600; cursor: pointer; list-style: none; user-select: none; transition: background 0.15s; }
+.nav-business > summary::-webkit-details-marker { display: none; }
+.nav-business > summary:hover { background: rgba(255, 255, 255, 0.05); }
+.nav-business .bu-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; border: 1px solid; font-size: 14px; }
+.nav-business > summary b { flex: 1; font-size: 13px; letter-spacing: 0.02em; }
+.nav-business .chevron { font-size: 14px; color: #789790; transition: transform 0.2s; }
+.nav-business[open] > summary .chevron { transform: rotate(-180deg); }
+.nav-business[open] { position: relative; }
+.nav-business[open]::before { content: ""; position: absolute; top: 10px; bottom: 10px; left: -13px; width: 3px; background: var(--bu-color, #d6ad67); border-radius: 0 4px 4px 0; }
+.sub-nav { padding-top: 4px; padding-left: 12px; }
+.sub-nav a { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border-radius: 8px; color: #8faea7; font-weight: 600; font-size: 13px; }
+.sub-nav a span { width: 16px; font-size: 15px; text-align: center; color: #6b8c84; }
+.sub-nav a:hover, .sub-nav a.active { color: white; background: rgba(255, 255, 255, 0.05); }
+.sub-nav a.active { color: white; font-weight: 700; }
+.sub-nav a.active span { color: var(--bu-color, #d6ad67); }
 .sidebar-bottom { margin-top: auto; padding-top: 15px; border-top: 1px solid rgba(255,255,255,.08); }
 
 .app-shell { min-height: 100vh; margin-left: 246px; }
 .topbar { height: 89px; display: flex; align-items: center; gap: 20px; padding: 0 32px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.92); }
-.page-heading h1 { margin: 0 0 1px; font: 700 24px Georgia, serif; }
+.page-heading h1 { margin: 0 0 1px; font: 700 24px Georgia, serif; display: flex; align-items: center; gap: 10px; }
+.bu-badge { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; font-size: 12px; }
 .page-heading p { margin: 0; color: var(--muted); font-size: 12px; }
 .top-actions { display: flex; align-items: center; gap: 21px; margin-left: auto; }
 .quick-add { display: inline-flex; align-items: center; gap: 6px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 9px; font-weight: 700; background: white; }

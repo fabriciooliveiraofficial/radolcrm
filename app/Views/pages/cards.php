@@ -90,7 +90,13 @@ if ($selectedCard) {
 $totalLimit = array_sum(array_column($cards, 'credit_limit'));
 $totalOpen = array_sum(array_column($cards, 'open_invoices_sum'));
 $availableLimit = max(0, $totalLimit - $totalOpen);
-$monthPaidInvoices = (float) $db->value('SELECT COALESCE(SUM(total_amount), 0) FROM credit_card_invoices WHERE status = "paid" AND payment_date BETWEEN ? AND ?', [date('Y-m-01'), date('Y-m-t')]);
+$monthPaidWhere = 'status = "paid" AND payment_date BETWEEN ? AND ?';
+$monthPaidParams = [date('Y-m-01'), date('Y-m-t')];
+if ($buFilter !== null) {
+    $monthPaidWhere = 'status = "paid" AND payment_date BETWEEN ? AND ? AND card_id IN (SELECT id FROM credit_cards WHERE business_unit_id = ?)';
+    $monthPaidParams[] = $buFilter;
+}
+$monthPaidInvoices = (float) $db->value('SELECT COALESCE(SUM(total_amount), 0) FROM credit_card_invoices WHERE ' . $monthPaidWhere, $monthPaidParams);
 
 $showNewCard = isset($_GET['new_card']);
 $editCard = isset($_GET['edit_card']) ? $db->fetch('SELECT * FROM credit_cards WHERE id = ?', [(int) $_GET['edit_card']]) : null;
@@ -357,8 +363,10 @@ $colorPresets = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981
                 Unidade de Negócio Vinculada
                 <select name="business_unit_id">
                     <option value="">Geral / Qualquer unidade</option>
-                    <?php foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>" <?= ((int) ($editCard['business_unit_id'] ?? 0)) === (int) $bu['id'] ? 'selected' : '' ?>>
+                    <?php
+                    $selectedCardBuForm = $editCard ? (int) ($editCard['business_unit_id'] ?? 0) : $buFilter;
+                    foreach ($allBusinesses as $bu): ?>
+                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedCardBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
                             <?= h($bu['icon']) ?> <?= h($bu['name']) ?><?= $bu['is_personal'] ? ' (Pessoal)' : '' ?>
                         </option>
                     <?php endforeach; ?>
@@ -439,8 +447,10 @@ $colorPresets = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981
                 Unidade de Negócio
                 <select name="business_unit_id">
                     <option value="">Do cartão (<?= h($selectedCard['bu_name'] ?: 'Geral') ?>)</option>
-                    <?php foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>">
+                    <?php
+                    $selectedTxBuForm = $buFilter ?? 0;
+                    foreach ($allBusinesses as $bu): ?>
+                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedTxBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
                             <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
                         </option>
                     <?php endforeach; ?>

@@ -222,36 +222,44 @@ final class FinanceService
         return $series;
     }
 
-    public function balanceBefore(string $date): float
+    public function balanceBefore(string $date, ?int $businessUnitId = null): float
     {
-        $initial = (float) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='initial_balance_brl'") ?: 0);
+        $initial = $businessUnitId ? 0 : (float) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='initial_balance_brl'") ?: 0);
+        $buWherePay = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereExp = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereCash = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
+        
         $payments = (float) $this->db->value(
-            "SELECT COALESCE(SUM(net_brl),0) FROM payments WHERE status='paid' AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) < ?",
+            "SELECT COALESCE(SUM(net_brl),0) FROM payments WHERE status='paid'{$buWherePay} AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) < ?",
             [$date]
         );
         $expenses = (float) $this->db->value(
-            "SELECT COALESCE(SUM(amount_brl),0) FROM expenses WHERE status='paid' AND payment_date < ?",
+            "SELECT COALESCE(SUM(amount_brl),0) FROM expenses WHERE status='paid'{$buWhereExp} AND payment_date < ?",
             [$date]
         );
         $cashIn = (float) $this->db->value(
-            "SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='in' AND entry_date < ?",
+            "SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='in'{$buWhereCash} AND entry_date < ?",
             [$date]
         );
         $cashOut = (float) $this->db->value(
-            "SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='out' AND entry_date < ?",
+            "SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='out'{$buWhereCash} AND entry_date < ?",
             [$date]
         );
 
         return $initial + $payments + $cashIn - $expenses - $cashOut;
     }
 
-    public function cashBalance(): float
+    public function cashBalance(?int $businessUnitId = null): float
     {
-        $initial = (float) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='initial_balance_brl'") ?: 0);
-        $payments = (float) $this->db->value("SELECT COALESCE(SUM(net_brl),0) FROM payments WHERE status='paid'");
-        $expenses = (float) $this->db->value("SELECT COALESCE(SUM(amount_brl),0) FROM expenses WHERE status='paid'");
-        $cashIn = (float) $this->db->value("SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='in'");
-        $cashOut = (float) $this->db->value("SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='out'");
+        $initial = $businessUnitId ? 0 : (float) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='initial_balance_brl'") ?: 0);
+        $buWherePay = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereExp = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereCash = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
+
+        $payments = (float) $this->db->value("SELECT COALESCE(SUM(net_brl),0) FROM payments WHERE status='paid'{$buWherePay}");
+        $expenses = (float) $this->db->value("SELECT COALESCE(SUM(amount_brl),0) FROM expenses WHERE status='paid'{$buWhereExp}");
+        $cashIn = (float) $this->db->value("SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='in'{$buWhereCash}");
+        $cashOut = (float) $this->db->value("SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='out'{$buWhereCash}");
 
         return $initial + $payments + $cashIn - $expenses - $cashOut;
     }

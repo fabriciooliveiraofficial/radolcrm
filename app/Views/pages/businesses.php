@@ -8,6 +8,15 @@ if ($search !== '') {
     $params[] = '%' . $search . '%';
 }
 
+[$rangeFrom, $rangeTo, $periodLabel] = period_dates();
+$from = trim((string) ($_GET['from'] ?? ''));
+$to = trim((string) ($_GET['to'] ?? ''));
+$period = (string) ($_GET['period'] ?? 'month');
+
+$statFrom = $from !== '' ? $from : $rangeFrom;
+$statTo = $to !== '' ? $to : $rangeTo;
+$statLabel = ($from !== '' || $to !== '' || $period !== 'month') ? $periodLabel : 'no mês';
+
 $businesses = $db->fetchAll(
     'SELECT bu.*,
         (SELECT COUNT(*) FROM clients c WHERE c.business_unit_id = bu.id) total_clients,
@@ -15,12 +24,16 @@ $businesses = $db->fetchAll(
         (SELECT COALESCE(SUM(pa.net_brl), 0) FROM payments pa WHERE pa.business_unit_id = bu.id AND pa.status = "paid" AND (CASE WHEN pa.currency="USD" THEN COALESCE(pa.settlement_date, pa.payment_date) ELSE pa.payment_date END) BETWEEN ? AND ?) month_revenue,
         (SELECT COALESCE(SUM(ex.amount_brl), 0) FROM expenses ex WHERE ex.business_unit_id = bu.id AND ex.status = "paid" AND ex.payment_date BETWEEN ? AND ?) month_expenses
      FROM business_units bu' . $where . ' ORDER BY bu.sort_order ASC, bu.id ASC',
-    array_merge([date('Y-m-01'), date('Y-m-t'), date('Y-m-01'), date('Y-m-t')], $params)
+    array_merge([$statFrom, $statTo, $statFrom, $statTo], $params)
 );
 
 $totalBu = count($businesses);
 $activeBu = count(array_filter($businesses, static fn($b) => (int)$b['active'] === 1));
 $personalBu = count(array_filter($businesses, static fn($b) => (int)$b['is_personal'] === 1));
+
+$totalPeriodRevenue = array_sum(array_map(static fn($b) => (float) $b['month_revenue'], $businesses));
+$totalPeriodExpenses = array_sum(array_map(static fn($b) => (float) $b['month_expenses'], $businesses));
+$totalPeriodNet = $totalPeriodRevenue - $totalPeriodExpenses;
 
 $edit = isset($_GET['edit']) ? $db->fetch('SELECT * FROM business_units WHERE id = ?', [(int) $_GET['edit']]) : null;
 $showForm = isset($_GET['new']) || $edit;
@@ -31,22 +44,38 @@ $colorOptions = ['#2b826b','#6366f1','#3b82f6','#06b6d4','#10b981','#f59e0b','#f
 <section class="mini-stats money-stats">
     <div>
         <span class="dot green"></span>
-        <span><small>Total de unidades</small><b><?= $totalBu ?> cadastradas</b></span>
+        <span><small>Receitas <?= h($statLabel) ?></small><b class="positive"><?= money($totalPeriodRevenue) ?></b></span>
     </div>
     <div>
-        <span class="dot purple"></span>
-        <span><small>Unidades ativas</small><b><?= $activeBu ?> em operação</b></span>
+        <span class="dot red"></span>
+        <span><small>Despesas <?= h($statLabel) ?></small><b class="negative"><?= money($totalPeriodExpenses) ?></b></span>
+    </div>
+    <div>
+        <span class="dot <?= $totalPeriodNet < 0 ? 'red' : 'purple' ?>"></span>
+        <span><small>Resultado <?= h($statLabel) ?></small><b class="<?= $totalPeriodNet < 0 ? 'negative' : 'positive' ?>"><?= money($totalPeriodNet) ?></b></span>
     </div>
     <div>
         <span class="dot blue"></span>
-        <span><small>Finanças pessoais</small><b><?= $personalBu ?> unidade(s)</b></span>
+        <span><small>Unidades ativas</small><b><?= $activeBu ?> em operação</b></span>
     </div>
 </section>
 
 <section class="toolbar list-toolbar">
-    <form class="search-filters" method="get" data-live-filter>
+    <form class="search-filters" method="get" data-live-filter style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
         <input type="hidden" name="page" value="businesses">
         <label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar negócio..." value="<?= h($search) ?>"></label>
+        
+        <select name="period">
+            <option value="month" <?= $period === 'month' ? 'selected' : '' ?>>Este mês</option>
+            <option value="today" <?= $period === 'today' ? 'selected' : '' ?>>Hoje</option>
+            <option value="quarter" <?= $period === 'quarter' ? 'selected' : '' ?>>Últimos 3 meses</option>
+            <option value="year" <?= $period === 'year' ? 'selected' : '' ?>>Este ano</option>
+            <option value="custom" <?= $period === 'custom' ? 'selected' : '' ?>>Personalizado</option>
+        </select>
+
+        <label>De<input type="date" name="from" value="<?= h($statFrom) ?>"></label>
+        <label>Até<input type="date" name="to" value="<?= h($statTo) ?>"></label>
+        
         <span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span>
     </form>
     <div>
@@ -68,9 +97,9 @@ $colorOptions = ['#2b826b','#6366f1','#3b82f6','#06b6d4','#10b981','#f59e0b','#f
                         <th>Unidade de Negócio</th>
                         <th>Tipo</th>
                         <th>Clientes</th>
-                        <th>Receitas (mês)</th>
-                        <th>Despesas (mês)</th>
-                        <th>Resultado (mês)</th>
+                        <th>Receitas (<?= h($statLabel) ?>)</th>
+                        <th>Despesas (<?= h($statLabel) ?>)</th>
+                        <th>Resultado (<?= h($statLabel) ?>)</th>
                         <th>Status</th>
                         <th></th>
                     </tr>

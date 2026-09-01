@@ -10,8 +10,8 @@ $buFilter = isset($_GET['bu']) && $_GET['bu'] !== '' ? (int) $_GET['bu'] : null;
 $allBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
 $allCategories = $db->fetchAll('SELECT c.*, p.name parent_name FROM categories c LEFT JOIN categories p ON p.id = c.parent_id WHERE c.active = 1 ORDER BY COALESCE(c.parent_id, c.id) ASC, (c.parent_id IS NOT NULL) ASC, c.name ASC');
 
-$openingBalance = $finance->balanceBefore($from);
-$balance = $finance->cashBalance();
+$openingBalance = $finance->balanceBefore($from, $buFilter);
+$balance = $finance->cashBalance($buFilter);
 
 $buConditionPayment = $buFilter ? ' AND p.business_unit_id = ' . $buFilter : '';
 $buConditionExpense = $buFilter ? ' AND e.business_unit_id = ' . $buFilter : '';
@@ -241,8 +241,10 @@ $showForm = isset($_GET['new']) || $edit;
                 Unidade de Negócio
                 <select name="business_unit_id">
                     <option value="">Geral / Sem unidade</option>
-                    <?php foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>" <?= ((int) ($edit['business_unit_id'] ?? 0)) === (int) $bu['id'] ? 'selected' : '' ?>>
+                    <?php
+                    $selectedCashBuForm = $edit ? (int) ($edit['business_unit_id'] ?? 0) : $buFilter;
+                    foreach ($allBusinesses as $bu): ?>
+                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedCashBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
                             <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
                         </option>
                     <?php endforeach; ?>

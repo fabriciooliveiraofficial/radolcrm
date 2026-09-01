@@ -12,30 +12,55 @@
     <nav class="main-nav" aria-label="Navegação principal">
         <p>VISÃO GERAL</p>
         <a class="<?= $page === 'dashboard' ? 'active' : '' ?>" href="?page=dashboard"><span>⌂</span> Dashboard</a>
+        <a class="<?= $page === 'agenda' ? 'active' : '' ?>" href="?page=agenda"><span>📅</span> Agenda Financeira</a>
+        <a class="<?= $page === 'categories' ? 'active' : '' ?>" href="?page=categories"><span>📁</span> Categorias</a>
         <a class="<?= $page === 'reports' ? 'active' : '' ?>" href="?page=reports"><span>⌁</span> Relatórios</a>
-        <p>OPERAÇÃO</p>
-        <a class="<?= $page === 'clients' ? 'active' : '' ?>" href="?page=clients"><span>♙</span> Clientes</a>
-        <a class="<?= $page === 'products' ? 'active' : '' ?>" href="?page=products"><span>◇</span> Produtos</a>
-        <a class="<?= $page === 'subscriptions' ? 'active' : '' ?>" href="?page=subscriptions"><span>↻</span> Assinaturas</a>
         <a class="<?= $page === 'service-badges' ? 'active' : '' ?>" href="?page=service-badges"><span>✦</span> Badges de serviços</a>
         <a class="<?= $page === 'reminders' ? 'active' : '' ?>" href="?page=reminders"><span>◉</span> Lembretes WhatsApp</a>
-        <p>FINANCEIRO</p>
-        <a class="<?= $page === 'agenda' ? 'active' : '' ?>" href="?page=agenda"><span>📅</span> Agenda Financeira</a>
-        <a class="<?= $page === 'businesses' ? 'active' : '' ?>" href="?page=businesses"><span>💼</span> Negócios</a>
-        <a class="<?= $page === 'categories' ? 'active' : '' ?>" href="?page=categories"><span>📁</span> Categorias</a>
-        <a class="<?= $page === 'payments' ? 'active' : '' ?>" href="?page=payments"><span>↓</span> Pagamentos</a>
-        <a class="<?= $page === 'expenses' ? 'active' : '' ?>" href="?page=expenses"><span>↑</span> Gastos e investimentos</a>
-        <a class="<?= $page === 'recurring' ? 'active' : '' ?>" href="?page=recurring"><span>🔁</span> Recorrências e Parcelas</a>
-        <a class="<?= $page === 'cards' ? 'active' : '' ?>" href="?page=cards"><span>💳</span> Cartões de Crédito</a>
-        <a class="<?= $page === 'cash' ? 'active' : '' ?>" href="?page=cash"><span>▤</span> Fluxo de caixa</a>
+        <a class="<?= $page === 'businesses' ? 'active' : '' ?>" href="?page=businesses"><span>💼</span> Gerenciar Negócios</a>
+
+        <p>MEUS NEGÓCIOS</p>
+        <?php foreach ($sidebarBusinesses as $bu): 
+            $isOpen = $selectedBusiness && $selectedBusiness['id'] === $bu['id'];
+        ?>
+        <details class="nav-business" <?= $isOpen ? 'open' : '' ?> style="--bu-color: <?= h($bu['color']) ?>;">
+            <summary>
+                <div class="bu-icon" style="color: <?= h($bu['color']) ?>; background: <?= h($bu['color']) ?>22; border-color: <?= h($bu['color']) ?>55;">
+                    <?= h($bu['icon']) ?>
+                </div>
+                <b><?= h($bu['name']) ?></b>
+                <span class="chevron">▾</span>
+            </summary>
+            <div class="sub-nav">
+                <a class="<?= $isOpen && $page === 'clients' ? 'active' : '' ?>" href="?page=clients&bu=<?= (int)$bu['id'] ?>"><span>♙</span> Clientes</a>
+                <a class="<?= $isOpen && $page === 'products' ? 'active' : '' ?>" href="?page=products&bu=<?= (int)$bu['id'] ?>"><span>◇</span> Produtos</a>
+                <a class="<?= $isOpen && $page === 'subscriptions' ? 'active' : '' ?>" href="?page=subscriptions&bu=<?= (int)$bu['id'] ?>"><span>↻</span> Assinaturas</a>
+                <a class="<?= $isOpen && $page === 'payments' ? 'active' : '' ?>" href="?page=payments&bu=<?= (int)$bu['id'] ?>"><span>↓</span> Pagamentos</a>
+                <a class="<?= $isOpen && $page === 'expenses' ? 'active' : '' ?>" href="?page=expenses&bu=<?= (int)$bu['id'] ?>"><span>↑</span> Gastos</a>
+                <a class="<?= $isOpen && $page === 'recurring' ? 'active' : '' ?>" href="?page=recurring&bu=<?= (int)$bu['id'] ?>"><span>🔁</span> Recorrências</a>
+                <a class="<?= $isOpen && $page === 'cards' ? 'active' : '' ?>" href="?page=cards&bu=<?= (int)$bu['id'] ?>"><span>💳</span> Cartões</a>
+                <a class="<?= $isOpen && $page === 'cash' ? 'active' : '' ?>" href="?page=cash&bu=<?= (int)$bu['id'] ?>"><span>▤</span> Fluxo de caixa</a>
+            </div>
+        </details>
+        <?php endforeach; ?>
     </nav>
     <div class="sidebar-bottom"><a class="<?= $page === 'settings' ? 'active' : '' ?>" href="?page=settings"><span>⚙</span> Configurações</a><a href="?logout=1"><span>↪</span> Sair</a></div>
 </aside>
 <div class="app-shell">
     <header class="topbar">
         <button class="icon-button menu-button" type="button" data-menu aria-label="Abrir menu">☰</button>
-        <div class="page-heading"><h1><?= h($pageTitles[$page][0]) ?></h1><p><?= h($pageTitles[$page][1]) ?></p></div>
-        <div class="top-actions"><?php if($auth->canWrite()): ?><a class="quick-add" href="?page=payments&new=1">＋ <span>Novo pagamento</span></a><?php endif; ?><div class="user-menu"><span><?= h(mb_strtoupper(mb_substr($auth->user()['name'], 0, 1))) ?></span><div><b><?= h($auth->user()['name']) ?></b><small><?= h(ucfirst($auth->user()['role'])) ?></small></div></div></div>
+        <div class="page-heading">
+            <h1>
+                <?php if ($selectedBusiness): ?>
+                    <span class="bu-badge" style="background: <?= h($selectedBusiness['color']) ?>22; color: <?= h($selectedBusiness['color']) ?>; border: 1px solid <?= h($selectedBusiness['color']) ?>55;">
+                        <?= h($selectedBusiness['icon']) ?>
+                    </span>
+                <?php endif; ?>
+                <?= h($pageTitles[$page][0]) ?>
+            </h1>
+            <p><?= h($pageTitles[$page][1]) ?></p>
+        </div>
+        <div class="top-actions"><?php if($auth->canWrite()): ?><a class="quick-add" href="?page=payments&new=1<?= $selectedBusiness ? '&bu=' . $selectedBusiness['id'] : '' ?>">＋ <span>Novo pagamento</span></a><?php endif; ?><div class="user-menu"><span><?= h(mb_strtoupper(mb_substr($auth->user()['name'], 0, 1))) ?></span><div><b><?= h($auth->user()['name']) ?></b><small><?= h(ucfirst($auth->user()['role'])) ?></small></div></div></div>
     </header>
     <main class="content">
         <?php if (isset($migrationError) && $migrationError && $auth->isAdmin()): ?><div class="inline-warning">A atualização do banco está pendente. O CRM continua disponível e tentará concluir novamente no próximo acesso. Código: <?= h(substr(hash('sha256', $migrationError->getMessage()), 0, 8)) ?>.</div><?php endif; ?>
