@@ -518,7 +518,7 @@ final class ActionHandler
         if ($id && $parentId === $id) {
             $parentId = null;
         }
-        $type = $this->choice('type', ['expense', 'income', 'both']);
+        $type = $this->choice('type', ['expense', 'income', 'investment', 'both']);
         $icon = $this->nullable('icon') ?: '📁';
         $color = $this->nullable('color') ?: '#2b826b';
         $budgetPercent = isset($_POST['budget_limit_percent']) && $_POST['budget_limit_percent'] !== '' ? normalize_decimal($_POST['budget_limit_percent']) : null;
@@ -542,13 +542,46 @@ final class ActionHandler
     private function deleteCategory(): string
     {
         $id = $this->id(true);
+        $force = isset($_POST['force']) && (int) $_POST['force'] === 1;
+
+        // Count direct children
         $children = (int) $this->db->value('SELECT COUNT(*) FROM categories WHERE parent_id=?', [$id]);
-        if ($children > 0) {
-            throw new RuntimeException('Esta categoria possui subcategorias. Exclua ou reatribua as subcategorias primeiro.');
+        
+        // Count linked records
+        $expenseCount = (int) $this->db->value('SELECT COUNT(*) FROM expenses WHERE category_id=?', [$id]);
+        $paymentCount = (int) $this->db->value('SELECT COUNT(*) FROM payments WHERE category_id=?', [$id]);
+        $cashCount = (int) $this->db->value('SELECT COUNT(*) FROM cash_entries WHERE category_id=?', [$id]);
+        $cardCount = (int) $this->db->value('SELECT COUNT(*) FROM credit_card_transactions WHERE category_id=?', [$id]);
+        $recurringCount = (int) $this->db->value('SELECT COUNT(*) FROM recurring_templates WHERE category_id=?', [$id]);
+        
+        $totalLinked = $expenseCount + $paymentCount + $cashCount + $cardCount + $recurringCount;
+
+        if (!$force && ($children > 0 || $totalLinked > 0)) {
+            $parts = [];
+            if ($totalLinked > 0) {
+                $parts[] = "{$totalLinked} lançamento(s) financeiro(s)";
+            }
+            if ($children > 0) {
+                $parts[] = "{$children} subcategoria(s)";
+            }
+            $reason = implode(' e ', $parts);
+            throw new RuntimeException("Aviso de segurança: Esta categoria possui {$reason}. Para confirmar a exclusão e desvincular os registros com segurança, confirme a ação.");
         }
+
+        // Unlink children safely
+        if ($children > 0) {
+            $this->db->query('UPDATE categories SET parent_id=NULL WHERE parent_id=?', [$id]);
+        }
+        // Unlink financial records
+        $this->db->query('UPDATE expenses SET category_id=NULL WHERE category_id=?', [$id]);
+        $this->db->query('UPDATE payments SET category_id=NULL WHERE category_id=?', [$id]);
+        $this->db->query('UPDATE cash_entries SET category_id=NULL WHERE category_id=?', [$id]);
+        $this->db->query('UPDATE credit_card_transactions SET category_id=NULL WHERE category_id=?', [$id]);
+        $this->db->query('UPDATE recurring_templates SET category_id=NULL WHERE category_id=?', [$id]);
+
         $this->db->query('DELETE FROM categories WHERE id=?', [$id]);
         audit($this->db, 'delete', 'category', $id);
-        Flash::add('success', 'Categoria excluída.');
+        Flash::add('success', 'Categoria excluída e registros desvinculados com segurança.');
         return '?page=categories';
     }
 

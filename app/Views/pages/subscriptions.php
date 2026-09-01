@@ -168,9 +168,25 @@ foreach ($products as $key => $product) {
     $products[$key] = product_with_current_prices($product, $productRate ?: 1.0);
 }
 
-$activeCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions WHERE status='active'");
-$trialCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions WHERE status='trial'");
-$overdueCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions WHERE status='past_due'");
+$statusWhere = "WHERE 1=1";
+$statusParams = [];
+if ($buFilter !== null) {
+    $statusWhere .= " AND c.business_unit_id=?";
+    $statusParams[] = $buFilter;
+}
+$activeCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id {$statusWhere} AND s.status='active'", $statusParams);
+$trialCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id {$statusWhere} AND s.status='trial'", $statusParams);
+$overdueCount = (int) $db->value("SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id {$statusWhere} AND s.status='past_due'", $statusParams);
+
+$prodWhere = "WHERE 1=1";
+$prodParams = [];
+if ($buFilter !== null) {
+    $prodWhere .= " AND p.business_unit_id=?";
+    $prodParams = [$buFilter, $buFilter];
+} else {
+    $prodWhere .= " AND (p.active=1 OR s.id IS NOT NULL)";
+}
+
 $productUnitSummary = $db->fetchAll(
     "SELECT p.id,p.name,p.active,COUNT(s.id) active_subscriptions,
             COALESCE(SUM(
@@ -182,36 +198,52 @@ $productUnitSummary = $db->fetchAll(
             ),0) active_units
      FROM products p
      LEFT JOIN subscriptions s ON s.product_id=p.id AND s.status='active'
-     WHERE p.active=1 OR s.id IS NOT NULL
+     " . ($buFilter !== null ? "LEFT JOIN clients c ON c.id=s.client_id AND c.business_unit_id=?" : "") . "
+     {$prodWhere}
      GROUP BY p.id,p.name,p.active
-     ORDER BY p.active DESC,active_units DESC,p.name"
+     ORDER BY p.active DESC,active_units DESC,p.name",
+    $prodParams
 );
 $totalProductUnits = array_sum(array_map(static fn(array $item): int => (int) $item['active_units'], $productUnitSummary));
 $totalProductSubscriptions = array_sum(array_map(static fn(array $item): int => (int) $item['active_subscriptions'], $productUnitSummary));
 $cutoff = (new DateTimeImmutable('today'))->modify('+45 days')->format('Y-m-d');
-$dueCount = (int) $db->value(
-    "SELECT COUNT(*) FROM subscriptions s
+
+$dueCountSql = "SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id
      WHERE s.status IN ('active','trial','past_due')
        AND (EXISTS (SELECT 1 FROM payments pending WHERE pending.subscription_id=s.id AND pending.status='pending')
             OR (s.next_billing_date IS NOT NULL AND s.next_billing_date<=?
-                AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid'))) ",
-    [$cutoff]
-);
-$dueStats = $db->fetch(
-    "SELECT
-        COALESCE(SUM(next_billing_date<CURDATE()),0) overdue,
-        COALESCE(SUM(next_billing_date=CURDATE()),0) today_count,
-        COALESCE(SUM(next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)),0) tomorrow_count,
-        COALESCE(SUM(next_billing_date=DATE_ADD(CURDATE(),INTERVAL 2 DAY)),0) two_days_count,
-        COALESCE(SUM(next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 7 DAY)),0) next_7_count
-     FROM subscriptions WHERE status IN ('active','trial','past_due')"
-) ?: ['overdue'=>0,'today_count'=>0,'tomorrow_count'=>0,'two_days_count'=>0,'next_7_count'=>0];
-$tomorrowSubscriptions = $db->fetchAll(
-    "SELECT s.id,s.currency,s.unit_price,s.quantity,s.discount,c.name client,p.name product
+                AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid')))";
+$dueCountParams = [$cutoff];
+if ($buFilter !== null) {
+    $dueCountSql .= " AND c.business_unit_id=?";
+    $dueCountParams[] = $buFilter;
+}
+$dueCount = (int) $db->value($dueCountSql, $dueCountParams);
+
+$dueStatsSql = "SELECT
+        COALESCE(SUM(s.next_billing_date<CURDATE()),0) overdue,
+        COALESCE(SUM(s.next_billing_date=CURDATE()),0) today_count,
+        COALESCE(SUM(s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)),0) tomorrow_count,
+        COALESCE(SUM(s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 2 DAY)),0) two_days_count,
+        COALESCE(SUM(s.next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 7 DAY)),0) next_7_count
+     FROM subscriptions s JOIN clients c ON c.id=s.client_id WHERE s.status IN ('active','trial','past_due')";
+$dueStatsParams = [];
+if ($buFilter !== null) {
+    $dueStatsSql .= " AND c.business_unit_id=?";
+    $dueStatsParams[] = $buFilter;
+}
+$dueStats = $db->fetch($dueStatsSql, $dueStatsParams) ?: ['overdue'=>0,'today_count'=>0,'tomorrow_count'=>0,'two_days_count'=>0,'next_7_count'=>0];
+
+$tomorrowSql = "SELECT s.id,s.currency,s.unit_price,s.quantity,s.discount,c.name client,p.name product
      FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id
-     WHERE s.status IN ('active','trial','past_due') AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)
-     ORDER BY c.name LIMIT 20"
-);
+     WHERE s.status IN ('active','trial','past_due') AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)";
+$tomorrowParams = [];
+if ($buFilter !== null) {
+    $tomorrowSql .= " AND c.business_unit_id=?";
+    $tomorrowParams[] = $buFilter;
+}
+$tomorrowSql .= " ORDER BY c.name LIMIT 20";
+$tomorrowSubscriptions = $db->fetchAll($tomorrowSql, $tomorrowParams);
 
 $renewalRows = [];
 $renewalProducts = [];
@@ -222,6 +254,10 @@ if ($showRenewals) {
            AND (pending.id IS NOT NULL OR (s.next_billing_date IS NOT NULL AND s.next_billing_date<=?
                 AND NOT EXISTS (SELECT 1 FROM payments paid WHERE paid.subscription_id=s.id AND paid.due_date=s.next_billing_date AND paid.status='paid')))";
     $renewalParams = [$isIndividualRenewal ? $individualRenewalId : $cutoff];
+    if (!$isIndividualRenewal && $buFilter !== null) {
+        $renewalWhere .= " AND c.business_unit_id=?";
+        $renewalParams[] = $buFilter;
+    }
     $renewalRows = $db->fetchAll(
         "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,
                 p.price_brl product_price_brl,p.price_usd product_price_usd,p.pricing_mode product_pricing_mode,
@@ -244,7 +280,14 @@ if ($showRenewals) {
          LIMIT " . ($isIndividualRenewal ? '1' : '100'),
         $renewalParams
     );
-    $renewalProducts = $db->fetchAll('SELECT * FROM products ORDER BY active DESC,name');
+    $renProdQuery = "SELECT * FROM products WHERE (active=1 OR id IN (SELECT product_id FROM subscriptions s JOIN clients c ON c.id=s.client_id WHERE s.status='active'))";
+    $renProdParams = [];
+    if ($buFilter !== null) {
+        $renProdQuery .= " AND business_unit_id=?";
+        $renProdParams[] = $buFilter;
+    }
+    $renProdQuery .= " ORDER BY active DESC,name";
+    $renewalProducts = $db->fetchAll($renProdQuery, $renProdParams);
     foreach ($renewalProducts as $key => $product) {
         $renewalProducts[$key] = product_with_current_prices($product, $productRate ?: 1.0);
     }
@@ -294,11 +337,12 @@ if ($historyId > 0) {
     </div>
 </section>
 
-<section class="subscription-radar card"><header><div><p class="eyebrow">RADAR DE RENOVAÇÕES</p><h2>Agenda inteligente de vencimentos</h2><p>Antecipe cobranças críticas e priorize o que precisa de atenção agora.</p></div><?php if ((int) $dueStats['tomorrow_count'] > 0): ?><button type="button" class="radar-notification" data-due-alert-open><span>♢</span><b><?= (int) $dueStats['tomorrow_count'] ?></b> alerta(s) para amanhã</button><?php endif; ?></header><div class="radar-grid"><a href="?page=subscriptions&due=overdue" class="radar-item overdue <?= $dueFilter === 'overdue' ? 'active' : '' ?>" data-radar-filter="overdue"><span>!</span><div><small>ATRASADAS</small><b><?= (int) $dueStats['overdue'] ?></b><p>Exigem ação imediata</p></div></a><a href="?page=subscriptions&due=today" class="radar-item today <?= $dueFilter === 'today' ? 'active' : '' ?>" data-radar-filter="today"><span>●</span><div><small>VENCEM HOJE</small><b><?= (int) $dueStats['today_count'] ?></b><p>Confirmar recebimentos</p></div></a><a href="?page=subscriptions&due=tomorrow" class="radar-item tomorrow <?= $dueFilter === 'tomorrow' ? 'active' : '' ?>" data-radar-filter="tomorrow"><span>→</span><div><small>VENCEM AMANHÃ</small><b><?= (int) $dueStats['tomorrow_count'] ?></b><p>Preparar cobranças</p></div></a><a href="?page=subscriptions&due=two_days" class="radar-item two-days <?= $dueFilter === 'two_days' ? 'active' : '' ?>" data-radar-filter="two_days"><span>2</span><div><small>EM 2 DIAS</small><b><?= (int) $dueStats['two_days_count'] ?></b><p>Próxima janela</p></div></a><a href="?page=subscriptions&due=next_7" class="radar-item week <?= $dueFilter === 'next_7' ? 'active' : '' ?>" data-radar-filter="next_7"><span>7</span><div><small>PRÓXIMOS 7 DIAS</small><b><?= (int) $dueStats['next_7_count'] ?></b><p>Visão semanal</p></div></a></div></section>
+<section class="subscription-radar card"><header><div><p class="eyebrow">RADAR DE RENOVAÇÕES</p><h2>Agenda inteligente de vencimentos</h2><p>Antecipe cobranças críticas e priorize o que precisa de atenção agora.</p></div><?php if ((int) $dueStats['tomorrow_count'] > 0): ?><button type="button" class="radar-notification" data-due-alert-open><span>♢</span><b><?= (int) $dueStats['tomorrow_count'] ?></b> alerta(s) para amanhã</button><?php endif; ?></header><div class="radar-grid"><a href="?page=subscriptions&due=overdue<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="radar-item overdue <?= $dueFilter === 'overdue' ? 'active' : '' ?>" data-radar-filter="overdue"><span>!</span><div><small>ATRASADAS</small><b><?= (int) $dueStats['overdue'] ?></b><p>Exigem ação imediata</p></div></a><a href="?page=subscriptions&due=today<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="radar-item today <?= $dueFilter === 'today' ? 'active' : '' ?>" data-radar-filter="today"><span>●</span><div><small>VENCEM HOJE</small><b><?= (int) $dueStats['today_count'] ?></b><p>Confirmar recebimentos</p></div></a><a href="?page=subscriptions&due=tomorrow<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="radar-item tomorrow <?= $dueFilter === 'tomorrow' ? 'active' : '' ?>" data-radar-filter="tomorrow"><span>→</span><div><small>VENCEM AMANHÃ</small><b><?= (int) $dueStats['tomorrow_count'] ?></b><p>Preparar cobranças</p></div></a><a href="?page=subscriptions&due=two_days<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="radar-item two-days <?= $dueFilter === 'two_days' ? 'active' : '' ?>" data-radar-filter="two_days"><span>2</span><div><small>EM 2 DIAS</small><b><?= (int) $dueStats['two_days_count'] ?></b><p>Próxima janela</p></div></a><a href="?page=subscriptions&due=next_7<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="radar-item week <?= $dueFilter === 'next_7' ? 'active' : '' ?>" data-radar-filter="next_7"><span>7</span><div><small>PRÓXIMOS 7 DIAS</small><b><?= (int) $dueStats['next_7_count'] ?></b><p>Visão semanal</p></div></a></div></section>
 
 <section class="toolbar list-toolbar">
     <form class="search-filters" method="get" data-live-filter id="subscription-filters">
         <input type="hidden" name="page" value="subscriptions">
+        <?php if ($buFilter !== null): ?><input type="hidden" name="bu" value="<?= (int)$buFilter ?>"><?php endif; ?>
         <input type="hidden" name="per_page" value="<?= $perPage ?>">
         <input type="hidden" name="sort" value="<?= h($sort) ?>">
         <input type="hidden" name="dir" value="<?= h($sortDirection) ?>">
@@ -309,14 +353,14 @@ if ($historyId > 0) {
         <span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span>
     </form>
     <div>
-        <a class="button ghost" href="?page=export&type=subscriptions">⇩ Exportar</a>
-        <?php if ($auth->canWrite() && $dueCount > 0): ?><a class="button secondary" href="?page=subscriptions&renewals=1">⚡ Gerar próximas cobranças (<?= $dueCount ?>)</a><?php endif; ?>
-        <?php if ($auth->canWrite()): ?><a class="button primary" href="?page=subscriptions&new=1">＋ Nova assinatura</a><?php endif; ?>
+        <a class="button ghost" href="?page=export&type=subscriptions<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">⇩ Exportar</a>
+        <?php if ($auth->canWrite() && $dueCount > 0): ?><a class="button secondary" href="?page=subscriptions&renewals=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">⚡ Gerar próximas cobranças (<?= $dueCount ?>)</a><?php endif; ?>
+        <?php if ($auth->canWrite()): ?><a class="button primary" href="?page=subscriptions&new=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">＋ Nova assinatura</a><?php endif; ?>
     </div>
 </section>
 
 <div data-live-results>
-<section class="card table-card subscription-table"><div class="table-meta with-page-size"><span class="table-range-summary"><b><?= $pagination['total'] ?></b> assinaturas<small>Exibindo <?= $displayedFrom ?>–<?= $displayedTo ?> de <?= $pagination['total'] ?></small></span><div class="table-meta-actions"><div class="urgency-legend"><span class="tomorrow">Amanhã</span><span class="two-days">Em 2 dias</span><span class="overdue">Atrasada</span></div><form class="page-size-form" method="get"><input type="hidden" name="page" value="subscriptions"><?php if($search!==''): ?><input type="hidden" name="q" value="<?= h($search) ?>"><?php endif; ?><?php if($status!==''): ?><input type="hidden" name="status" value="<?= h($status) ?>"><?php endif; ?><?php if($dueFilter!==''): ?><input type="hidden" name="due" value="<?= h($dueFilter) ?>"><?php endif; ?><?php if($badgeFilter>0): ?><input type="hidden" name="badge" value="<?= $badgeFilter ?>"><?php endif; ?><input type="hidden" name="sort" value="<?= h($sort) ?>"><input type="hidden" name="dir" value="<?= h($sortDirection) ?>"><label>Linhas por página<select name="per_page" data-page-size-select><?php foreach($pageSizeOptions as $pageSize): ?><option value="<?= $pageSize ?>" <?= $perPage===$pageSize?'selected':'' ?>><?= $pageSize ?></option><?php endforeach; ?></select></label></form></div></div><div class="table-wrap"><table><thead><tr><?= $tableSortHeader('client_product', 'Cliente / Produto') ?><?= $tableSortHeader('recurring_value', 'Valor recorrente') ?><?= $tableSortHeader('cycle', 'Ciclo') ?><?= $tableSortHeader('next_billing', 'Próxima cobrança') ?><?= $tableSortHeader('status', 'Status') ?><th class="actions-column"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+<section class="card table-card subscription-table"><div class="table-meta with-page-size"><span class="table-range-summary"><b><?= $pagination['total'] ?></b> assinaturas<small>Exibindo <?= $displayedFrom ?>–<?= $displayedTo ?> de <?= $pagination['total'] ?></small></span><div class="table-meta-actions"><div class="urgency-legend"><span class="tomorrow">Amanhã</span><span class="two-days">Em 2 dias</span><span class="overdue">Atrasada</span></div><form class="page-size-form" method="get"><input type="hidden" name="page" value="subscriptions"><?php if($buFilter!==null): ?><input type="hidden" name="bu" value="<?= (int)$buFilter ?>"><?php endif; ?><?php if($search!==''): ?><input type="hidden" name="q" value="<?= h($search) ?>"><?php endif; ?><?php if($status!==''): ?><input type="hidden" name="status" value="<?= h($status) ?>"><?php endif; ?><?php if($dueFilter!==''): ?><input type="hidden" name="due" value="<?= h($dueFilter) ?>"><?php endif; ?><?php if($badgeFilter>0): ?><input type="hidden" name="badge" value="<?= $badgeFilter ?>"><?php endif; ?><input type="hidden" name="sort" value="<?= h($sort) ?>"><input type="hidden" name="dir" value="<?= h($sortDirection) ?>"><label>Linhas por página<select name="per_page" data-page-size-select><?php foreach($pageSizeOptions as $pageSize): ?><option value="<?= $pageSize ?>" <?= $perPage===$pageSize?'selected':'' ?>><?= $pageSize ?></option><?php endforeach; ?></select></label></form></div></div><div class="table-wrap"><table><thead><tr><?= $tableSortHeader('client_product', 'Cliente / Produto') ?><?= $tableSortHeader('recurring_value', 'Valor recorrente') ?><?= $tableSortHeader('cycle', 'Ciclo') ?><?= $tableSortHeader('next_billing', 'Próxima cobrança') ?><?= $tableSortHeader('status', 'Status') ?><th class="actions-column"><span class="sr-only">Ações</span></th></tr></thead><tbody>
 <?php if (!$pagination['rows']): ?><tr><td colspan="6" class="empty-cell">Nenhuma assinatura encontrada.</td></tr><?php endif; ?>
 <?php foreach ($pagination['rows'] as $item):
     $dueDays = $item['due_in_days'] === null ? null : (int) $item['due_in_days'];

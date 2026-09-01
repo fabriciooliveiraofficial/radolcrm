@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 11;
+    private const VERSION = 12;
 
     public function __construct(private readonly Database $db)
     {
@@ -606,6 +606,20 @@ final class MigrationService
                     INDEX idx_card_tx_bu (business_unit_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
             );
+        }
+        if ($version < 12) {
+            $this->db->query("ALTER TABLE categories MODIFY COLUMN type ENUM('expense','income','investment','both') NOT NULL DEFAULT 'expense'");
+            // Map any unmapped expenses to categories
+            $expenses = $this->db->fetchAll("SELECT id, category FROM expenses WHERE category_id IS NULL AND category IS NOT NULL AND category != ''");
+            foreach ($expenses as $exp) {
+                $catId = (int) $this->db->value("SELECT id FROM categories WHERE name = ? LIMIT 1", [$exp['category']]);
+                if (!$catId) {
+                    $catId = (int) $this->db->value("SELECT id FROM categories WHERE name LIKE ? LIMIT 1", ['%' . $exp['category'] . '%']);
+                }
+                if ($catId) {
+                    $this->db->query("UPDATE expenses SET category_id = ? WHERE id = ?", [$catId, $exp['id']]);
+                }
+            }
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",

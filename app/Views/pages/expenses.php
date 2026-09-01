@@ -65,7 +65,8 @@ $allCategories = $db->fetchAll(
      FROM categories c
      LEFT JOIN business_units bu ON bu.id = c.business_unit_id
      LEFT JOIN categories p ON p.id = c.parent_id
-     WHERE c.active = 1 AND c.type IN ("expense", "both")
+     WHERE c.active = 1 AND c.type IN ("expense", "investment", "both")' .
+     ($buFilter !== null ? ' AND (c.business_unit_id = ' . (int)$buFilter . ' OR c.business_unit_id IS NULL)' : '') . '
      ORDER BY COALESCE(c.parent_id, c.id) ASC, (c.parent_id IS NOT NULL) ASC, c.sort_order ASC, c.name ASC'
 );
 ?>
