@@ -979,16 +979,19 @@ final class ActionHandler
                     : 'Renovação · ') . $periodLabel . ' · ' . $product['name'];
                 $settlementDate = $row['currency'] === 'USD' ? $row['receipt_date'] : null;
 
+                $buId = (int) $db->value('SELECT business_unit_id FROM clients WHERE id=?', [$subscription['client_id']])
+                    ?: ((int) ($product['business_unit_id'] ?? 0) ?: 1);
+
                 if ($payment) {
                     $paymentId = (int) $payment['id'];
                     $db->query(
-                        "UPDATE payments SET client_id=?,description=?,amount=?,base_amount=?,discount_amount=?,surcharge_amount=?,manual_adjustment_amount=?,
+                        "UPDATE payments SET business_unit_id=COALESCE(business_unit_id,?),client_id=?,description=?,amount=?,base_amount=?,discount_amount=?,surcharge_amount=?,manual_adjustment_amount=?,
                             renewal_mode=?,renewal_months=?,renewal_days=?,renewal_start_date=?,renewal_end_date=?,
                             currency=?,exchange_rate=?,exchange_rate_source=?,amount_brl=?,fee_amount=?,fee_brl=?,net_brl=?,status='paid',
                             due_date=?,payment_date=?,settlement_date=?,payment_method=?,external_reference=?,notes=?
                          WHERE id=? AND status='pending'",
                         [
-                            $subscription['client_id'],$description,$row['amount'],$row['base_amount'],$row['payment_discount'],
+                            $buId,$subscription['client_id'],$description,$row['amount'],$row['base_amount'],$row['payment_discount'],
                             $row['surcharge_amount'],$row['manual_adjustment_amount'],$row['renewal_mode'],$row['renewal_months'],
                             $row['renewal_days'],$row['renewal_start_date'],$row['renewal_end_date'],$row['currency'],$rate,
                             $quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],
@@ -998,13 +1001,13 @@ final class ActionHandler
                 } else {
                     $paymentId = $db->insert(
                         "INSERT INTO payments (
-                            subscription_id,client_id,description,amount,base_amount,discount_amount,surcharge_amount,manual_adjustment_amount,
+                            business_unit_id,subscription_id,client_id,description,amount,base_amount,discount_amount,surcharge_amount,manual_adjustment_amount,
                             renewal_mode,renewal_months,renewal_days,renewal_start_date,renewal_end_date,
                             currency,exchange_rate,exchange_rate_source,amount_brl,fee_amount,fee_brl,net_brl,status,
                             due_date,payment_date,settlement_date,payment_method,external_reference,notes
-                         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'paid',?,?,?,?,?,?)",
+                         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'paid',?,?,?,?,?,?)",
                         [
-                            $row['subscription_id'],$subscription['client_id'],$description,$row['amount'],$row['base_amount'],
+                            $buId,$row['subscription_id'],$subscription['client_id'],$description,$row['amount'],$row['base_amount'],
                             $row['payment_discount'],$row['surcharge_amount'],$row['manual_adjustment_amount'],$row['renewal_mode'],
                             $row['renewal_months'],$row['renewal_days'],$row['renewal_start_date'],$row['renewal_end_date'],$row['currency'],
                             $rate,$quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],
@@ -1161,7 +1164,7 @@ final class ActionHandler
                 $feeBrl = round((float) $payment['fee_amount'] * $rate, 2);
                 $netBrl = $amountBrl - $feeBrl;
                 $statement = $db->query(
-                    "UPDATE payments SET status='paid', payment_date=COALESCE(payment_date,?), settlement_date=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_brl=?, net_brl=? WHERE id=? AND status='pending'",
+                    "UPDATE payments SET business_unit_id=COALESCE(business_unit_id, (SELECT business_unit_id FROM clients WHERE clients.id=payments.client_id), 1), status='paid', payment_date=COALESCE(payment_date,?), settlement_date=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_brl=?, net_brl=? WHERE id=? AND status='pending'",
                     [$settlementDate, $payment['currency'] === 'USD' ? $settlementDate : null, $rate, $rateSource, $amountBrl, $feeBrl, $netBrl, $payment['id']]
                 );
                 if ($statement->rowCount() !== 1) {

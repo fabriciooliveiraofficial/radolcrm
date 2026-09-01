@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 12;
+    private const VERSION = 13;
 
     public function __construct(private readonly Database $db)
     {
@@ -630,6 +630,43 @@ final class MigrationService
                     $this->db->query("UPDATE expenses SET category_id = ? WHERE id = ?", [$catId, $exp['id']]);
                 }
             }
+        }
+        if ($version < 13) {
+            $mainBuId = (int) ($this->db->value("SELECT id FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC LIMIT 1") ?: 1);
+
+            // 1. Vincular pagamentos a partir do client_id do cliente
+            $this->db->query("
+                UPDATE payments p
+                JOIN clients c ON c.id = p.client_id
+                SET p.business_unit_id = COALESCE(c.business_unit_id, ?)
+                WHERE p.business_unit_id IS NULL OR p.business_unit_id = 0
+            ", [$mainBuId]);
+
+            // 2. Vincular pagamentos a partir da assinatura e cliente
+            $this->db->query("
+                UPDATE payments p
+                JOIN subscriptions s ON s.id = p.subscription_id
+                JOIN clients c ON c.id = s.client_id
+                SET p.business_unit_id = COALESCE(c.business_unit_id, ?)
+                WHERE p.business_unit_id IS NULL OR p.business_unit_id = 0
+            ", [$mainBuId]);
+
+            // 3. Fallback para qualquer pagamento remanescente sem unidade
+            $this->db->query("
+                UPDATE payments SET business_unit_id = ?
+                WHERE business_unit_id IS NULL OR business_unit_id = 0
+            ", [$mainBuId]);
+
+            // 4. Garantir consistência em despesas e movimentações avulsas
+            $this->db->query("
+                UPDATE expenses SET business_unit_id = ?
+                WHERE business_unit_id IS NULL OR business_unit_id = 0
+            ", [$mainBuId]);
+
+            $this->db->query("
+                UPDATE cash_entries SET business_unit_id = ?
+                WHERE business_unit_id IS NULL OR business_unit_id = 0
+            ", [$mainBuId]);
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",
