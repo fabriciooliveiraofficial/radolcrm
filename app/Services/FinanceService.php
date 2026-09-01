@@ -133,8 +133,8 @@ final class FinanceService
                     SUM(GREATEST(0,(s.unit_price * s.quantity)-s.discount)
                         / CASE p.billing_cycle WHEN 'quarterly' THEN 3 WHEN 'semiannual' THEN 6 WHEN 'annual' THEN 12 ELSE 1 END
                         * CASE WHEN s.currency='USD' THEN ? ELSE 1 END) mrr
-             FROM subscriptions s JOIN products p ON p.id=s.product_id
-             WHERE s.status='active'
+             FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id
+             WHERE s.status='active'{$buWhereSub}
              GROUP BY p.id,p.name ORDER BY mrr DESC LIMIT 5",
             [$rate]
         );
@@ -146,7 +146,7 @@ final class FinanceService
              FROM subscriptions s
              JOIN clients c ON c.id=s.client_id
              JOIN products p ON p.id=s.product_id
-             WHERE s.status='active'
+             WHERE s.status='active'{$buWhereSub}
              GROUP BY c.country ORDER BY mrr DESC",
             [$rate]
         );
@@ -185,22 +185,26 @@ final class FinanceService
         ];
     }
 
-    public function monthlySeries(int $months = 6): array
+    public function monthlySeries(int $months = 6, ?int $businessUnitId = null): array
     {
         $start = (new DateTimeImmutable('first day of this month'))->modify('-' . ($months - 1) . ' months');
+        $buWherePay = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereExp = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereCash = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
+
         $rows = $this->db->fetchAll(
             "SELECT month_key, SUM(revenue) revenue, SUM(cost) cost FROM (
                 SELECT DATE_FORMAT(CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END, '%Y-%m') month_key, SUM(net_brl) revenue, 0 cost
-                FROM payments WHERE status='paid' AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) >= ?
+                FROM payments WHERE status='paid'{$buWherePay} AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) >= ?
                 GROUP BY DATE_FORMAT(CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END, '%Y-%m')
                 UNION ALL
                 SELECT DATE_FORMAT(payment_date, '%Y-%m') month_key, 0 revenue, SUM(amount_brl) cost
-                FROM expenses WHERE status='paid' AND payment_date >= ? GROUP BY DATE_FORMAT(payment_date, '%Y-%m')
+                FROM expenses WHERE status='paid'{$buWhereExp} AND payment_date >= ? GROUP BY DATE_FORMAT(payment_date, '%Y-%m')
                 UNION ALL
                 SELECT DATE_FORMAT(entry_date, '%Y-%m') month_key,
                        SUM(CASE WHEN direction='in' THEN amount_brl ELSE 0 END) revenue,
                        SUM(CASE WHEN direction='out' THEN amount_brl ELSE 0 END) cost
-                FROM cash_entries WHERE entry_date >= ? GROUP BY DATE_FORMAT(entry_date, '%Y-%m')
+                FROM cash_entries WHERE entry_date >= ?{$buWhereCash} GROUP BY DATE_FORMAT(entry_date, '%Y-%m')
             ) flow GROUP BY month_key ORDER BY month_key",
             [$start->format('Y-m-d'), $start->format('Y-m-d'), $start->format('Y-m-d')]
         );

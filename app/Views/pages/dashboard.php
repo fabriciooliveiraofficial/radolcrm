@@ -17,10 +17,13 @@ if ($buFilter) {
     }
 }
 
+$buWhereClient = $buFilter ? ' AND c.business_unit_id = ' . (int) $buFilter : '';
+$buWherePay = $buFilter ? ' AND p.business_unit_id = ' . (int) $buFilter : '';
+
 $metrics = $finance->dashboard($from, $to, (float) $rate['bid'], $buFilter);
 $intelligence = $finance->businessIntelligence((float) $rate['bid'], $buFilter);
-$series = $finance->monthlySeries();
-$balance = $finance->cashBalance();
+$series = $finance->monthlySeries(6, $buFilter);
+$balance = $finance->cashBalance($buFilter);
 $participation = $finance->revenueParticipation($from, $to);
 
 try {
@@ -33,7 +36,7 @@ try {
 $periodDays = max(1, $fromDate->diff($toDate)->days + 1);
 $previousTo = $fromDate->modify('-1 day');
 $previousFrom = $previousTo->modify('-' . ($periodDays - 1) . ' days');
-$previousMetrics = $finance->dashboard($previousFrom->format('Y-m-d'), $previousTo->format('Y-m-d'), (float) $rate['bid']);
+$previousMetrics = $finance->dashboard($previousFrom->format('Y-m-d'), $previousTo->format('Y-m-d'), (float) $rate['bid'], $buFilter);
 $revenueGrowth = $previousMetrics['gross'] > 0
     ? (($metrics['gross'] - $previousMetrics['gross']) / $previousMetrics['gross']) * 100
     : ($metrics['gross'] > 0 ? 100.0 : 0.0);
@@ -81,7 +84,7 @@ $upcoming = $db->fetchAll(
     "SELECT s.id,s.next_billing_date,s.currency,s.unit_price,s.quantity,s.discount,c.name client,p.name product
      FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id
      WHERE s.status IN ('active','trial','past_due')
-       AND s.next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 30 DAY)
+       AND s.next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 30 DAY){$buWhereClient}
      ORDER BY s.next_billing_date LIMIT 6"
 );
 $dashboardTimezone = new DateTimeZone((string) ($config['app']['timezone'] ?? 'America/Sao_Paulo'));
@@ -97,9 +100,10 @@ $activePointUnits = (int) $db->value(
                 END
             ),0)
      FROM subscriptions s
+     JOIN clients c ON c.id=s.client_id
      JOIN products p ON p.id=s.product_id
      WHERE s.status='active'
-       AND s.next_billing_date>=?",
+       AND s.next_billing_date>=?{$buWhereClient}",
     [$todayDate]
 );
 $tomorrowSubscriptions = $db->fetchAll(
@@ -107,7 +111,7 @@ $tomorrowSubscriptions = $db->fetchAll(
      FROM subscriptions s
      JOIN clients c ON c.id=s.client_id
      WHERE s.status IN ('active','trial','past_due')
-       AND s.next_billing_date=?
+       AND s.next_billing_date=?{$buWhereClient}
      ORDER BY c.name",
     [$tomorrowDate]
 );
@@ -115,6 +119,7 @@ $recent = $db->fetchAll(
     "SELECT p.id,p.description,p.payment_date,p.settlement_date,p.amount,p.currency,p.amount_brl,p.status,
             p.renewal_months,p.renewal_days,p.renewal_end_date,c.name client
      FROM payments p JOIN clients c ON c.id=p.client_id
+     WHERE 1=1{$buWherePay}
      ORDER BY COALESCE(CASE WHEN p.currency='USD' THEN p.settlement_date ELSE p.payment_date END,p.payment_date,p.due_date) DESC,p.id DESC LIMIT 6"
 );
 ?>
