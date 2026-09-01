@@ -4,10 +4,24 @@ use App\Services\FinanceService;
 [$from, $to, $periodLabel] = period_dates();
 $rate = $rates->current();
 $finance = new FinanceService($db);
-$metrics = $finance->dashboard($from, $to, (float) $rate['bid']);
-$intelligence = $finance->businessIntelligence((float) $rate['bid']);
+
+$buFilter = isset($_GET['bu']) && $_GET['bu'] !== '' ? (int) $_GET['bu'] : null;
+$allBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
+$selectedBu = null;
+if ($buFilter) {
+    foreach ($allBusinesses as $b) {
+        if ((int) $b['id'] === $buFilter) {
+            $selectedBu = $b;
+            break;
+        }
+    }
+}
+
+$metrics = $finance->dashboard($from, $to, (float) $rate['bid'], $buFilter);
+$intelligence = $finance->businessIntelligence((float) $rate['bid'], $buFilter);
 $series = $finance->monthlySeries();
 $balance = $finance->cashBalance();
+$participation = $finance->revenueParticipation($from, $to);
 
 try {
     $fromDate = new DateTimeImmutable($from);
@@ -105,10 +119,35 @@ $recent = $db->fetchAll(
 );
 ?>
 <section class="toolbar dashboard-toolbar">
-    <form method="get" class="period-filter" data-auto-submit>
+    <form method="get" class="period-filter" data-auto-submit style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
         <input type="hidden" name="page" value="dashboard">
-        <label>Período<select name="period"><option value="month">Este mês</option><option value="today" <?= ($_GET['period'] ?? '') === 'today' ? 'selected' : '' ?>>Hoje</option><option value="quarter" <?= ($_GET['period'] ?? '') === 'quarter' ? 'selected' : '' ?>>Últimos 3 meses</option><option value="year" <?= ($_GET['period'] ?? '') === 'year' ? 'selected' : '' ?>>Este ano</option><option value="custom" <?= ($_GET['period'] ?? '') === 'custom' ? 'selected' : '' ?>>Personalizado</option></select></label>
-        <?php if (($_GET['period'] ?? '') === 'custom'): ?><label>De<input type="date" name="from" value="<?= h($from) ?>"></label><label>Até<input type="date" name="to" value="<?= h($to) ?>"></label><?php endif; ?>
+        
+        <label>
+            Negócio / Visão
+            <select name="bu">
+                <option value="">🌐 Visão Consolidada (Todos os Negócios)</option>
+                <?php foreach ($allBusinesses as $b): ?>
+                    <option value="<?= (int) $b['id'] ?>" <?= $buFilter === (int) $b['id'] ? 'selected' : '' ?>>
+                        <?= h($b['icon']) ?> <?= h($b['name']) ?><?= $b['is_personal'] ? ' (Pessoal)' : '' ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+
+        <label>
+            Período
+            <select name="period">
+                <option value="month">Este mês</option>
+                <option value="today" <?= ($_GET['period'] ?? '') === 'today' ? 'selected' : '' ?>>Hoje</option>
+                <option value="quarter" <?= ($_GET['period'] ?? '') === 'quarter' ? 'selected' : '' ?>>Últimos 3 meses</option>
+                <option value="year" <?= ($_GET['period'] ?? '') === 'year' ? 'selected' : '' ?>>Este ano</option>
+                <option value="custom" <?= ($_GET['period'] ?? '') === 'custom' ? 'selected' : '' ?>>Personalizado</option>
+            </select>
+        </label>
+        <?php if (($_GET['period'] ?? '') === 'custom'): ?>
+            <label>De<input type="date" name="from" value="<?= h($from) ?>"></label>
+            <label>Até<input type="date" name="to" value="<?= h($to) ?>"></label>
+        <?php endif; ?>
     </form>
     <div class="rate-pill">
         <span class="live-dot"></span><div><small>COTAÇÃO DIÁRIA USD/BRL</small><b>US$ 1 = <?= money($rate['bid']) ?></b></div><span><?= h($rate['source']) ?><br><?= date_br($rate['quoted_at']) ?></span>
@@ -119,8 +158,17 @@ $recent = $db->fetchAll(
 
 <section class="executive-hero card">
     <div class="executive-copy">
-        <p class="eyebrow">CENTRAL DE COMANDO · <?= h(mb_strtoupper($periodLabel)) ?></p>
-        <h2>Visão executiva do negócio</h2>
+        <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.35rem;">
+            <p class="eyebrow" style="margin: 0;">CENTRAL DE COMANDO · <?= h(mb_strtoupper($periodLabel)) ?></p>
+            <?php if ($selectedBu): ?>
+                <span class="badge" style="background: <?= h($selectedBu['color']) ?>22; color: <?= h($selectedBu['color']) ?>; border: 1px solid <?= h($selectedBu['color']) ?>55;">
+                    <?= h($selectedBu['icon']) ?> <?= h($selectedBu['name']) ?>
+                </span>
+            <?php else: ?>
+                <span class="badge muted">🌐 Visão Consolidada</span>
+            <?php endif; ?>
+        </div>
+        <h2><?= $selectedBu ? 'Visão executiva: ' . h($selectedBu['name']) : 'Visão executiva consolidada' ?></h2>
         <p><?= h($brief) ?></p>
         <span class="executive-update"><i></i> Dados atualizados agora · <?= date('d/m/Y H:i') ?></span>
     </div>
@@ -136,6 +184,32 @@ $recent = $db->fetchAll(
         <div><span>ARPA mensal</span><strong><?= money($arpa) ?></strong><small>por cliente recorrente</small></div>
     </div>
 </section>
+
+<?php if (!$buFilter && !empty($participation['units']) && count($participation['units']) > 1): ?>
+<!-- Consolidated Multi-Business Revenue Distribution Bar -->
+<section class="card" style="margin-bottom: 1.5rem; padding: 1rem 1.25rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <span style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted, #8b9bb4); text-transform: uppercase;">
+            💼 Distribuição de Faturamento por Unidade de Negócio
+        </span>
+        <strong class="positive" style="font-size: 0.95rem;">Total: <?= money($participation['total_revenue']) ?></strong>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem;">
+        <?php foreach ($participation['units'] as $u): ?>
+            <a href="?page=dashboard&bu=<?= (int)$u['id'] ?>" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 0.6rem 0.75rem; text-decoration: none; color: inherit; display: block;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.35rem;">
+                    <span><?= h($u['icon']) ?> <b><?= h($u['name']) ?></b></span>
+                    <span class="positive"><b><?= number_format($u['share_percent'], 1, ',', '.') ?>%</b></span>
+                </div>
+                <div style="height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; margin-bottom: 0.35rem;">
+                    <div style="background: <?= h($u['color']) ?>; width: <?= $u['share_percent'] ?>%; height: 100%;"></div>
+                </div>
+                <small class="muted"><?= money($u['revenue_brl']) ?></small>
+            </a>
+        <?php endforeach; ?>
+    </div>
+</section>
+<?php endif; ?>
 
 <section class="metric-grid executive-metrics">
     <article class="metric-card"><div class="metric-icon green">↗</div><div><span>Faturamento bruto</span><strong><?= money($metrics['gross']) ?></strong><small class="metric-trend <?= $revenueGrowth < 0 ? 'down' : 'up' ?>"><?= $revenueGrowth < 0 ? '↓' : '↑' ?> <?= h($growthLabel) ?></small></div></article>

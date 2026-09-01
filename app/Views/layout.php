@@ -20,8 +20,13 @@
         <a class="<?= $page === 'service-badges' ? 'active' : '' ?>" href="?page=service-badges"><span>✦</span> Badges de serviços</a>
         <a class="<?= $page === 'reminders' ? 'active' : '' ?>" href="?page=reminders"><span>◉</span> Lembretes WhatsApp</a>
         <p>FINANCEIRO</p>
+        <a class="<?= $page === 'agenda' ? 'active' : '' ?>" href="?page=agenda"><span>📅</span> Agenda Financeira</a>
+        <a class="<?= $page === 'businesses' ? 'active' : '' ?>" href="?page=businesses"><span>💼</span> Negócios</a>
+        <a class="<?= $page === 'categories' ? 'active' : '' ?>" href="?page=categories"><span>📁</span> Categorias</a>
         <a class="<?= $page === 'payments' ? 'active' : '' ?>" href="?page=payments"><span>↓</span> Pagamentos</a>
         <a class="<?= $page === 'expenses' ? 'active' : '' ?>" href="?page=expenses"><span>↑</span> Gastos e investimentos</a>
+        <a class="<?= $page === 'recurring' ? 'active' : '' ?>" href="?page=recurring"><span>🔁</span> Recorrências e Parcelas</a>
+        <a class="<?= $page === 'cards' ? 'active' : '' ?>" href="?page=cards"><span>💳</span> Cartões de Crédito</a>
         <a class="<?= $page === 'cash' ? 'active' : '' ?>" href="?page=cash"><span>▤</span> Fluxo de caixa</a>
     </nav>
     <div class="sidebar-bottom"><a class="<?= $page === 'settings' ? 'active' : '' ?>" href="?page=settings"><span>⚙</span> Configurações</a><a href="?logout=1"><span>↪</span> Sair</a></div>

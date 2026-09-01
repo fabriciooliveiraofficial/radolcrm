@@ -52,7 +52,7 @@ if (($_GET['page'] ?? '') === 'export') {
     (new Exporter($db))->download((string) ($_GET['type'] ?? ''));
 }
 
-$allowedPages = ['dashboard','clients','products','subscriptions','service-badges','reminders','payments','expenses','cash','reports','settings'];
+$allowedPages = ['dashboard','businesses','categories','clients','products','subscriptions','service-badges','reminders','agenda','payments','expenses','recurring','cards','cash','reports','settings'];
 $page = (string) ($_GET['page'] ?? 'dashboard');
 if (!in_array($page, $allowedPages, true)) {
     http_response_code(404);
@@ -61,13 +61,18 @@ if (!in_array($page, $allowedPages, true)) {
 
 $pageTitles = [
     'dashboard' => ['Visão geral', 'Acompanhe os números que movem seu negócio.'],
+    'businesses' => ['Unidades de negócio', 'Gerencie seus negócios e finanças pessoais de forma separada.'],
+    'categories' => ['Categorias de receitas e gastos', 'Organize e defina limitadores de gastos por categoria.'],
     'clients' => ['Clientes', 'Pessoas e empresas que compram de você.'],
     'products' => ['Produtos', 'Planos e preços locais em real e dólar.'],
     'subscriptions' => ['Assinaturas', 'Receita recorrente e próximas cobranças.'],
     'service-badges' => ['Badges de serviços', 'Crie marcadores visuais e organize os serviços de cada assinatura.'],
     'reminders' => ['Lembretes WhatsApp', 'Automatize avisos de vencimento e acompanhe os envios.'],
+    'agenda' => ['Agenda financeira', 'Calendário integrado de obrigações, vencimentos e recebimentos.'],
     'payments' => ['Pagamentos', 'Recebimentos, taxas e conversões históricas.'],
     'expenses' => ['Gastos e investimentos', 'Tudo que sai para operar e crescer.'],
+    'recurring' => ['Recorrências e Parcelamentos', 'Financiamentos, despesas fixas e parcelas programadas.'],
+    'cards' => ['Cartões de crédito', 'Controle de limites, faturas e parcelamentos no cartão.'],
     'cash' => ['Fluxo de caixa', 'Movimentações avulsas e saldo consolidado.'],
     'reports' => ['Relatórios', 'Entenda rentabilidade, moedas e desempenho.'],
     'settings' => ['Configurações', 'Empresa, câmbio, acesso e segurança.'],

@@ -29,8 +29,43 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS business_units (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    icon VARCHAR(30) NOT NULL DEFAULT '💼',
+    color VARCHAR(20) NOT NULL DEFAULT '#2b826b',
+    is_personal TINYINT(1) NOT NULL DEFAULT 0,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order SMALLINT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_business_units_active (active, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS categories (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    business_unit_id BIGINT UNSIGNED NULL,
+    parent_id BIGINT UNSIGNED NULL,
+    name VARCHAR(80) NOT NULL,
+    type ENUM('expense','income','both') NOT NULL DEFAULT 'expense',
+    icon VARCHAR(30) NOT NULL DEFAULT '📁',
+    color VARCHAR(20) NULL,
+    budget_limit_percent DECIMAL(5,2) NULL,
+    budget_limit_amount DECIMAL(15,2) NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order SMALLINT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_categories_business FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    CONSTRAINT fk_categories_parent FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL,
+    INDEX idx_categories_bu (business_unit_id, active),
+    INDEX idx_categories_parent (parent_id),
+    INDEX idx_categories_type (type, active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS clients (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    business_unit_id BIGINT UNSIGNED NULL,
     name VARCHAR(160) NOT NULL,
     company VARCHAR(160) NULL,
     email VARCHAR(190) NULL,
@@ -43,13 +78,16 @@ CREATE TABLE IF NOT EXISTS clients (
     notes TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_clients_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
     INDEX idx_clients_status (status),
     INDEX idx_clients_name (name),
-    INDEX idx_clients_email (email)
+    INDEX idx_clients_email (email),
+    INDEX idx_clients_bu (business_unit_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS products (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    business_unit_id BIGINT UNSIGNED NULL,
     name VARCHAR(160) NOT NULL,
     sku VARCHAR(80) NULL UNIQUE,
     description TEXT NULL,
@@ -63,7 +101,9 @@ CREATE TABLE IF NOT EXISTS products (
     active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_products_active (active)
+    CONSTRAINT fk_products_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    INDEX idx_products_active (active),
+    INDEX idx_products_bu (business_unit_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -126,8 +166,10 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
 
 CREATE TABLE IF NOT EXISTS payments (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    business_unit_id BIGINT UNSIGNED NULL,
     subscription_id BIGINT UNSIGNED NULL,
     client_id BIGINT UNSIGNED NOT NULL,
+    category_id BIGINT UNSIGNED NULL,
     description VARCHAR(190) NULL,
     amount DECIMAL(15,2) NOT NULL,
     base_amount DECIMAL(15,2) NULL,
@@ -155,13 +197,17 @@ CREATE TABLE IF NOT EXISTS payments (
     notes TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_payments_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    CONSTRAINT fk_payments_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
     CONSTRAINT fk_payments_subscription FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE SET NULL,
     CONSTRAINT fk_payments_client FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
     INDEX idx_payments_status_date (status, payment_date),
     INDEX idx_payments_settlement_date (settlement_date),
     INDEX idx_payments_renewal_end (renewal_end_date),
     INDEX idx_payments_client (client_id),
-    INDEX idx_payments_subscription (subscription_id)
+    INDEX idx_payments_subscription (subscription_id),
+    INDEX idx_payments_bu (business_unit_id),
+    INDEX idx_payments_category (category_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS subscription_events (
@@ -231,6 +277,8 @@ CREATE TABLE IF NOT EXISTS whatsapp_reminder_logs (
 
 CREATE TABLE IF NOT EXISTS expenses (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    business_unit_id BIGINT UNSIGNED NULL,
+    category_id BIGINT UNSIGNED NULL,
     type ENUM('expense','investment') NOT NULL DEFAULT 'expense',
     category VARCHAR(80) NOT NULL,
     description VARCHAR(190) NOT NULL,
@@ -245,13 +293,19 @@ CREATE TABLE IF NOT EXISTS expenses (
     notes TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_expenses_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    CONSTRAINT fk_expenses_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
     INDEX idx_expenses_status_date (status, payment_date),
     INDEX idx_expenses_type (type),
-    INDEX idx_expenses_category (category)
+    INDEX idx_expenses_category (category),
+    INDEX idx_expenses_category_id (category_id),
+    INDEX idx_expenses_bu (business_unit_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS cash_entries (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    business_unit_id BIGINT UNSIGNED NULL,
+    category_id BIGINT UNSIGNED NULL,
     direction ENUM('in','out') NOT NULL,
     category VARCHAR(80) NOT NULL,
     description VARCHAR(190) NOT NULL,
@@ -263,8 +317,130 @@ CREATE TABLE IF NOT EXISTS cash_entries (
     notes TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_cash_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    CONSTRAINT fk_cash_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
     INDEX idx_cash_date (entry_date),
-    INDEX idx_cash_direction (direction)
+    INDEX idx_cash_direction (direction),
+    INDEX idx_cash_bu (business_unit_id),
+    INDEX idx_cash_category_id (category_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS recurring_templates (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    business_unit_id BIGINT UNSIGNED NULL,
+    category_id BIGINT UNSIGNED NULL,
+    type ENUM('expense','income','credit_card') NOT NULL DEFAULT 'expense',
+    description VARCHAR(190) NOT NULL,
+    supplier VARCHAR(160) NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
+    exchange_rate DECIMAL(15,6) NOT NULL DEFAULT 1,
+    recurrence ENUM('monthly','weekly','biweekly','quarterly','annual') NOT NULL DEFAULT 'monthly',
+    total_installments SMALLINT UNSIGNED NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NULL,
+    day_of_month TINYINT UNSIGNED NULL,
+    auto_generate TINYINT(1) NOT NULL DEFAULT 1,
+    notes TEXT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_rec_templates_bu FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    CONSTRAINT fk_rec_templates_cat FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+    INDEX idx_rec_templates_active (active),
+    INDEX idx_rec_templates_bu (business_unit_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS installments (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    template_id BIGINT UNSIGNED NOT NULL,
+    business_unit_id BIGINT UNSIGNED NULL,
+    category_id BIGINT UNSIGNED NULL,
+    installment_number SMALLINT UNSIGNED NOT NULL,
+    total_installments SMALLINT UNSIGNED NULL,
+    description VARCHAR(190) NOT NULL,
+    supplier VARCHAR(160) NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
+    exchange_rate DECIMAL(15,6) NOT NULL DEFAULT 1,
+    amount_brl DECIMAL(15,2) NOT NULL,
+    due_date DATE NOT NULL,
+    payment_date DATE NULL,
+    status ENUM('pending','paid','overdue','canceled') NOT NULL DEFAULT 'pending',
+    expense_id BIGINT UNSIGNED NULL,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_installments_template FOREIGN KEY (template_id) REFERENCES recurring_templates(id) ON DELETE CASCADE,
+    CONSTRAINT fk_installments_bu FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    CONSTRAINT fk_installments_cat FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+    CONSTRAINT fk_installments_expense FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE SET NULL,
+    INDEX idx_installments_due_status (due_date, status),
+    INDEX idx_installments_template (template_id, installment_number),
+    INDEX idx_installments_bu (business_unit_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS credit_cards (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    business_unit_id BIGINT UNSIGNED NULL,
+    name VARCHAR(120) NOT NULL,
+    brand VARCHAR(60) NOT NULL DEFAULT 'Mastercard',
+    last_four_digits VARCHAR(4) NULL,
+    credit_limit DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    closing_day TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    due_day TINYINT UNSIGNED NOT NULL DEFAULT 10,
+    color VARCHAR(30) NOT NULL DEFAULT '#6366f1',
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_credit_cards_bu FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    INDEX idx_credit_cards_active (active),
+    INDEX idx_credit_cards_bu (business_unit_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS credit_card_invoices (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    card_id BIGINT UNSIGNED NOT NULL,
+    reference_month VARCHAR(7) NOT NULL,
+    closing_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    status ENUM('open','closed','paid') NOT NULL DEFAULT 'open',
+    payment_date DATE NULL,
+    expense_id BIGINT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_card_invoices_card FOREIGN KEY (card_id) REFERENCES credit_cards(id) ON DELETE CASCADE,
+    CONSTRAINT fk_card_invoices_expense FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE SET NULL,
+    UNIQUE KEY uk_card_month (card_id, reference_month),
+    INDEX idx_card_invoices_due (due_date, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS credit_card_transactions (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    card_id BIGINT UNSIGNED NOT NULL,
+    invoice_id BIGINT UNSIGNED NULL,
+    business_unit_id BIGINT UNSIGNED NULL,
+    category_id BIGINT UNSIGNED NULL,
+    transaction_date DATE NOT NULL,
+    description VARCHAR(190) NOT NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
+    exchange_rate DECIMAL(15,6) NOT NULL DEFAULT 1,
+    amount_brl DECIMAL(15,2) NOT NULL,
+    installment_number SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    total_installments SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_card_tx_card FOREIGN KEY (card_id) REFERENCES credit_cards(id) ON DELETE CASCADE,
+    CONSTRAINT fk_card_tx_invoice FOREIGN KEY (invoice_id) REFERENCES credit_card_invoices(id) ON DELETE SET NULL,
+    CONSTRAINT fk_card_tx_bu FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    CONSTRAINT fk_card_tx_cat FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+    INDEX idx_card_tx_date (transaction_date),
+    INDEX idx_card_tx_invoice (invoice_id),
+    INDEX idx_card_tx_bu (business_unit_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -314,7 +490,7 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('whatsapp_support_phone', ''),
 ('whatsapp_test_phone', ''),
 ('whatsapp_test_country', 'BR'),
-('schema_version', '8')
+('schema_version', '11')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
 
 INSERT INTO whatsapp_automation_steps

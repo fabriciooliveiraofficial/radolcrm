@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 8;
+    private const VERSION = 11;
 
     public function __construct(private readonly Database $db)
     {
@@ -286,6 +286,326 @@ final class MigrationService
                     );
                 }
             }
+        }
+        if ($version < 9) {
+            $this->db->query(
+                "CREATE TABLE IF NOT EXISTS business_units (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(120) NOT NULL,
+                    icon VARCHAR(30) NOT NULL DEFAULT '💼',
+                    color VARCHAR(20) NOT NULL DEFAULT '#2b826b',
+                    is_personal TINYINT(1) NOT NULL DEFAULT 0,
+                    active TINYINT(1) NOT NULL DEFAULT 1,
+                    sort_order SMALLINT NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_business_units_active (active, sort_order)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+
+            $this->db->query(
+                "CREATE TABLE IF NOT EXISTS categories (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    business_unit_id BIGINT UNSIGNED NULL,
+                    parent_id BIGINT UNSIGNED NULL,
+                    name VARCHAR(80) NOT NULL,
+                    type ENUM('expense','income','both') NOT NULL DEFAULT 'expense',
+                    icon VARCHAR(30) NOT NULL DEFAULT '📁',
+                    color VARCHAR(20) NULL,
+                    budget_limit_percent DECIMAL(5,2) NULL,
+                    budget_limit_amount DECIMAL(15,2) NULL,
+                    active TINYINT(1) NOT NULL DEFAULT 1,
+                    sort_order SMALLINT NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_categories_business FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+                    CONSTRAINT fk_categories_parent FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL,
+                    INDEX idx_categories_bu (business_unit_id, active),
+                    INDEX idx_categories_parent (parent_id),
+                    INDEX idx_categories_type (type, active)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+
+            if (!$this->columnExists('clients', 'business_unit_id')) {
+                $this->db->query("ALTER TABLE clients ADD COLUMN business_unit_id BIGINT UNSIGNED NULL AFTER id, ADD INDEX idx_clients_bu (business_unit_id)");
+                $this->optionalDdl("ALTER TABLE clients ADD CONSTRAINT fk_clients_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL");
+            }
+            if (!$this->columnExists('products', 'business_unit_id')) {
+                $this->db->query("ALTER TABLE products ADD COLUMN business_unit_id BIGINT UNSIGNED NULL AFTER id, ADD INDEX idx_products_bu (business_unit_id)");
+                $this->optionalDdl("ALTER TABLE products ADD CONSTRAINT fk_products_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL");
+            }
+            if (!$this->columnExists('payments', 'business_unit_id')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN business_unit_id BIGINT UNSIGNED NULL AFTER id, ADD INDEX idx_payments_bu (business_unit_id)");
+                $this->optionalDdl("ALTER TABLE payments ADD CONSTRAINT fk_payments_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL");
+            }
+            if (!$this->columnExists('payments', 'category_id')) {
+                $this->db->query("ALTER TABLE payments ADD COLUMN category_id BIGINT UNSIGNED NULL AFTER client_id, ADD INDEX idx_payments_category (category_id)");
+                $this->optionalDdl("ALTER TABLE payments ADD CONSTRAINT fk_payments_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL");
+            }
+            if (!$this->columnExists('expenses', 'business_unit_id')) {
+                $this->db->query("ALTER TABLE expenses ADD COLUMN business_unit_id BIGINT UNSIGNED NULL AFTER id, ADD INDEX idx_expenses_bu (business_unit_id)");
+                $this->optionalDdl("ALTER TABLE expenses ADD CONSTRAINT fk_expenses_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL");
+            }
+            if (!$this->columnExists('expenses', 'category_id')) {
+                $this->db->query("ALTER TABLE expenses ADD COLUMN category_id BIGINT UNSIGNED NULL AFTER business_unit_id, ADD INDEX idx_expenses_category_id (category_id)");
+                $this->optionalDdl("ALTER TABLE expenses ADD CONSTRAINT fk_expenses_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL");
+            }
+            if (!$this->columnExists('cash_entries', 'business_unit_id')) {
+                $this->db->query("ALTER TABLE cash_entries ADD COLUMN business_unit_id BIGINT UNSIGNED NULL AFTER id, ADD INDEX idx_cash_bu (business_unit_id)");
+                $this->optionalDdl("ALTER TABLE cash_entries ADD CONSTRAINT fk_cash_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL");
+            }
+            if (!$this->columnExists('cash_entries', 'category_id')) {
+                $this->db->query("ALTER TABLE cash_entries ADD COLUMN category_id BIGINT UNSIGNED NULL AFTER business_unit_id, ADD INDEX idx_cash_category_id (category_id)");
+                $this->optionalDdl("ALTER TABLE cash_entries ADD CONSTRAINT fk_cash_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL");
+            }
+
+            // Seed default business units
+            $companyName = (string) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='company_name'") ?: 'Gearzone Apps');
+            $buCount = (int) $this->db->value("SELECT COUNT(*) FROM business_units");
+            if ($buCount === 0) {
+                $mainBuId = $this->db->insert(
+                    "INSERT INTO business_units (name, icon, color, is_personal, active, sort_order) VALUES (?, '💼', '#2b826b', 0, 1, 1)",
+                    [$companyName]
+                );
+                $personalBuId = $this->db->insert(
+                    "INSERT INTO business_units (name, icon, color, is_personal, active, sort_order) VALUES ('Pessoal / Família', '🏠', '#6366f1', 1, 1, 2)"
+                );
+            } else {
+                $mainBuId = (int) $this->db->value("SELECT id FROM business_units WHERE is_personal = 0 ORDER BY sort_order ASC, id ASC LIMIT 1");
+                $personalBuId = (int) $this->db->value("SELECT id FROM business_units WHERE is_personal = 1 ORDER BY sort_order ASC, id ASC LIMIT 1");
+                if (!$mainBuId) {
+                    $mainBuId = (int) $this->db->value("SELECT id FROM business_units ORDER BY id ASC LIMIT 1");
+                }
+            }
+
+            // Seed default categories
+            $catCount = (int) $this->db->value("SELECT COUNT(*) FROM categories");
+            if ($catCount === 0) {
+                // Business categories
+                $bizCategories = [
+                    ['Marketing', 'expense', '📣', '#f59e0b', null, [
+                        'Anúncios online', 'Influenciadores e parcerias', 'Design e identidade'
+                    ]],
+                    ['Software e ferramentas', 'expense', '💻', '#3b82f6', null, [
+                        'SaaS e assinaturas', 'Servidores e hospedagem', 'Domínios e SSL'
+                    ]],
+                    ['Impostos e taxas', 'expense', '🏛️', '#ef4444', null, [
+                        'MEI / Simples Nacional', 'Taxas bancárias', 'Contabilidade e notas'
+                    ]],
+                    ['Equipe e parceiros', 'expense', '👥', '#8b5cf6', null, [
+                        'Prestadores e freelancers', 'Comissões de vendas'
+                    ]],
+                    ['Infraestrutura e escritório', 'expense', '🏢', '#64748b', null, []],
+                    ['Receitas de Assinaturas', 'income', '💎', '#10b981', null, [
+                        'Planos mensais', 'Planos anuais', 'Setup e ativação'
+                    ]],
+                ];
+
+                foreach ($bizCategories as $cat) {
+                    $parentId = $this->db->insert(
+                        "INSERT INTO categories (business_unit_id, parent_id, name, type, icon, color, active, sort_order) VALUES (?, NULL, ?, ?, ?, ?, 1, 0)",
+                        [$mainBuId ?: null, $cat[0], $cat[1], $cat[2], $cat[3]]
+                    );
+                    foreach ($cat[5] as $subName) {
+                        $this->db->insert(
+                            "INSERT INTO categories (business_unit_id, parent_id, name, type, icon, color, active, sort_order) VALUES (?, ?, ?, ?, ?, ?, 1, 0)",
+                            [$mainBuId ?: null, $parentId, $subName, $cat[1], '🔹', $cat[3]]
+                        );
+                    }
+                }
+
+                // Personal categories
+                $personalCategories = [
+                    ['Moradia', 'expense', '🏠', '#0284c7', 25.0, [
+                        'Aluguel / Condomínio', 'Luz / Energia elétrica', 'Água e esgoto', 'Internet / Wi-Fi', 'Gás residencial'
+                    ]],
+                    ['Transporte e Veículo', 'expense', '🚗', '#d97706', 15.0, [
+                        'Gasolina / Combustível', 'Mecânica e manutenção', 'Seguro e IPVA', 'Uber e táxi'
+                    ]],
+                    ['Alimentação e Mercado', 'expense', '🛒', '#10b981', 20.0, [
+                        'Mercado e feira', 'Restaurantes e padaria', 'Delivery / Pizza / Lanches'
+                    ]],
+                    ['Saúde e Bem-estar', 'expense', '🩺', '#ec4899', 10.0, [
+                        'Plano de saúde', 'Farmácia e medicamentos', 'Consultas e exames'
+                    ]],
+                    ['Educação e Filhos', 'expense', '🎓', '#8b5cf6', 15.0, [
+                        'Escola dos filhos', 'Vale transporte / Condução', 'Cursos e treinamentos', 'Material e livros'
+                    ]],
+                    ['Telecomunicações', 'expense', '📱', '#06b6d4', 5.0, [
+                        'Pacote de dados celular', 'Telefonia móvel'
+                    ]],
+                    ['Financiamentos e Empréstimos', 'expense', '🏦', '#b91c1c', 15.0, [
+                        'Financiamento do carro', 'Financiamento imobiliário', 'Parcelas e empréstimos'
+                    ]],
+                    ['Lazer e Família', 'expense', '🍿', '#f97316', 5.0, [
+                        'Streaming e entretenimento', 'Passeios e viagens', 'Presentes e compras'
+                    ]],
+                ];
+
+                foreach ($personalCategories as $cat) {
+                    $parentId = $this->db->insert(
+                        "INSERT INTO categories (business_unit_id, parent_id, name, type, icon, color, budget_limit_percent, active, sort_order) VALUES (?, NULL, ?, ?, ?, ?, ?, 1, 0)",
+                        [$personalBuId ?: null, $cat[0], $cat[1], $cat[2], $cat[3], $cat[4]]
+                    );
+                    foreach ($cat[5] as $subName) {
+                        $this->db->insert(
+                            "INSERT INTO categories (business_unit_id, parent_id, name, type, icon, color, active, sort_order) VALUES (?, ?, ?, ?, ?, ?, 1, 0)",
+                            [$personalBuId ?: null, $parentId, $subName, $cat[1], '🔹', $cat[3]]
+                        );
+                    }
+                }
+            }
+
+            // Associate existing entities to the default business unit
+            if ($mainBuId) {
+                $this->db->query("UPDATE clients SET business_unit_id = ? WHERE business_unit_id IS NULL", [$mainBuId]);
+                $this->db->query("UPDATE products SET business_unit_id = ? WHERE business_unit_id IS NULL", [$mainBuId]);
+                $this->db->query("UPDATE payments SET business_unit_id = ? WHERE business_unit_id IS NULL", [$mainBuId]);
+                $this->db->query("UPDATE expenses SET business_unit_id = ? WHERE business_unit_id IS NULL", [$mainBuId]);
+                $this->db->query("UPDATE cash_entries SET business_unit_id = ? WHERE business_unit_id IS NULL", [$mainBuId]);
+            }
+
+            // Map string category names to category_id
+            $existingExpenses = $this->db->fetchAll("SELECT id, category FROM expenses WHERE category_id IS NULL AND category IS NOT NULL AND category != ''");
+            foreach ($existingExpenses as $exp) {
+                $catId = (int) $this->db->value("SELECT id FROM categories WHERE name = ? LIMIT 1", [$exp['category']]);
+                if (!$catId) {
+                    $catId = (int) $this->db->value("SELECT id FROM categories WHERE name LIKE ? LIMIT 1", ['%' . $exp['category'] . '%']);
+                }
+                if ($catId) {
+                    $this->db->query("UPDATE expenses SET category_id = ? WHERE id = ?", [$catId, $exp['id']]);
+                }
+            }
+        }
+        if ($version < 10) {
+            $this->db->query(
+                "CREATE TABLE IF NOT EXISTS recurring_templates (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    business_unit_id BIGINT UNSIGNED NULL,
+                    category_id BIGINT UNSIGNED NULL,
+                    type ENUM('expense','income','credit_card') NOT NULL DEFAULT 'expense',
+                    description VARCHAR(190) NOT NULL,
+                    supplier VARCHAR(160) NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
+                    exchange_rate DECIMAL(15,6) NOT NULL DEFAULT 1,
+                    recurrence ENUM('monthly','weekly','biweekly','quarterly','annual') NOT NULL DEFAULT 'monthly',
+                    total_installments SMALLINT UNSIGNED NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NULL,
+                    day_of_month TINYINT UNSIGNED NULL,
+                    auto_generate TINYINT(1) NOT NULL DEFAULT 1,
+                    notes TEXT NULL,
+                    active TINYINT(1) NOT NULL DEFAULT 1,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_rec_templates_bu FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+                    CONSTRAINT fk_rec_templates_cat FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+                    INDEX idx_rec_templates_active (active),
+                    INDEX idx_rec_templates_bu (business_unit_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+
+            $this->db->query(
+                "CREATE TABLE IF NOT EXISTS installments (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    template_id BIGINT UNSIGNED NOT NULL,
+                    business_unit_id BIGINT UNSIGNED NULL,
+                    category_id BIGINT UNSIGNED NULL,
+                    installment_number SMALLINT UNSIGNED NOT NULL,
+                    total_installments SMALLINT UNSIGNED NULL,
+                    description VARCHAR(190) NOT NULL,
+                    supplier VARCHAR(160) NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
+                    exchange_rate DECIMAL(15,6) NOT NULL DEFAULT 1,
+                    amount_brl DECIMAL(15,2) NOT NULL,
+                    due_date DATE NOT NULL,
+                    payment_date DATE NULL,
+                    status ENUM('pending','paid','overdue','canceled') NOT NULL DEFAULT 'pending',
+                    expense_id BIGINT UNSIGNED NULL,
+                    notes TEXT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_installments_template FOREIGN KEY (template_id) REFERENCES recurring_templates(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_installments_bu FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+                    CONSTRAINT fk_installments_cat FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+                    CONSTRAINT fk_installments_expense FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE SET NULL,
+                    INDEX idx_installments_due_status (due_date, status),
+                    INDEX idx_installments_template (template_id, installment_number),
+                    INDEX idx_installments_bu (business_unit_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+        }
+        if ($version < 11) {
+            $this->db->query(
+                "CREATE TABLE IF NOT EXISTS credit_cards (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    business_unit_id BIGINT UNSIGNED NULL,
+                    name VARCHAR(120) NOT NULL,
+                    brand VARCHAR(60) NOT NULL DEFAULT 'Mastercard',
+                    last_four_digits VARCHAR(4) NULL,
+                    credit_limit DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+                    closing_day TINYINT UNSIGNED NOT NULL DEFAULT 1,
+                    due_day TINYINT UNSIGNED NOT NULL DEFAULT 10,
+                    color VARCHAR(30) NOT NULL DEFAULT '#6366f1',
+                    active TINYINT(1) NOT NULL DEFAULT 1,
+                    notes TEXT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_credit_cards_bu FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+                    INDEX idx_credit_cards_active (active),
+                    INDEX idx_credit_cards_bu (business_unit_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+
+            $this->db->query(
+                "CREATE TABLE IF NOT EXISTS credit_card_invoices (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    card_id BIGINT UNSIGNED NOT NULL,
+                    reference_month VARCHAR(7) NOT NULL,
+                    closing_date DATE NOT NULL,
+                    due_date DATE NOT NULL,
+                    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+                    status ENUM('open','closed','paid') NOT NULL DEFAULT 'open',
+                    payment_date DATE NULL,
+                    expense_id BIGINT UNSIGNED NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_card_invoices_card FOREIGN KEY (card_id) REFERENCES credit_cards(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_card_invoices_expense FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE SET NULL,
+                    UNIQUE KEY uk_card_month (card_id, reference_month),
+                    INDEX idx_card_invoices_due (due_date, status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
+
+            $this->db->query(
+                "CREATE TABLE IF NOT EXISTS credit_card_transactions (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    card_id BIGINT UNSIGNED NOT NULL,
+                    invoice_id BIGINT UNSIGNED NULL,
+                    business_unit_id BIGINT UNSIGNED NULL,
+                    category_id BIGINT UNSIGNED NULL,
+                    transaction_date DATE NOT NULL,
+                    description VARCHAR(190) NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
+                    exchange_rate DECIMAL(15,6) NOT NULL DEFAULT 1,
+                    amount_brl DECIMAL(15,2) NOT NULL,
+                    installment_number SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+                    total_installments SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+                    notes TEXT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_card_tx_card FOREIGN KEY (card_id) REFERENCES credit_cards(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_card_tx_invoice FOREIGN KEY (invoice_id) REFERENCES credit_card_invoices(id) ON DELETE SET NULL,
+                    CONSTRAINT fk_card_tx_bu FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+                    CONSTRAINT fk_card_tx_cat FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+                    INDEX idx_card_tx_date (transaction_date),
+                    INDEX idx_card_tx_invoice (invoice_id),
+                    INDEX idx_card_tx_bu (business_unit_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+            );
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",

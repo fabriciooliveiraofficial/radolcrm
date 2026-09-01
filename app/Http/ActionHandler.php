@@ -35,6 +35,20 @@ final class ActionHandler
         $redirect = '?page=dashboard';
         try {
             $redirect = match ($action) {
+                'save_credit_card' => $this->saveCreditCard(),
+                'delete_credit_card' => $this->deleteCreditCard(),
+                'save_card_transaction' => $this->saveCardTransaction(),
+                'delete_card_transaction' => $this->deleteCardTransaction(),
+                'pay_card_invoice' => $this->payCardInvoice(),
+                'save_recurring_template' => $this->saveRecurringTemplate(),
+                'delete_recurring_template' => $this->deleteRecurringTemplate(),
+                'pay_installment' => $this->payInstallment(),
+                'edit_installment' => $this->editInstallment(),
+                'delete_installment' => $this->deleteInstallment(),
+                'save_business_unit' => $this->saveBusinessUnit(),
+                'delete_business_unit' => $this->deleteBusinessUnit(),
+                'save_category' => $this->saveCategory(),
+                'delete_category' => $this->deleteCategory(),
                 'save_client' => $this->saveClient(),
                 'delete_client' => $this->deleteClient(),
                 'save_product' => $this->saveProduct(),
@@ -63,6 +77,7 @@ final class ActionHandler
                 'save_profile' => $this->saveProfile(),
                 'save_user' => $this->saveUser(),
                 'toggle_user' => $this->toggleUser(),
+                'run_financial_automation' => $this->runFinancialAutomation(),
                 default => throw new RuntimeException('Ação desconhecida.'),
             };
         } catch (\Throwable $exception) {
@@ -74,9 +89,467 @@ final class ActionHandler
         exit;
     }
 
+    private function runFinancialAutomation(): string
+    {
+        $service = new \App\Services\FinancialAutomationService($this->db);
+        $res = $service->runDailyFinancialAutomation();
+
+        Flash::add(
+            'success',
+            "Automação executada: {$res['closed_invoices']} faturas fechadas, {$res['overdue_installments']} parcelas vencidas marcadas, {$res['generated_installments']} novas parcelas geradas."
+        );
+        return $this->returnUrl('?page=settings#automation');
+    }
+
+    private function saveCreditCard(): string
+    {
+        $id = $this->id();
+        $businessUnitId = $this->businessUnitId();
+        $name = $this->required('name', 'Informe o nome do cartão.');
+        $brand = $this->nullable('brand') ?: 'Mastercard';
+        $lastFour = $this->nullable('last_four_digits');
+        $creditLimit = normalize_decimal($_POST['credit_limit'] ?? 0);
+        $closingDay = max(1, min(31, (int) ($_POST['closing_day'] ?? 1)));
+        $dueDay = max(1, min(31, (int) ($_POST['due_day'] ?? 10)));
+        $color = $this->nullable('color') ?: '#6366f1';
+        $active = isset($_POST['active']) ? 1 : 0;
+        $notes = $this->nullable('notes');
+
+        $params = [$businessUnitId, $name, $brand, $lastFour, $creditLimit, $closingDay, $dueDay, $color, $active, $notes];
+        if ($id) {
+            $params[] = $id;
+            $this->db->query(
+                'UPDATE credit_cards SET business_unit_id=?, name=?, brand=?, last_four_digits=?, credit_limit=?, closing_day=?, due_day=?, color=?, active=?, notes=? WHERE id=?',
+                $params
+            );
+            audit($this->db, 'update', 'credit_card', $id, ['name' => $name]);
+        } else {
+            $id = $this->db->insert(
+                'INSERT INTO credit_cards (business_unit_id, name, brand, last_four_digits, credit_limit, closing_day, due_day, color, active, notes) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                $params
+            );
+            audit($this->db, 'create', 'credit_card', $id, ['name' => $name]);
+        }
+
+        Flash::add('success', 'Cartão de crédito salvo com sucesso.');
+        return '?page=cards';
+    }
+
+    private function deleteCreditCard(): string
+    {
+        $id = $this->id(true);
+        $this->db->query('DELETE FROM credit_cards WHERE id = ?', [$id]);
+        audit($this->db, 'delete', 'credit_card', $id);
+        Flash::add('success', 'Cartão de crédito e faturas excluídos.');
+        return '?page=cards';
+    }
+
+    private function saveCardTransaction(): string
+    {
+        $cardId = (int) ($_POST['card_id'] ?? 0);
+        $card = $this->db->fetch('SELECT * FROM credit_cards WHERE id = ?', [$cardId]);
+        if (!$card) {
+            throw new RuntimeException('Selecione um cartão de crédito válido.');
+        }
+
+        $businessUnitId = $this->businessUnitId() ?: $card['business_unit_id'];
+        $categoryId = $this->categoryId();
+        $txDate = $this->required('transaction_date', 'Informe a data da compra.');
+        $description = $this->required('description', 'Informe a descrição da compra.');
+        $totalAmount = normalize_decimal($_POST['amount'] ?? 0);
+        if ($totalAmount <= 0) {
+            throw new RuntimeException('Informe um valor de compra válido.');
+        }
+        $currency = $this->choice('currency', ['BRL', 'USD']);
+        $rate = $currency === 'USD' ? normalize_decimal($_POST['exchange_rate'] ?? 0) : 1.0;
+        $totalInstallments = max(1, min(36, (int) ($_POST['total_installments'] ?? 1)));
+        $notes = $this->nullable('notes');
+
+        $installmentAmount = round($totalAmount / $totalInstallments, 2);
+        $lastInstallmentAmount = round($totalAmount - ($installmentAmount * ($totalInstallments - 1)), 2);
+
+        // Determine base invoice reference month
+        $txDay = (int) date('d', strtotime($txDate));
+        $closingDay = (int) $card['closing_day'];
+        
+        $baseDate = new \DateTimeImmutable($txDate);
+        if ($txDay >= $closingDay) {
+            $baseDate = $baseDate->modify('first day of next month');
+        }
+
+        for ($k = 1; $k <= $totalInstallments; $k++) {
+            $instAmount = ($k === $totalInstallments) ? $lastInstallmentAmount : $installmentAmount;
+            $instAmountBrl = round($instAmount * $rate, 2);
+            $instDesc = $totalInstallments > 1 ? "{$description} ({$k}/{$totalInstallments})" : $description;
+
+            $invMonthDate = $baseDate->modify('+' . ($k - 1) . ' months');
+            $refMonth = $invMonthDate->format('Y-m');
+
+            $invoiceId = $this->getOrCreateCardInvoice($card, $refMonth);
+
+            $this->db->insert(
+                'INSERT INTO credit_card_transactions (card_id, invoice_id, business_unit_id, category_id, transaction_date, description, amount, currency, exchange_rate, amount_brl, installment_number, total_installments, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$cardId, $invoiceId, $businessUnitId, $categoryId, $txDate, $instDesc, $instAmount, $currency, $rate, $instAmountBrl, $k, $totalInstallments, $notes]
+            );
+
+            // Update invoice total amount
+            $this->recalculateCardInvoiceTotal($invoiceId);
+        }
+
+        Flash::add('success', 'Compra no cartão lançada com sucesso.');
+        return $this->returnUrl('?page=cards&card=' . $cardId);
+    }
+
+    private function deleteCardTransaction(): string
+    {
+        $id = $this->id(true);
+        $tx = $this->db->fetch('SELECT * FROM credit_card_transactions WHERE id = ?', [$id]);
+        if (!$tx) {
+            throw new RuntimeException('Lançamento não encontrado.');
+        }
+
+        $this->db->query('DELETE FROM credit_card_transactions WHERE id = ?', [$id]);
+        if ($tx['invoice_id']) {
+            $this->recalculateCardInvoiceTotal((int) $tx['invoice_id']);
+        }
+
+        audit($this->db, 'delete', 'credit_card_transaction', $id);
+        Flash::add('success', 'Lançamento de cartão removido.');
+        return $this->returnUrl('?page=cards&card=' . $tx['card_id']);
+    }
+
+    private function payCardInvoice(): string
+    {
+        $id = $this->id(true);
+        $invoice = $this->db->fetch(
+            'SELECT inv.*, c.name card_name, c.business_unit_id FROM credit_card_invoices inv JOIN credit_cards c ON c.id = inv.card_id WHERE inv.id = ?',
+            [$id]
+        );
+        if (!$invoice) {
+            throw new RuntimeException('Fatura não encontrada.');
+        }
+        if ($invoice['status'] === 'paid') {
+            throw new RuntimeException('Esta fatura já está paga.');
+        }
+
+        $paymentDate = $this->required('payment_date', 'Informe a data de pagamento da fatura.');
+        $catId = (int) $this->db->value('SELECT id FROM categories WHERE name LIKE "%Cartão%" OR name LIKE "%Crédito%" LIMIT 1') ?: null;
+
+        // Create expense for the invoice payment
+        $expenseId = $this->db->insert(
+            'INSERT INTO expenses (business_unit_id, category_id, type, category, description, supplier, amount, currency, exchange_rate, amount_brl, status, payment_date, is_recurring, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?)',
+            [
+                $invoice['business_unit_id'],
+                $catId,
+                'expense',
+                'Cartão de Crédito',
+                "Fatura Cartão {$invoice['card_name']} ({$invoice['reference_month']})",
+                $invoice['card_name'],
+                $invoice['total_amount'],
+                'BRL',
+                1.0,
+                $invoice['total_amount'],
+                'paid',
+                $paymentDate,
+                "Pagamento consolidado da fatura {$invoice['reference_month']} do cartão {$invoice['card_name']}",
+            ]
+        );
+
+        $this->db->query(
+            "UPDATE credit_card_invoices SET status = 'paid', payment_date = ?, expense_id = ? WHERE id = ?",
+            [$paymentDate, $expenseId, $id]
+        );
+
+        audit($this->db, 'pay', 'credit_card_invoice', $id, ['expense_id' => $expenseId, 'amount' => $invoice['total_amount']]);
+        Flash::add('success', 'Fatura paga com sucesso e lançada em Gastos.');
+        return $this->returnUrl('?page=cards&card=' . $invoice['card_id']);
+    }
+
+    private function getOrCreateCardInvoice(array $card, string $refMonth): int
+    {
+        $existing = $this->db->fetch('SELECT id FROM credit_card_invoices WHERE card_id = ? AND reference_month = ?', [$card['id'], $refMonth]);
+        if ($existing) {
+            return (int) $existing['id'];
+        }
+
+        $daysInMonth = (int) date('t', strtotime($refMonth . '-01'));
+        $closingDay = min((int) $card['closing_day'], $daysInMonth);
+        $dueDay = min((int) $card['due_day'], $daysInMonth);
+
+        $closingDate = sprintf('%s-%02d', $refMonth, $closingDay);
+        $dueDate = sprintf('%s-%02d', $refMonth, $dueDay);
+
+        return $this->db->insert(
+            'INSERT INTO credit_card_invoices (card_id, reference_month, closing_date, due_date, total_amount, status) VALUES (?,?,?,?,0.00,"open")',
+            [$card['id'], $refMonth, $closingDate, $dueDate]
+        );
+    }
+
+    private function recalculateCardInvoiceTotal(int $invoiceId): void
+    {
+        $total = (float) $this->db->value(
+            'SELECT COALESCE(SUM(amount_brl), 0) FROM credit_card_transactions WHERE invoice_id = ?',
+            [$invoiceId]
+        );
+        $this->db->query('UPDATE credit_card_invoices SET total_amount = ? WHERE id = ?', [$total, $invoiceId]);
+    }
+
+    private function saveRecurringTemplate(): string
+    {
+        $id = $this->id();
+        $businessUnitId = $this->businessUnitId();
+        $categoryId = $this->categoryId();
+        $type = $this->choice('type', ['expense', 'income', 'credit_card']);
+        $description = $this->required('description', 'Informe a descrição do lançamento recorrente.');
+        $supplier = $this->nullable('supplier');
+        $amount = normalize_decimal($_POST['amount'] ?? 0);
+        if ($amount <= 0) {
+            throw new RuntimeException('Informe um valor de parcela maior que zero.');
+        }
+        $currency = $this->choice('currency', ['BRL', 'USD']);
+        $rate = $currency === 'USD' ? normalize_decimal($_POST['exchange_rate'] ?? 0) : 1.0;
+        $recurrence = $this->choice('recurrence', ['monthly', 'weekly', 'biweekly', 'quarterly', 'annual']);
+        $totalInstallments = isset($_POST['total_installments']) && (int) $_POST['total_installments'] > 0 ? (int) $_POST['total_installments'] : null;
+        $startDate = $this->required('start_date', 'Informe a data de início ou primeiro vencimento.');
+        $dayOfMonth = (int) ($_POST['day_of_month'] ?? 0) ?: (int) date('d', strtotime($startDate));
+        $autoGenerate = isset($_POST['auto_generate']) ? 1 : 0;
+        $notes = $this->nullable('notes');
+        $active = isset($_POST['active']) ? 1 : 0;
+
+        $params = [
+            $businessUnitId, $categoryId, $type, $description, $supplier, $amount, $currency, $rate,
+            $recurrence, $totalInstallments, $startDate, null, $dayOfMonth, $autoGenerate, $notes, $active,
+        ];
+
+        if ($id) {
+            $params[] = $id;
+            $this->db->query(
+                'UPDATE recurring_templates SET business_unit_id=?, category_id=?, type=?, description=?, supplier=?, amount=?, currency=?, exchange_rate=?, recurrence=?, total_installments=?, start_date=?, end_date=?, day_of_month=?, auto_generate=?, notes=?, active=? WHERE id=?',
+                $params
+            );
+            audit($this->db, 'update', 'recurring_template', $id, ['description' => $description]);
+        } else {
+            $id = $this->db->insert(
+                'INSERT INTO recurring_templates (business_unit_id, category_id, type, description, supplier, amount, currency, exchange_rate, recurrence, total_installments, start_date, end_date, day_of_month, auto_generate, notes, active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                $params
+            );
+            audit($this->db, 'create', 'recurring_template', $id, ['description' => $description]);
+
+            $installmentsPayload = is_array($_POST['installments'] ?? null) ? $_POST['installments'] : [];
+            if (!empty($installmentsPayload)) {
+                foreach ($installmentsPayload as $inst) {
+                    $instNum = (int) ($inst['installment_number'] ?? 1);
+                    $instTotal = $totalInstallments;
+                    $instDesc = trim((string) ($inst['description'] ?? '')) ?: ($description . ($instTotal ? " ({$instNum}/{$instTotal})" : " ({$instNum})"));
+                    $instAmount = normalize_decimal($inst['amount'] ?? $amount);
+                    $instDue = trim((string) ($inst['due_date'] ?? $startDate));
+                    $instRate = $rate;
+                    $instBrl = round($instAmount * $instRate, 2);
+
+                    $this->db->insert(
+                        'INSERT INTO installments (template_id, business_unit_id, category_id, installment_number, total_installments, description, supplier, amount, currency, exchange_rate, amount_brl, due_date, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                        [$id, $businessUnitId, $categoryId, $instNum, $instTotal, $instDesc, $supplier, $instAmount, $currency, $instRate, $instBrl, $instDue, 'pending', $notes]
+                    );
+                }
+            } else {
+                $countToGenerate = $totalInstallments ?: 12;
+                $currentDate = new \DateTimeImmutable($startDate);
+                for ($num = 1; $num <= $countToGenerate; $num++) {
+                    $instDesc = $description . ($totalInstallments ? " ({$num}/{$totalInstallments})" : " ({$num})");
+                    $instDue = $currentDate->format('Y-m-d');
+                    $instBrl = round($amount * $rate, 2);
+
+                    $this->db->insert(
+                        'INSERT INTO installments (template_id, business_unit_id, category_id, installment_number, total_installments, description, supplier, amount, currency, exchange_rate, amount_brl, due_date, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                        [$id, $businessUnitId, $categoryId, $num, $totalInstallments, $instDesc, $supplier, $amount, $currency, $rate, $instBrl, $instDue, 'pending', $notes]
+                    );
+
+                    $currentDate = match ($recurrence) {
+                        'weekly' => $currentDate->modify('+1 week'),
+                        'biweekly' => $currentDate->modify('+2 weeks'),
+                        'quarterly' => $currentDate->modify('+3 months'),
+                        'annual' => $currentDate->modify('+1 year'),
+                        default => $currentDate->modify('+1 month'),
+                    };
+                }
+            }
+        }
+
+        Flash::add('success', 'Lançamento recorrente e parcelas salvas com sucesso.');
+        return '?page=recurring';
+    }
+
+    private function payInstallment(): string
+    {
+        $id = $this->id(true);
+        $installment = $this->db->fetch('SELECT i.*, rt.type rt_type FROM installments i LEFT JOIN recurring_templates rt ON rt.id = i.template_id WHERE i.id = ?', [$id]);
+        if (!$installment) {
+            throw new RuntimeException('Parcela não encontrada.');
+        }
+        if ($installment['status'] === 'paid') {
+            throw new RuntimeException('Esta parcela já foi paga.');
+        }
+
+        $paymentDate = $this->required('payment_date', 'Informe a data do pagamento.');
+        $category = (string) $this->db->value('SELECT name FROM categories WHERE id = ?', [$installment['category_id']]) ?: 'Recorrente';
+
+        $expenseId = $this->db->insert(
+            'INSERT INTO expenses (business_unit_id, category_id, type, category, description, supplier, amount, currency, exchange_rate, amount_brl, status, payment_date, is_recurring, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)',
+            [
+                $installment['business_unit_id'],
+                $installment['category_id'],
+                $installment['rt_type'] === 'investment' ? 'investment' : 'expense',
+                $category,
+                $installment['description'],
+                $installment['supplier'],
+                $installment['amount'],
+                $installment['currency'],
+                $installment['exchange_rate'],
+                $installment['amount_brl'],
+                'paid',
+                $paymentDate,
+                $installment['notes'] ? "Parcela {$installment['installment_number']} · {$installment['notes']}" : "Parcela {$installment['installment_number']}",
+            ]
+        );
+
+        $this->db->query(
+            "UPDATE installments SET status = 'paid', payment_date = ?, expense_id = ? WHERE id = ?",
+            [$paymentDate, $expenseId, $id]
+        );
+
+        audit($this->db, 'pay', 'installment', $id, ['expense_id' => $expenseId, 'payment_date' => $paymentDate]);
+        Flash::add('success', 'Parcela confirmada como paga e lançada no financeiro.');
+        return $this->returnUrl('?page=recurring');
+    }
+
+    private function editInstallment(): string
+    {
+        $id = $this->id(true);
+        $amount = normalize_decimal($_POST['amount'] ?? 0);
+        if ($amount <= 0) {
+            throw new RuntimeException('Informe um valor válido.');
+        }
+        $dueDate = $this->required('due_date', 'Informe a data de vencimento.');
+        $description = $this->required('description', 'Informe a descrição.');
+        $notes = $this->nullable('notes');
+
+        $inst = $this->db->fetch('SELECT exchange_rate FROM installments WHERE id = ?', [$id]);
+        $rate = (float) ($inst['exchange_rate'] ?? 1.0);
+        $amountBrl = round($amount * $rate, 2);
+
+        $this->db->query(
+            'UPDATE installments SET amount = ?, amount_brl = ?, due_date = ?, description = ?, notes = ? WHERE id = ?',
+            [$amount, $amountBrl, $dueDate, $description, $notes, $id]
+        );
+
+        audit($this->db, 'update', 'installment', $id, ['amount' => $amount, 'due_date' => $dueDate]);
+        Flash::add('success', 'Parcela atualizada com sucesso.');
+        return $this->returnUrl('?page=recurring');
+    }
+
+    private function deleteInstallment(): string
+    {
+        $id = $this->id(true);
+        $this->db->query('DELETE FROM installments WHERE id = ?', [$id]);
+        audit($this->db, 'delete', 'installment', $id);
+        Flash::add('success', 'Parcela excluída.');
+        return $this->returnUrl('?page=recurring');
+    }
+
+    private function deleteRecurringTemplate(): string
+    {
+        $id = $this->id(true);
+        $this->db->query('DELETE FROM installments WHERE template_id = ? AND status != "paid"', [$id]);
+        $this->db->query('DELETE FROM recurring_templates WHERE id = ?', [$id]);
+        audit($this->db, 'delete', 'recurring_template', $id);
+        Flash::add('success', 'Lançamento recorrente e parcelas pendentes excluídas.');
+        return '?page=recurring';
+    }
+
+    private function saveBusinessUnit(): string
+    {
+        $id = $this->id();
+        $name = $this->required('name', 'Informe o nome da unidade de negócio.');
+        $icon = $this->nullable('icon') ?: '💼';
+        $color = $this->nullable('color') ?: '#2b826b';
+        $isPersonal = isset($_POST['is_personal']) ? 1 : 0;
+        $active = isset($_POST['active']) ? 1 : 0;
+        $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+
+        $params = [$name, $icon, $color, $isPersonal, $active, $sortOrder];
+        if ($id) {
+            $params[] = $id;
+            $this->db->query('UPDATE business_units SET name=?, icon=?, color=?, is_personal=?, active=?, sort_order=? WHERE id=?', $params);
+            audit($this->db, 'update', 'business_unit', $id, ['name' => $name]);
+        } else {
+            $id = $this->db->insert('INSERT INTO business_units (name, icon, color, is_personal, active, sort_order) VALUES (?,?,?,?,?,?)', $params);
+            audit($this->db, 'create', 'business_unit', $id, ['name' => $name]);
+        }
+        Flash::add('success', 'Negócio salvo com sucesso.');
+        return '?page=businesses';
+    }
+
+    private function deleteBusinessUnit(): string
+    {
+        $id = $this->id(true);
+        $count = (int) $this->db->value('SELECT COUNT(*) FROM business_units');
+        if ($count <= 1) {
+            throw new RuntimeException('Você precisa manter ao menos um negócio cadastrado.');
+        }
+        $this->db->query('DELETE FROM business_units WHERE id=?', [$id]);
+        audit($this->db, 'delete', 'business_unit', $id);
+        Flash::add('success', 'Negócio excluído.');
+        return '?page=businesses';
+    }
+
+    private function saveCategory(): string
+    {
+        $id = $this->id();
+        $name = $this->required('name', 'Informe o nome da categoria.');
+        $businessUnitId = $this->businessUnitId();
+        $parentId = (int) ($_POST['parent_id'] ?? 0);
+        $parentId = $parentId > 0 ? $parentId : null;
+        if ($id && $parentId === $id) {
+            $parentId = null;
+        }
+        $type = $this->choice('type', ['expense', 'income', 'both']);
+        $icon = $this->nullable('icon') ?: '📁';
+        $color = $this->nullable('color') ?: '#2b826b';
+        $budgetPercent = isset($_POST['budget_limit_percent']) && $_POST['budget_limit_percent'] !== '' ? normalize_decimal($_POST['budget_limit_percent']) : null;
+        $budgetAmount = isset($_POST['budget_limit_amount']) && $_POST['budget_limit_amount'] !== '' ? normalize_decimal($_POST['budget_limit_amount']) : null;
+        $active = isset($_POST['active']) ? 1 : 0;
+        $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+
+        $params = [$businessUnitId, $parentId, $name, $type, $icon, $color, $budgetPercent, $budgetAmount, $active, $sortOrder];
+        if ($id) {
+            $params[] = $id;
+            $this->db->query('UPDATE categories SET business_unit_id=?, parent_id=?, name=?, type=?, icon=?, color=?, budget_limit_percent=?, budget_limit_amount=?, active=?, sort_order=? WHERE id=?', $params);
+            audit($this->db, 'update', 'category', $id, ['name' => $name]);
+        } else {
+            $id = $this->db->insert('INSERT INTO categories (business_unit_id, parent_id, name, type, icon, color, budget_limit_percent, budget_limit_amount, active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?)', $params);
+            audit($this->db, 'create', 'category', $id, ['name' => $name]);
+        }
+        Flash::add('success', 'Categoria salva com sucesso.');
+        return '?page=categories';
+    }
+
+    private function deleteCategory(): string
+    {
+        $id = $this->id(true);
+        $children = (int) $this->db->value('SELECT COUNT(*) FROM categories WHERE parent_id=?', [$id]);
+        if ($children > 0) {
+            throw new RuntimeException('Esta categoria possui subcategorias. Exclua ou reatribua as subcategorias primeiro.');
+        }
+        $this->db->query('DELETE FROM categories WHERE id=?', [$id]);
+        audit($this->db, 'delete', 'category', $id);
+        Flash::add('success', 'Categoria excluída.');
+        return '?page=categories';
+    }
+
     private function saveClient(): string
     {
         $id = $this->id();
+        $businessUnitId = $this->businessUnitId();
         $name = $this->required('name', 'Informe o nome do cliente.');
         $country = $this->choice('country', ['BR', 'US']);
         $currency = $this->choice('preferred_currency', ['BRL', 'USD']);
@@ -86,16 +559,16 @@ final class ActionHandler
             throw new RuntimeException('Informe um e-mail válido.');
         }
         $params = [
-            $name, $this->nullable('company'), $email, $this->nullable('phone'),
+            $businessUnitId, $name, $this->nullable('company'), $email, $this->nullable('phone'),
             isset($_POST['whatsapp_reminders_enabled']) ? 1 : 0,
             $this->nullable('document'), $country, $currency, $status, $this->nullable('notes'),
         ];
         if ($id) {
             $params[] = $id;
-            $this->db->query('UPDATE clients SET name=?, company=?, email=?, phone=?, whatsapp_reminders_enabled=?, document=?, country=?, preferred_currency=?, status=?, notes=? WHERE id=?', $params);
+            $this->db->query('UPDATE clients SET business_unit_id=?, name=?, company=?, email=?, phone=?, whatsapp_reminders_enabled=?, document=?, country=?, preferred_currency=?, status=?, notes=? WHERE id=?', $params);
             audit($this->db, 'update', 'client', $id);
         } else {
-            $id = $this->db->insert('INSERT INTO clients (name, company, email, phone, whatsapp_reminders_enabled, document, country, preferred_currency, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?)', $params);
+            $id = $this->db->insert('INSERT INTO clients (business_unit_id, name, company, email, phone, whatsapp_reminders_enabled, document, country, preferred_currency, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)', $params);
             audit($this->db, 'create', 'client', $id);
         }
         Flash::add('success', 'Cliente salvo com sucesso.');
@@ -118,6 +591,7 @@ final class ActionHandler
     private function saveProduct(): string
     {
         $id = $this->id();
+        $businessUnitId = $this->businessUnitId();
         $pricingMode = $this->choice('pricing_mode', ['manual', 'brl', 'usd']);
         $priceBrl = normalize_decimal($_POST['price_brl'] ?? 0);
         $priceUsd = normalize_decimal($_POST['price_usd'] ?? 0);
@@ -137,6 +611,7 @@ final class ActionHandler
             throw new RuntimeException('Informe um preço positivo na moeda-base selecionada.');
         }
         $params = [
+            $businessUnitId,
             $this->required('name', 'Informe o nome do produto.'), $this->nullable('sku'), $this->nullable('description'),
             $priceBrl, $priceUsd, $pricingMode, $quote['bid'] ?? null, $quote['source'] ?? null,
             isset($quote['quoted_at']) ? substr((string) $quote['quoted_at'], 0, 10) : null,
@@ -144,10 +619,10 @@ final class ActionHandler
         ];
         if ($id) {
             $params[] = $id;
-            $this->db->query('UPDATE products SET name=?, sku=?, description=?, price_brl=?, price_usd=?, pricing_mode=?, price_exchange_rate=?, price_rate_source=?, price_rate_date=?, billing_cycle=?, active=? WHERE id=?', $params);
+            $this->db->query('UPDATE products SET business_unit_id=?, name=?, sku=?, description=?, price_brl=?, price_usd=?, pricing_mode=?, price_exchange_rate=?, price_rate_source=?, price_rate_date=?, billing_cycle=?, active=? WHERE id=?', $params);
             audit($this->db, 'update', 'product', $id, ['pricing_mode'=>$pricingMode,'price_brl'=>$priceBrl,'price_usd'=>$priceUsd,'exchange_rate'=>$quote['bid'] ?? null]);
         } else {
-            $id = $this->db->insert('INSERT INTO products (name, sku, description, price_brl, price_usd, pricing_mode, price_exchange_rate, price_rate_source, price_rate_date, billing_cycle, active) VALUES (?,?,?,?,?,?,?,?,?,?,?)', $params);
+            $id = $this->db->insert('INSERT INTO products (business_unit_id, name, sku, description, price_brl, price_usd, pricing_mode, price_exchange_rate, price_rate_source, price_rate_date, billing_cycle, active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', $params);
             audit($this->db, 'create', 'product', $id, ['pricing_mode'=>$pricingMode,'price_brl'=>$priceBrl,'price_usd'=>$priceUsd,'exchange_rate'=>$quote['bid'] ?? null]);
         }
         Flash::add('success', $pricingMode === 'manual' ? 'Produto salvo com preços locais.' : 'Produto salvo e convertido pela cotação diária.');
@@ -542,6 +1017,8 @@ final class ActionHandler
         if ($subscriptionId && !$this->db->value('SELECT id FROM subscriptions WHERE id=? AND client_id=?', [$subscriptionId, $clientId])) {
             throw new RuntimeException('A assinatura selecionada não pertence ao cliente.');
         }
+        $businessUnitId = $this->businessUnitId() ?: (int) $this->db->value('SELECT business_unit_id FROM clients WHERE id=?', [$clientId]) ?: null;
+        $categoryId = $this->categoryId();
         $amount = normalize_decimal($_POST['amount'] ?? 0);
         $fee = max(0, normalize_decimal($_POST['fee_amount'] ?? 0));
         if ($amount <= 0 || $fee > $amount) {
@@ -569,7 +1046,7 @@ final class ActionHandler
         $feeBrl = round($fee * $rate, 2);
         $netBrl = $amountBrl - $feeBrl;
         $params = [
-            $subscriptionId, $clientId, $this->nullable('description'), $amount, $currency, $rate, $rateSource, $amountBrl, $fee, $feeBrl, $netBrl,
+            $businessUnitId, $subscriptionId, $clientId, $categoryId, $this->nullable('description'), $amount, $currency, $rate, $rateSource, $amountBrl, $fee, $feeBrl, $netBrl,
             $status, $this->nullable('due_date'), $paymentDate, $settlementDate,
             $this->nullable('payment_method'), $this->nullable('external_reference'), $this->nullable('notes'),
         ];
@@ -583,10 +1060,10 @@ final class ActionHandler
                 $previousStatus = (string) $previous['status'];
                 $updateParams = $params;
                 $updateParams[] = $id;
-                $db->query('UPDATE payments SET subscription_id=?, client_id=?, description=?, amount=?, currency=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_amount=?, fee_brl=?, net_brl=?, status=?, due_date=?, payment_date=?, settlement_date=?, payment_method=?, external_reference=?, notes=? WHERE id=?', $updateParams);
+                $db->query('UPDATE payments SET business_unit_id=?, subscription_id=?, client_id=?, category_id=?, description=?, amount=?, currency=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_amount=?, fee_brl=?, net_brl=?, status=?, due_date=?, payment_date=?, settlement_date=?, payment_method=?, external_reference=?, notes=? WHERE id=?', $updateParams);
                 audit($db, 'update', 'payment', $id, ['amount_brl' => $amountBrl]);
             } else {
-                $id = $db->insert('INSERT INTO payments (subscription_id, client_id, description, amount, currency, exchange_rate, exchange_rate_source, amount_brl, fee_amount, fee_brl, net_brl, status, due_date, payment_date, settlement_date, payment_method, external_reference, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
+                $id = $db->insert('INSERT INTO payments (business_unit_id, subscription_id, client_id, category_id, description, amount, currency, exchange_rate, exchange_rate_source, amount_brl, fee_amount, fee_brl, net_brl, status, due_date, payment_date, settlement_date, payment_method, external_reference, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
                 audit($db, 'create', 'payment', $id, ['amount_brl' => $amountBrl]);
             }
             $db->query(
@@ -684,18 +1161,29 @@ final class ActionHandler
         if ($currency === 'USD' && $rate <= 0) {
             $rate = $this->rates->forDate($this->required('payment_date', 'Informe a data.'))['bid'];
         }
+        $businessUnitId = $this->businessUnitId();
+        $categoryId = $this->categoryId();
+        $categoryName = $this->nullable('category');
+        if ($categoryId && empty($categoryName)) {
+            $categoryName = (string) $this->db->value('SELECT name FROM categories WHERE id=?', [$categoryId]);
+        }
+        if (empty($categoryName)) {
+            $categoryName = 'Outros';
+        }
+
         $params = [
-            $this->choice('type', ['expense','investment']), $this->required('category', 'Informe a categoria.'),
+            $businessUnitId, $categoryId,
+            $this->choice('type', ['expense','investment']), $categoryName,
             $this->required('description', 'Informe a descrição.'), $this->nullable('supplier'), $amount, $currency, $rate,
             round($amount * $rate, 2), $this->choice('status', ['pending','paid']),
             $this->required('payment_date', 'Informe a data.'), isset($_POST['is_recurring']) ? 1 : 0, $this->nullable('notes'),
         ];
         if ($id) {
             $params[] = $id;
-            $this->db->query('UPDATE expenses SET type=?, category=?, description=?, supplier=?, amount=?, currency=?, exchange_rate=?, amount_brl=?, status=?, payment_date=?, is_recurring=?, notes=? WHERE id=?', $params);
+            $this->db->query('UPDATE expenses SET business_unit_id=?, category_id=?, type=?, category=?, description=?, supplier=?, amount=?, currency=?, exchange_rate=?, amount_brl=?, status=?, payment_date=?, is_recurring=?, notes=? WHERE id=?', $params);
             audit($this->db, 'update', 'expense', $id);
         } else {
-            $id = $this->db->insert('INSERT INTO expenses (type, category, description, supplier, amount, currency, exchange_rate, amount_brl, status, payment_date, is_recurring, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', $params);
+            $id = $this->db->insert('INSERT INTO expenses (business_unit_id, category_id, type, category, description, supplier, amount, currency, exchange_rate, amount_brl, status, payment_date, is_recurring, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
             audit($this->db, 'create', 'expense', $id);
         }
         Flash::add('success', 'Gasto ou investimento salvo.');
@@ -723,17 +1211,28 @@ final class ActionHandler
         if ($currency === 'USD' && $rate <= 0) {
             $rate = $this->rates->forDate($this->required('entry_date', 'Informe a data.'))['bid'];
         }
+        $businessUnitId = $this->businessUnitId();
+        $categoryId = $this->categoryId();
+        $categoryName = $this->nullable('category');
+        if ($categoryId && empty($categoryName)) {
+            $categoryName = (string) $this->db->value('SELECT name FROM categories WHERE id=?', [$categoryId]);
+        }
+        if (empty($categoryName)) {
+            $categoryName = 'Ajuste';
+        }
+
         $params = [
-            $this->choice('direction', ['in','out']), $this->required('category', 'Informe a categoria.'),
+            $businessUnitId, $categoryId,
+            $this->choice('direction', ['in','out']), $categoryName,
             $this->required('description', 'Informe a descrição.'), $amount, $currency, $rate, round($amount * $rate, 2),
             $this->required('entry_date', 'Informe a data.'), $this->nullable('notes'),
         ];
         if ($id) {
             $params[] = $id;
-            $this->db->query('UPDATE cash_entries SET direction=?, category=?, description=?, amount=?, currency=?, exchange_rate=?, amount_brl=?, entry_date=?, notes=? WHERE id=?', $params);
+            $this->db->query('UPDATE cash_entries SET business_unit_id=?, category_id=?, direction=?, category=?, description=?, amount=?, currency=?, exchange_rate=?, amount_brl=?, entry_date=?, notes=? WHERE id=?', $params);
             audit($this->db, 'update', 'cash_entry', $id);
         } else {
-            $id = $this->db->insert('INSERT INTO cash_entries (direction, category, description, amount, currency, exchange_rate, amount_brl, entry_date, notes) VALUES (?,?,?,?,?,?,?,?,?)', $params);
+            $id = $this->db->insert('INSERT INTO cash_entries (business_unit_id, category_id, direction, category, description, amount, currency, exchange_rate, amount_brl, entry_date, notes) VALUES (?,?,?,?,?,?,?,?,?,?)', $params);
             audit($this->db, 'create', 'cash_entry', $id);
         }
         Flash::add('success', 'Movimentação de caixa salva.');
@@ -1223,6 +1722,18 @@ final class ActionHandler
         if ($required && $id < 1) {
             throw new RuntimeException('Registro inválido.');
         }
+        return $id > 0 ? $id : null;
+    }
+
+    private function businessUnitId(): ?int
+    {
+        $id = (int) ($_POST['business_unit_id'] ?? 0);
+        return $id > 0 ? $id : null;
+    }
+
+    private function categoryId(): ?int
+    {
+        $id = (int) ($_POST['category_id'] ?? 0);
         return $id > 0 ? $id : null;
     }
 
