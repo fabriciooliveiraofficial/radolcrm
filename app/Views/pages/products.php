@@ -34,24 +34,47 @@ $pricingMode = $edit['pricing_mode'] ?? 'manual';
 ?>
 
 <?php if (!empty($currentQuote['warning'])): ?><p class="inline-warning">⚠ <?= h($currentQuote['warning']) ?></p><?php endif; ?>
-<section class="toolbar list-toolbar"><form class="search-filters" method="get" data-live-filter><input type="hidden" name="page" value="products"><label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar qualquer informação" value="<?= h($search) ?>"></label><span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span></form><?php if ($auth->canWrite()): ?><a class="button primary" href="?page=products&new=1">＋ Novo produto</a><?php endif; ?></section>
+<section class="toolbar list-toolbar"><form class="search-filters" method="get" data-live-filter><input type="hidden" name="page" value="products"><?php if ($buFilter !== null): ?><input type="hidden" name="bu" value="<?= (int)$buFilter ?>"><?php endif; ?><label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar qualquer informação" value="<?= h($search) ?>"></label><span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span></form><?php if ($auth->canWrite()): ?><a class="button primary" href="?page=products&new=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">＋ Novo produto</a><?php endif; ?></section>
 
 <div data-live-results>
 <section class="product-grid">
-<?php if (!$pagination['rows']): ?><article class="card empty-state span-full"><span>◇</span><h2>Nenhum produto cadastrado</h2><p>Cadastre preços locais ou use BRL/USD como moeda-base com conversão diária.</p><a class="button primary" href="?page=products&new=1">Criar primeiro produto</a></article><?php endif; ?>
+<?php if (!$pagination['rows']): ?><article class="card empty-state span-full"><span>◇</span><h2>Nenhum produto cadastrado</h2><p>Cadastre preços locais ou use BRL/USD como moeda-base com conversão diária.</p><a class="button primary" href="?page=products&new=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Criar primeiro produto</a></article><?php endif; ?>
 <?php foreach ($pagination['rows'] as $item):
     $modeLabel = ['manual'=>'Preços locais','brl'=>'Cotado em BRL','usd'=>'Cotado em USD'][$item['pricing_mode']] ?? 'Preços locais';
 ?>
-<article class="card product-card <?= !$item['active'] ? 'disabled' : '' ?>"><div class="product-top"><span class="product-icon">◇</span><div style="display: flex; gap: 0.35rem; align-items: center;"><?php if (!empty($item['category_name'])): ?><span class="badge" style="background: <?= h($item['category_color'] ?: '#10b981') ?>22; color: <?= h($item['category_color'] ?: '#10b981') ?>; border: 1px solid <?= h($item['category_color'] ?: '#10b981') ?>55; font-size: 0.72rem; padding: 0.15rem 0.45rem;"><?= h($item['category_icon'] ?: '💎') ?> <?= h($item['category_name']) ?></span><?php endif; ?><span class="badge <?= $item['active'] ? 'success' : 'muted' ?>"><?= $item['active'] ? 'Ativo' : 'Inativo' ?></span></div></div><h2><?= h($item['name']) ?></h2><p><?= h($item['description'] ?: 'Sem descrição') ?></p><div class="product-pricing-mode"><b><?= h($modeLabel) ?></b><?php if ($item['pricing_mode'] !== 'manual'): ?><span>US$ 1 = <?= money($currentRate) ?> · <?= date_br($currentQuote['quoted_at']) ?></span><?php else: ?><span>Valores definidos separadamente</span><?php endif; ?></div><div class="local-prices"><div><small>🇧🇷 BRASIL</small><strong><?= money($item['price_brl']) ?></strong></div><div><small>🇺🇸 ESTADOS UNIDOS</small><strong><?= money($item['price_usd'], 'USD') ?></strong></div></div><footer><span><?= cycle_label($item['billing_cycle']) ?> · <?= (int) $item['active_subscriptions'] ?> assinaturas</span><a href="?page=products&edit=<?= (int) $item['id'] ?>">Editar →</a></footer></article>
+<article class="card product-card <?= !$item['active'] ? 'disabled' : '' ?>"><div class="product-top"><span class="product-icon">◇</span><div style="display: flex; gap: 0.35rem; align-items: center;"><?php if (!empty($item['category_name'])): ?><span class="badge" style="background: <?= h($item['category_color'] ?: '#10b981') ?>22; color: <?= h($item['category_color'] ?: '#10b981') ?>; border: 1px solid <?= h($item['category_color'] ?: '#10b981') ?>55; font-size: 0.72rem; padding: 0.15rem 0.45rem;"><?= h($item['category_icon'] ?: '💎') ?> <?= h($item['category_name']) ?></span><?php endif; ?><span class="badge <?= $item['active'] ? 'success' : 'muted' ?>"><?= $item['active'] ? 'Ativo' : 'Inativo' ?></span></div></div><h2><?= h($item['name']) ?></h2><p><?= h($item['description'] ?: 'Sem descrição') ?></p><div class="product-pricing-mode"><b><?= h($modeLabel) ?></b><?php if ($item['pricing_mode'] !== 'manual'): ?><span>US$ 1 = <?= money($currentRate) ?> · <?= date_br($currentQuote['quoted_at']) ?></span><?php else: ?><span>Valores definidos separadamente</span><?php endif; ?></div><div class="local-prices"><div><small>🇧🇷 BRASIL</small><strong><?= money($item['price_brl']) ?></strong></div><div><small>🇺🇸 ESTADOS UNIDOS</small><strong><?= money($item['price_usd'], 'USD') ?></strong></div></div><footer><span><?= cycle_label($item['billing_cycle']) ?> · <?= (int) $item['active_subscriptions'] ?> assinaturas</span><a href="?page=products&edit=<?= (int) $item['id'] ?><?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Editar →</a></footer></article>
 <?php endforeach; ?>
 </section><?= render_pagination($pagination) ?>
 </div>
 
 <?php if ($showForm): ?>
-<div class="modal open"><a class="modal-backdrop" href="?page=products"></a><section class="modal-panel"><header><div><p class="eyebrow">CATÁLOGO</p><h2><?= $edit ? 'Editar produto' : 'Novo produto' ?></h2></div><a href="?page=products" class="modal-close">×</a></header>
+<div class="modal open"><a class="modal-backdrop" href="?page=products<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>"></a><section class="modal-panel"><header><div><p class="eyebrow">CATÁLOGO</p><h2><?= $edit ? 'Editar produto' : 'Novo produto' ?></h2></div><a href="?page=products<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="modal-close">×</a></header>
 <form method="post" class="form-grid" data-product-pricing data-current-rate="<?= h($currentRate) ?>">
     <?= csrf_field() ?><input type="hidden" name="action" value="save_product"><input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>"><input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
-    <label class="span-2">Unidade de Negócio / Empresa<select name="business_unit_id" required><?php $selectedBuProduct = $edit ? (int)($edit['business_unit_id'] ?? 0) : ($buFilter ?: (int)($allBusinesses[0]['id'] ?? 1)); foreach ($allBusinesses as $bu): ?><option value="<?= (int) ($bu['id'] ?? 1) ?>" <?= $selectedBuProduct === (int) ($bu['id'] ?? 1) ? 'selected' : '' ?>><?= h($bu['icon'] ?? '💼') ?> <?= h($bu['name'] ?? '') ?></option><?php endforeach; ?></select></label>
+    <?php 
+    $activeBuProd = null;
+    if ($buFilter) {
+        foreach ($allBusinesses as $b) {
+            if ((int)$b['id'] === $buFilter) { $activeBuProd = $b; break; }
+        }
+    }
+    if ($activeBuProd && !$edit): 
+    ?>
+        <label class="span-2">
+            <span style="display: flex; align-items: center; justify-content: space-between;">
+                <span>Unidade de Negócio / Empresa</span>
+                <span class="badge success" style="font-size: 10px; font-weight: 600;">🔒 Automático & Travado</span>
+            </span>
+            <input type="hidden" name="business_unit_id" value="<?= (int) $activeBuProd['id'] ?>">
+            <div style="display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 13.5px; font-weight: 600; color: var(--ink);">
+                <span style="font-size: 1.2rem;"><?= h($activeBuProd['icon'] ?: '🏢') ?></span>
+                <span><?= h($activeBuProd['name']) ?></span>
+                <small style="margin-left: auto; color: var(--muted); font-size: 11px; font-weight: normal;">Isolado nesta página</small>
+            </div>
+        </label>
+    <?php else: ?>
+        <label class="span-2">Unidade de Negócio / Empresa<select name="business_unit_id" required><?php $selectedBuProduct = $edit ? (int)($edit['business_unit_id'] ?? 0) : ($buFilter ?: (int)($allBusinesses[0]['id'] ?? 1)); foreach ($allBusinesses as $bu): ?><option value="<?= (int) ($bu['id'] ?? 1) ?>" <?= $selectedBuProduct === (int) ($bu['id'] ?? 1) ? 'selected' : '' ?>><?= h($bu['icon'] ?? '💼') ?> <?= h($bu['name'] ?? '') ?></option><?php endforeach; ?></select></label>
+    <?php endif; ?>
     <label class="span-2">Categoria de Receita
         <select name="category_id">
             <option value="">-- Nenhuma / Categoria Geral --</option>
@@ -72,7 +95,7 @@ $pricingMode = $edit['pricing_mode'] ?? 'manual';
     <label data-price-usd-label>Preço nos EUA (US$)<input name="price_usd" type="number" min="0.01" step="0.01" value="<?= decimal_input($edit['price_usd'] ?? 0) ?>" data-price-usd><small data-price-usd-help></small></label>
     <label class="span-2">Descrição<textarea name="description" rows="3"><?= h($edit['description'] ?? '') ?></textarea></label>
     <label class="check-label span-2"><input type="checkbox" name="active" value="1" <?= !isset($edit['active']) || $edit['active'] ? 'checked' : '' ?>><span>Produto disponível para novas assinaturas</span></label>
-    <footer class="span-2"><a class="button ghost" href="?page=products">Cancelar</a><button class="button primary">Salvar produto</button></footer>
+    <footer class="span-2"><a class="button ghost" href="?page=products<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Cancelar</a><button class="button primary">Salvar produto</button></footer>
 </form>
 <?php if ($edit && $auth->canWrite()): ?><form method="post" class="danger-zone" data-confirm="Excluir este produto?"><?= csrf_field() ?><input type="hidden" name="action" value="delete_product"><input type="hidden" name="id" value="<?= (int) $edit['id'] ?>"><button>Excluir produto</button></form><?php endif; ?>
 </section></div>

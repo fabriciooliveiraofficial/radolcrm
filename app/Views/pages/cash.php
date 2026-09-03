@@ -142,7 +142,7 @@ $showForm = isset($_GET['new']) || $edit;
         <span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span>
     </form>
     <?php if ($auth->canWrite()): ?>
-        <a class="button primary" href="?page=cash&new=1">＋ Movimento avulso</a>
+        <a class="button primary" href="?page=cash&new=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">＋ Movimento avulso</a>
     <?php endif; ?>
 </section>
 
@@ -221,14 +221,14 @@ $showForm = isset($_GET['new']) || $edit;
 
 <?php if ($showForm): ?>
 <div class="modal open">
-    <a class="modal-backdrop" href="?page=cash"></a>
+    <a class="modal-backdrop" href="?page=cash<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>"></a>
     <section class="modal-panel">
         <header>
             <div>
                 <p class="eyebrow">CAIXA AVULSO</p>
                 <h2><?= $edit ? 'Editar movimento' : 'Novo movimento' ?></h2>
             </div>
-            <a href="?page=cash" class="modal-close">×</a>
+            <a href="?page=cash<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="modal-close">×</a>
         </header>
         <div class="form-note">Use este formulário para aportes, retiradas, ajustes e outras movimentações que não sejam pagamentos de clientes nem gastos.</div>
         <form method="post" class="form-grid" data-money-form data-daily-rate="1" data-new-record="<?= $edit ? '0' : '1' ?>">
@@ -237,19 +237,42 @@ $showForm = isset($_GET['new']) || $edit;
             <input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>">
             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
 
-            <label>
-                Unidade de Negócio
-                <select name="business_unit_id">
-                    <option value="">Geral / Sem unidade</option>
-                    <?php
-                    $selectedCashBuForm = $edit ? (int) ($edit['business_unit_id'] ?? 0) : $buFilter;
-                    foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedCashBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
-                            <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </label>
+            <?php 
+            $activeBuCash = null;
+            if ($buFilter) {
+                foreach ($allBusinesses as $b) {
+                    if ((int)$b['id'] === $buFilter) { $activeBuCash = $b; break; }
+                }
+            }
+            if ($activeBuCash && !$edit): 
+            ?>
+                <label>
+                    <span style="display: flex; align-items: center; justify-content: space-between;">
+                        <span>Unidade de Negócio</span>
+                        <span class="badge success" style="font-size: 10px; font-weight: 600;">🔒 Automático & Travado</span>
+                    </span>
+                    <input type="hidden" name="business_unit_id" value="<?= (int) $activeBuCash['id'] ?>">
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 13.5px; font-weight: 600; color: var(--ink);">
+                        <span style="font-size: 1.2rem;"><?= h($activeBuCash['icon'] ?: '🏢') ?></span>
+                        <span><?= h($activeBuCash['name']) ?></span>
+                        <small style="margin-left: auto; color: var(--muted); font-size: 11px; font-weight: normal;">Isolado nesta página</small>
+                    </div>
+                </label>
+            <?php else: ?>
+                <label>
+                    Unidade de Negócio
+                    <select name="business_unit_id">
+                        <option value="">Geral / Sem unidade</option>
+                        <?php
+                        $selectedCashBuForm = $edit ? (int) ($edit['business_unit_id'] ?? 0) : $buFilter;
+                        foreach ($allBusinesses as $bu): ?>
+                            <option value="<?= (int) $bu['id'] ?>" <?= $selectedCashBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
+                                <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            <?php endif; ?>
 
             <label>
                 Direção
@@ -318,7 +341,7 @@ $showForm = isset($_GET['new']) || $edit;
             </label>
 
             <footer class="span-2">
-                <a class="button ghost" href="?page=cash">Cancelar</a>
+                <a class="button ghost" href="?page=cash<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Cancelar</a>
                 <button class="button primary">Salvar movimento</button>
             </footer>
         </form>

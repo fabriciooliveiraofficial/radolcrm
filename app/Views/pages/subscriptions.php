@@ -626,9 +626,9 @@ if ($historyId > 0) {
 
 <?php if ($showForm): ?>
 <div class="modal open">
-    <a class="modal-backdrop" href="?page=subscriptions"></a>
+    <a class="modal-backdrop" href="?page=subscriptions<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>"></a>
     <section class="modal-panel wide">
-        <header><div><p class="eyebrow">RECEITA RECORRENTE</p><h2><?= $edit ? 'Editar assinatura' : 'Nova assinatura' ?></h2></div><a href="?page=subscriptions" class="modal-close">×</a></header>
+        <header><div><p class="eyebrow">RECEITA RECORRENTE</p><h2><?= $edit ? 'Editar assinatura' : 'Nova assinatura' ?></h2></div><a href="?page=subscriptions<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="modal-close">×</a></header>
         <form method="post" class="form-grid" data-subscription-form>
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="save_subscription">
@@ -662,7 +662,7 @@ if ($historyId > 0) {
                 <?php endif; ?>
             </div>
             <label class="span-2">Observações<textarea name="notes" rows="3"><?= h($edit['notes'] ?? '') ?></textarea></label>
-            <footer class="span-2"><a class="button ghost" href="?page=subscriptions">Cancelar</a><button class="button primary">Salvar assinatura</button></footer>
+            <footer class="span-2"><a class="button ghost" href="?page=subscriptions<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Cancelar</a><button class="button primary">Salvar assinatura</button></footer>
         </form>
         <?php if ($edit && $auth->canWrite()): ?>
             <form method="post" class="danger-zone" data-confirm="Excluir esta assinatura?"><?= csrf_field() ?><input type="hidden" name="action" value="delete_subscription"><input type="hidden" name="id" value="<?= (int) $edit['id'] ?>"><button>Excluir assinatura</button></form>

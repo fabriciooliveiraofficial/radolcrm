@@ -212,16 +212,14 @@ $colorOptions = ['#10b981','#3b82f6','#8b5cf6','#06b6d4','#64748b','#f59e0b','#d
     </section>
 </div>
 
-<?php if ($showForm): 
-    $modalTitle = $edit ? 'Editar categoria' : 'Nova categoria';
-?>
+<?php if ($showForm): ?>
 <div class="modal open">
     <a class="modal-backdrop" href="?page=categories<?= $businessUnitFilter ? '&bu=' . (int)$businessUnitFilter : '' ?>"></a>
-    <section class="modal-panel">
+    <section class="modal-panel wide">
         <header>
             <div>
-                <p class="eyebrow">CATEGORIA</p>
-                <h2><?= h($modalTitle) ?></h2>
+                <p class="eyebrow">PLANO DE CONTAS · CATEGORIA</p>
+                <h2><?= $edit ? 'Editar categoria' : 'Nova categoria oficial' ?></h2>
             </div>
             <a href="?page=categories<?= $businessUnitFilter ? '&bu=' . (int)$businessUnitFilter : '' ?>" class="modal-close">×</a>
         </header>
@@ -246,19 +244,42 @@ $colorOptions = ['#10b981','#3b82f6','#8b5cf6','#06b6d4','#64748b','#f59e0b','#d
                 </select>
             </label>
 
-            <label>
-                Unidade de negócio
-                <select name="business_unit_id">
-                    <option value="">Global / Qualquer negócio</option>
-                    <?php 
-                    $selectedBuModal = $edit ? (int) ($edit['business_unit_id'] ?? 0) : $businessUnitFilter;
-                    foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedBuModal === (int) $bu['id'] ? 'selected' : '' ?>>
-                            <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </label>
+            <?php 
+            $activeBuCat = null;
+            if ($businessUnitFilter) {
+                foreach ($allBusinesses as $b) {
+                    if ((int)$b['id'] === $businessUnitFilter) { $activeBuCat = $b; break; }
+                }
+            }
+            if ($activeBuCat && !$edit): 
+            ?>
+                <label>
+                    <span style="display: flex; align-items: center; justify-content: space-between;">
+                        <span>Unidade de Negócio</span>
+                        <span class="badge success" style="font-size: 10px; font-weight: 600;">🔒 Automático & Travado</span>
+                    </span>
+                    <input type="hidden" name="business_unit_id" value="<?= (int) $activeBuCat['id'] ?>">
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 13.5px; font-weight: 600; color: var(--ink);">
+                        <span style="font-size: 1.2rem;"><?= h($activeBuCat['icon'] ?: '🏢') ?></span>
+                        <span><?= h($activeBuCat['name']) ?></span>
+                        <small style="margin-left: auto; color: var(--muted); font-size: 11px; font-weight: normal;">Isolado nesta página</small>
+                    </div>
+                </label>
+            <?php else: ?>
+                <label>
+                    Unidade de negócio
+                    <select name="business_unit_id">
+                        <option value="">Global / Qualquer negócio</option>
+                        <?php 
+                        $selectedBuModal = $edit ? (int) ($edit['business_unit_id'] ?? 0) : $businessUnitFilter;
+                        foreach ($allBusinesses as $bu): ?>
+                            <option value="<?= (int) $bu['id'] ?>" <?= $selectedBuModal === (int) $bu['id'] ? 'selected' : '' ?>>
+                                <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            <?php endif; ?>
 
             <label>
                 Ícone representativo

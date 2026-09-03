@@ -144,9 +144,9 @@ $colorPresets = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981
     </div>
     <div style="display: flex; gap: 0.5rem;">
         <?php if ($auth->canWrite()): ?>
-            <a class="button ghost" href="?page=cards&new_card=1">＋ Cadastrar Cartão</a>
+            <a class="button ghost" href="?page=cards&new_card=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">＋ Cadastrar Cartão</a>
             <?php if ($selectedCard): ?>
-                <a class="button primary" href="?page=cards&card=<?= $selectedCardId ?>&new_tx=1">＋ Nova Compra no Cartão</a>
+                <a class="button primary" href="?page=cards&card=<?= $selectedCardId ?>&new_tx=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">＋ Nova Compra no Cartão</a>
             <?php endif; ?>
         <?php endif; ?>
     </div>
@@ -428,14 +428,14 @@ $colorPresets = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981
 <!-- Modal: Nova Compra no Cartão -->
 <?php if ($showNewTx && $selectedCard): ?>
 <div class="modal open">
-    <a class="modal-backdrop" href="?page=cards&card=<?= $selectedCardId ?>"></a>
+    <a class="modal-backdrop" href="?page=cards&card=<?= $selectedCardId ?><?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>"></a>
     <section class="modal-panel">
         <header>
             <div>
                 <p class="eyebrow">LANÇAMENTO NO CARTÃO</p>
                 <h2>Nova compra no <?= h($selectedCard['name']) ?></h2>
             </div>
-            <a href="?page=cards&card=<?= $selectedCardId ?>" class="modal-close">×</a>
+            <a href="?page=cards&card=<?= $selectedCardId ?><?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="modal-close">×</a>
         </header>
         <form method="post" class="form-grid" id="txForm">
             <?= csrf_field() ?>
@@ -443,19 +443,42 @@ $colorPresets = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981
             <input type="hidden" name="card_id" value="<?= $selectedCardId ?>">
             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
 
-            <label>
-                Unidade de Negócio
-                <select name="business_unit_id">
-                    <option value="">Do cartão (<?= h($selectedCard['bu_name'] ?: 'Geral') ?>)</option>
-                    <?php
-                    $selectedTxBuForm = $buFilter ?? 0;
-                    foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedTxBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
-                            <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </label>
+            <?php 
+            $activeBuCard = null;
+            if ($buFilter) {
+                foreach ($allBusinesses as $b) {
+                    if ((int)$b['id'] === $buFilter) { $activeBuCard = $b; break; }
+                }
+            }
+            if ($activeBuCard): 
+            ?>
+                <label>
+                    <span style="display: flex; align-items: center; justify-content: space-between;">
+                        <span>Unidade de Negócio</span>
+                        <span class="badge success" style="font-size: 10px; font-weight: 600;">🔒 Automático & Travado</span>
+                    </span>
+                    <input type="hidden" name="business_unit_id" value="<?= (int) $activeBuCard['id'] ?>">
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 13.5px; font-weight: 600; color: var(--ink);">
+                        <span style="font-size: 1.2rem;"><?= h($activeBuCard['icon'] ?: '🏢') ?></span>
+                        <span><?= h($activeBuCard['name']) ?></span>
+                        <small style="margin-left: auto; color: var(--muted); font-size: 11px; font-weight: normal;">Isolado nesta página</small>
+                    </div>
+                </label>
+            <?php else: ?>
+                <label>
+                    Unidade de Negócio
+                    <select name="business_unit_id">
+                        <option value="">Do cartão (<?= h($selectedCard['bu_name'] ?: 'Geral') ?>)</option>
+                        <?php
+                        $selectedTxBuForm = $buFilter ?? 0;
+                        foreach ($allBusinesses as $bu): ?>
+                            <option value="<?= (int) $bu['id'] ?>" <?= $selectedTxBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
+                                <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            <?php endif; ?>
 
             <label>
                 Categoria
@@ -506,7 +529,7 @@ $colorPresets = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981
             </label>
 
             <footer class="span-2">
-                <a class="button ghost" href="?page=cards&card=<?= $selectedCardId ?>">Cancelar</a>
+                <a class="button ghost" href="?page=cards&card=<?= $selectedCardId ?><?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Cancelar</a>
                 <button class="button primary">Lançar no Cartão</button>
             </footer>
         </form>

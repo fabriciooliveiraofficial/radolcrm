@@ -115,7 +115,7 @@ $frequentSuppliers = $db->fetchAll("SELECT DISTINCT supplier FROM expenses WHERE
     <div>
         <a class="button ghost" href="?page=export&type=expenses">⇩ Exportar</a>
         <?php if ($auth->canWrite()): ?>
-            <a class="button primary" href="?page=expenses&new=1">＋ Novo lançamento</a>
+            <a class="button primary" href="?page=expenses&new=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">＋ Novo lançamento</a>
         <?php endif; ?>
     </div>
 </section>
@@ -134,14 +134,14 @@ $frequentSuppliers = $db->fetchAll("SELECT DISTINCT supplier FROM expenses WHERE
                         <th>Tipo / Categoria</th>
                         <th>Data</th>
                         <th>Valor original</th>
-                        <th>Total em BRL</th>
+                        <th>Valor BRL</th>
                         <th>Status</th>
-                        <th></th>
+                        <th class="actions-column"><span class="sr-only">Ações</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (!$pagination['rows']): ?>
-                        <tr><td colspan="8" class="empty-cell">Nenhum gasto ou investimento encontrado.</td></tr>
+                        <tr><td colspan="8" class="empty-cell">Nenhum lançamento encontrado.</td></tr>
                     <?php endif; ?>
                     <?php foreach ($pagination['rows'] as $item): ?>
                         <tr>
@@ -185,7 +185,7 @@ $frequentSuppliers = $db->fetchAll("SELECT DISTINCT supplier FROM expenses WHERE
                             </td>
                             <td><b><?= money($item['amount_brl']) ?></b></td>
                             <td><span class="badge <?= status_class($item['status']) ?>"><?= status_label($item['status']) ?></span></td>
-                            <td><a class="row-action" href="?page=expenses&edit=<?= (int) $item['id'] ?>">•••</a></td>
+                            <td><a class="row-action" href="?page=expenses&edit=<?= (int) $item['id'] ?><?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">•••</a></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -197,14 +197,14 @@ $frequentSuppliers = $db->fetchAll("SELECT DISTINCT supplier FROM expenses WHERE
 
 <?php if ($showForm): ?>
 <div class="modal open">
-    <a class="modal-backdrop" href="?page=expenses"></a>
+    <a class="modal-backdrop" href="?page=expenses<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>"></a>
     <section class="modal-panel wide">
         <header>
             <div>
                 <p class="eyebrow">SAÍDAS</p>
                 <h2><?= $edit ? 'Editar lançamento' : 'Novo gasto ou investimento' ?></h2>
             </div>
-            <a href="?page=expenses" class="modal-close">×</a>
+            <a href="?page=expenses<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="modal-close">×</a>
         </header>
         <form method="post" class="form-grid" data-money-form data-daily-rate="1" data-new-record="<?= $edit ? '0' : '1' ?>">
             <?= csrf_field() ?>
@@ -212,19 +212,42 @@ $frequentSuppliers = $db->fetchAll("SELECT DISTINCT supplier FROM expenses WHERE
             <input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>">
             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
 
-            <label>
-                Unidade de Negócio
-                <select name="business_unit_id">
-                    <option value="">Geral / Sem unidade</option>
-                    <?php 
-                    $selectedBuForm = $edit ? (int) ($edit['business_unit_id'] ?? 0) : $buFilter;
-                    foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
-                            <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </label>
+            <?php 
+            $activeBuObj = null;
+            if ($buFilter) {
+                foreach ($allBusinesses as $b) {
+                    if ((int)$b['id'] === $buFilter) { $activeBuObj = $b; break; }
+                }
+            }
+            if ($activeBuObj && !$edit): 
+            ?>
+                <label>
+                    <span style="display: flex; align-items: center; justify-content: space-between;">
+                        <span>Unidade de Negócio</span>
+                        <span class="badge success" style="font-size: 10px; font-weight: 600;">🔒 Automático & Travado</span>
+                    </span>
+                    <input type="hidden" name="business_unit_id" value="<?= (int) $activeBuObj['id'] ?>">
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 13.5px; font-weight: 600; color: var(--ink);">
+                        <span style="font-size: 1.2rem;"><?= h($activeBuObj['icon'] ?: '🏢') ?></span>
+                        <span><?= h($activeBuObj['name']) ?></span>
+                        <small style="margin-left: auto; color: var(--muted); font-size: 11px; font-weight: normal;">Isolado nesta página</small>
+                    </div>
+                </label>
+            <?php else: ?>
+                <label>
+                    Unidade de Negócio
+                    <select name="business_unit_id">
+                        <option value="">Geral / Sem unidade</option>
+                        <?php 
+                        $selectedBuForm = $edit ? (int) ($edit['business_unit_id'] ?? 0) : $buFilter;
+                        foreach ($allBusinesses as $bu): ?>
+                            <option value="<?= (int) $bu['id'] ?>" <?= $selectedBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
+                                <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            <?php endif; ?>
 
             <label>
                 Tipo
@@ -312,7 +335,7 @@ $frequentSuppliers = $db->fetchAll("SELECT DISTINCT supplier FROM expenses WHERE
             </label>
 
             <footer class="span-2">
-                <a class="button ghost" href="?page=expenses">Cancelar</a>
+                <a class="button ghost" href="?page=expenses<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Cancelar</a>
                 <button class="button primary">Salvar lançamento</button>
             </footer>
         </form>

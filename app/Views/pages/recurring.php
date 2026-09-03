@@ -157,7 +157,7 @@ $payInstallment = isset($_GET['pay_inst']) ? $db->fetch('SELECT * FROM installme
     </form>
     <div>
         <?php if ($auth->canWrite()): ?>
-            <a class="button primary" href="?page=recurring&new=1">＋ Novo lançamento parcelado / recorrente</a>
+            <a class="button primary" href="?page=recurring&new=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">＋ Novo lançamento parcelado / recorrente</a>
         <?php endif; ?>
     </div>
 </section>
@@ -339,33 +339,56 @@ $payInstallment = isset($_GET['pay_inst']) ? $db->fetch('SELECT * FROM installme
 
 <?php if ($showNewModal): ?>
 <div class="modal open">
-    <a class="modal-backdrop" href="?page=recurring"></a>
+    <a class="modal-backdrop" href="?page=recurring<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>"></a>
     <section class="modal-panel wide" style="max-width: 900px;">
         <header>
             <div>
                 <p class="eyebrow">RECORRÊNCIA E PARCELAMENTO</p>
                 <h2>Novo lançamento programado</h2>
             </div>
-            <a href="?page=recurring" class="modal-close">×</a>
+            <a href="?page=recurring<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="modal-close">×</a>
         </header>
         <form method="post" class="form-grid" id="recurringForm">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="save_recurring_template">
             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
 
-            <label>
-                Unidade de Negócio
-                <select name="business_unit_id" required>
-                    <option value="">Selecione o negócio ou finança…</option>
-                    <?php
-                    $selectedRecBuForm = $buFilter ?? 0;
-                    foreach ($allBusinesses as $bu): ?>
-                        <option value="<?= (int) $bu['id'] ?>" <?= $selectedRecBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
-                            <?= h($bu['icon']) ?> <?= h($bu['name']) ?><?= $bu['is_personal'] ? ' (Pessoal)' : '' ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </label>
+            <?php 
+            $activeBuRec = null;
+            if ($buFilter) {
+                foreach ($allBusinesses as $b) {
+                    if ((int)$b['id'] === $buFilter) { $activeBuRec = $b; break; }
+                }
+            }
+            if ($activeBuRec): 
+            ?>
+                <label>
+                    <span style="display: flex; align-items: center; justify-content: space-between;">
+                        <span>Unidade de Negócio</span>
+                        <span class="badge success" style="font-size: 10px; font-weight: 600;">🔒 Automático & Travado</span>
+                    </span>
+                    <input type="hidden" name="business_unit_id" value="<?= (int) $activeBuRec['id'] ?>">
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 13.5px; font-weight: 600; color: var(--ink);">
+                        <span style="font-size: 1.2rem;"><?= h($activeBuRec['icon'] ?: '🏢') ?></span>
+                        <span><?= h($activeBuRec['name']) ?><?= $activeBuRec['is_personal'] ? ' (Pessoal)' : '' ?></span>
+                        <small style="margin-left: auto; color: var(--muted); font-size: 11px; font-weight: normal;">Isolado nesta página</small>
+                    </div>
+                </label>
+            <?php else: ?>
+                <label>
+                    Unidade de Negócio
+                    <select name="business_unit_id" required>
+                        <option value="">Selecione o negócio ou finança…</option>
+                        <?php
+                        $selectedRecBuForm = $buFilter ?? 0;
+                        foreach ($allBusinesses as $bu): ?>
+                            <option value="<?= (int) $bu['id'] ?>" <?= $selectedRecBuForm === (int) $bu['id'] ? 'selected' : '' ?>>
+                                <?= h($bu['icon']) ?> <?= h($bu['name']) ?><?= $bu['is_personal'] ? ' (Pessoal)' : '' ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            <?php endif; ?>
 
             <label>
                 Categoria
@@ -472,7 +495,7 @@ $payInstallment = isset($_GET['pay_inst']) ? $db->fetch('SELECT * FROM installme
             </label>
 
             <footer class="span-2">
-                <a class="button ghost" href="?page=recurring">Cancelar</a>
+                <a class="button ghost" href="?page=recurring<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Cancelar</a>
                 <button class="button primary">Confirmar e Programar Parcelas</button>
             </footer>
         </form>
