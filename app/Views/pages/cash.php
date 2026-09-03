@@ -8,7 +8,7 @@ $search = trim((string) ($_GET['q'] ?? ''));
 $buFilter = isset($_GET['bu']) && $_GET['bu'] !== '' ? (int) $_GET['bu'] : null;
 
 $allBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
-$allCategories = $db->fetchAll('SELECT c.*, p.name parent_name FROM categories c LEFT JOIN categories p ON p.id = c.parent_id WHERE c.active = 1 ORDER BY COALESCE(c.parent_id, c.id) ASC, (c.parent_id IS NOT NULL) ASC, c.name ASC');
+$allCategories = $db->fetchAll('SELECT c.*, bu.name bu_name FROM categories c LEFT JOIN business_units bu ON bu.id = c.business_unit_id WHERE c.active = 1 ORDER BY FIELD(c.type, "income", "expense", "investment", "both"), c.sort_order ASC, c.name ASC');
 
 $openingBalance = $finance->balanceBefore($from, $buFilter);
 $balance = $finance->cashBalance($buFilter);
@@ -265,7 +265,7 @@ $showForm = isset($_GET['new']) || $edit;
                     <option value="">Outros / Ajuste</option>
                     <?php foreach ($allCategories as $cat): ?>
                         <option value="<?= (int) $cat['id'] ?>" <?= ((int) ($edit['category_id'] ?? 0)) === (int) $cat['id'] ? 'selected' : '' ?>>
-                            <?= h($cat['icon']) ?> <?= $cat['parent_name'] ? h($cat['parent_name']) . ' ↳ ' : '' ?><?= h($cat['name']) ?>
+                            <?= h($cat['icon']) ?> <?= h($cat['name']) ?><?= $cat['bu_name'] ? ' (' . h($cat['bu_name']) . ')' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>

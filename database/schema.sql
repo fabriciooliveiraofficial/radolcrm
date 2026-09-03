@@ -494,7 +494,7 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('whatsapp_support_phone', ''),
 ('whatsapp_test_phone', ''),
 ('whatsapp_test_country', 'BR'),
-('schema_version', '15')
+('schema_version', '16')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
 
 INSERT INTO whatsapp_automation_steps

@@ -8,7 +8,7 @@ echo "Iniciando verificação de contratos da Fase 1: Unidades de Negócio e Cat
 
 // 1. MigrationService contracts
 $migrationFile = (string) file_get_contents($root . '/app/Services/MigrationService.php');
-assert(str_contains($migrationFile, 'private const VERSION = 9;'), 'MigrationService deve estar na versão 9');
+assert(preg_match('/private const VERSION = (\d+);/', $migrationFile, $m) && (int)$m[1] >= 9, 'MigrationService deve estar na versão 9 ou superior');
 assert(str_contains($migrationFile, 'CREATE TABLE IF NOT EXISTS business_units'), 'Migration deve criar tabela business_units');
 assert(str_contains($migrationFile, 'CREATE TABLE IF NOT EXISTS categories'), 'Migration deve criar tabela categories');
 assert(str_contains($migrationFile, 'ALTER TABLE clients ADD COLUMN business_unit_id'), 'Migration deve adicionar business_unit_id em clients');
@@ -20,13 +20,13 @@ assert(str_contains($migrationFile, 'ALTER TABLE expenses ADD COLUMN category_id
 assert(str_contains($migrationFile, 'ALTER TABLE cash_entries ADD COLUMN category_id'), 'Migration deve adicionar category_id em cash_entries');
 assert(str_contains($migrationFile, 'Gasolina'), 'Migration deve incluir categorias iniciais essenciais');
 assert(str_contains($migrationFile, 'Alimentação e Mercado'), 'Migration deve incluir categorias de alimentação');
-echo "✓ Contratos do MigrationService v9 validados.\n";
+echo "✓ Contratos do MigrationService validados.\n";
 
 // 2. Schema SQL contracts
 $schemaFile = (string) file_get_contents($root . '/database/schema.sql');
 assert(str_contains($schemaFile, 'CREATE TABLE IF NOT EXISTS business_units'), 'Schema SQL deve definir business_units');
 assert(str_contains($schemaFile, 'CREATE TABLE IF NOT EXISTS categories'), 'Schema SQL deve definir categories');
-assert(str_contains($schemaFile, 'schema_version\', \'9\''), 'Schema version padrão deve ser 9');
+assert(preg_match('/\'schema_version\', \'(\d+)\'/', $schemaFile, $sm) && (int)$sm[1] >= 9, 'Schema version deve ser 9 ou superior');
 echo "✓ Contratos do schema.sql validados.\n";
 
 // 3. ActionHandler contracts

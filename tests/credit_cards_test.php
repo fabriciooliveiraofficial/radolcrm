@@ -8,21 +8,21 @@ echo "Iniciando verificação de contratos da Fase 3: Cartões de Crédito, Fatu
 
 // 1. MigrationService contracts
 $migrationFile = (string) file_get_contents($root . '/app/Services/MigrationService.php');
-assert(str_contains($migrationFile, 'private const VERSION = 11;'), 'MigrationService deve estar na versão 11');
+assert(preg_match('/private const VERSION = (\d+);/', $migrationFile, $m) && (int)$m[1] >= 11, 'MigrationService deve estar na versão 11 ou superior');
 assert(str_contains($migrationFile, 'CREATE TABLE IF NOT EXISTS credit_cards'), 'Migration deve criar tabela credit_cards');
 assert(str_contains($migrationFile, 'CREATE TABLE IF NOT EXISTS credit_card_invoices'), 'Migration deve criar tabela credit_card_invoices');
 assert(str_contains($migrationFile, 'CREATE TABLE IF NOT EXISTS credit_card_transactions'), 'Migration deve criar tabela credit_card_transactions');
 assert(str_contains($migrationFile, 'closing_day TINYINT UNSIGNED'), 'credit_cards deve conter closing_day');
 assert(str_contains($migrationFile, 'due_day TINYINT UNSIGNED'), 'credit_cards deve conter due_day');
 assert(str_contains($migrationFile, 'reference_month VARCHAR(7)'), 'credit_card_invoices deve conter reference_month');
-echo "✓ Contratos do MigrationService v11 validados.\n";
+echo "✓ Contratos do MigrationService validados.\n";
 
 // 2. Schema SQL contracts
 $schemaFile = (string) file_get_contents($root . '/database/schema.sql');
 assert(str_contains($schemaFile, 'CREATE TABLE IF NOT EXISTS credit_cards'), 'Schema SQL deve definir credit_cards');
 assert(str_contains($schemaFile, 'CREATE TABLE IF NOT EXISTS credit_card_invoices'), 'Schema SQL deve definir credit_card_invoices');
 assert(str_contains($schemaFile, 'CREATE TABLE IF NOT EXISTS credit_card_transactions'), 'Schema SQL deve definir credit_card_transactions');
-assert(str_contains($schemaFile, 'schema_version\', \'11\''), 'Schema version padrão deve ser 11');
+assert(preg_match('/\'schema_version\', \'(\d+)\'/', $schemaFile, $sm) && (int)$sm[1] >= 11, 'Schema version deve ser 11 ou superior');
 echo "✓ Contratos do schema.sql v11 validados.\n";
 
 // 3. ActionHandler contracts

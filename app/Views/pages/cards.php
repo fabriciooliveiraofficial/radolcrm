@@ -5,7 +5,7 @@ $buFilter = isset($_GET['bu']) && $_GET['bu'] !== '' ? (int) $_GET['bu'] : null;
 $currentMonth = date('Y-m');
 
 $allBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
-$allCategories = $db->fetchAll('SELECT c.*, p.name parent_name, bu.name bu_name FROM categories c LEFT JOIN categories p ON p.id = c.parent_id LEFT JOIN business_units bu ON bu.id = c.business_unit_id WHERE c.active = 1 ORDER BY COALESCE(c.parent_id, c.id) ASC, (c.parent_id IS NOT NULL) ASC, c.name ASC');
+$allCategories = $db->fetchAll('SELECT c.*, bu.name bu_name FROM categories c LEFT JOIN business_units bu ON bu.id = c.business_unit_id WHERE c.active = 1 AND c.type IN ("expense", "investment", "both") ORDER BY c.sort_order ASC, c.name ASC');
 
 $whereCards = ' WHERE 1=1';
 $paramsCards = [];
@@ -463,7 +463,7 @@ $colorPresets = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981
                     <option value="">Selecione…</option>
                     <?php foreach ($allCategories as $cat): ?>
                         <option value="<?= (int) $cat['id'] ?>">
-                            <?= h($cat['icon']) ?> <?= $cat['parent_name'] ? h($cat['parent_name']) . ' ↳ ' : '' ?><?= h($cat['name']) ?>
+                            <?= h($cat['icon']) ?> <?= h($cat['name']) ?><?= $cat['bu_name'] ? ' (' . h($cat['bu_name']) . ')' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>

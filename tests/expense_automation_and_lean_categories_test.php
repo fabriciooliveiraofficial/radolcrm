@@ -6,22 +6,21 @@ $root = dirname(__DIR__);
 
 echo "Iniciando verificação de contratos e inteligência de Plano de Contas Enxuto & Auto-Pay de Despesas...\n";
 
-// 1. Validar Contratos do MigrationService (v15)
+// 1. Validar Contratos do MigrationService (v16)
 $migrationFile = (string) file_get_contents($root . '/app/Services/MigrationService.php');
-assert(str_contains($migrationFile, 'VERSION = 15;'), 'MigrationService deve estar na versão 15');
-assert(str_contains($migrationFile, 'recurring_templates ADD COLUMN auto_pay'), 'Migração v15 deve adicionar coluna auto_pay');
-assert(str_contains($migrationFile, 'Softwares, Cloud & Ferramentas (SaaS)'), 'Migração v15 deve garantir categoria de Softwares/SaaS');
-assert(str_contains($migrationFile, 'Operação, Sede & Infraestrutura'), 'Migração v15 deve garantir categoria de Operação');
-assert(str_contains($migrationFile, 'Equipe, Parceiros & Terceiros'), 'Migração v15 deve garantir categoria de Equipe');
-assert(str_contains($migrationFile, 'UPDATE expenses e'), 'Migração v15 deve remapear expenses vinculadas a subcategorias');
-assert(str_contains($migrationFile, 'UPDATE installments i'), 'Migração v15 deve remapear installments vinculadas a subcategorias');
-assert(str_contains($migrationFile, 'UPDATE categories SET active = 0 WHERE parent_id IS NOT NULL'), 'Migração v15 deve desativar subcategorias excedentes');
-echo "✓ 1. Contratos da Migração v15 validados.\n";
+assert(str_contains($migrationFile, 'VERSION = 16;'), 'MigrationService deve estar na versão 16');
+assert(str_contains($migrationFile, 'recurring_templates ADD COLUMN auto_pay'), 'Migração deve adicionar coluna auto_pay');
+assert(str_contains($migrationFile, 'Softwares, Cloud & Ferramentas (SaaS)'), 'Migração deve garantir categoria de Softwares/SaaS');
+assert(str_contains($migrationFile, 'Operação, Sede & Infraestrutura'), 'Migração deve garantir categoria de Operação');
+assert(str_contains($migrationFile, 'Equipe, Parceiros & Terceiros'), 'Migração deve garantir categoria de Equipe');
+assert(str_contains($migrationFile, 'UPDATE expenses SET category_id'), 'Migração v16 deve remapear expenses vinculadas a categorias antigas');
+assert(str_contains($migrationFile, 'DELETE FROM categories WHERE id NOT IN'), 'Migração v16 deve excluir permanentemente categorias obsoletas e duplicadas');
+echo "✓ 1. Contratos da Migração v16 validados.\n";
 
 // 2. Validar Contratos do schema.sql
 $schemaFile = (string) file_get_contents($root . '/database/schema.sql');
 assert(str_contains($schemaFile, 'auto_pay TINYINT(1) NOT NULL DEFAULT 0'), 'schema.sql deve incluir coluna auto_pay em recurring_templates');
-assert(str_contains($schemaFile, "('schema_version', '15')"), 'schema.sql deve ter schema_version = 15');
+assert(str_contains($schemaFile, "('schema_version', '16')"), 'schema.sql deve ter schema_version = 16');
 echo "✓ 2. Contratos do schema.sql validados.\n";
 
 // 3. Validar Contratos do ActionHandler

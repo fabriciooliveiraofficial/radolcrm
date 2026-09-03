@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 15;
+    private const VERSION = 16;
 
     public function __construct(private readonly Database $db)
     {
@@ -793,6 +793,161 @@ final class MigrationService
 
             // 4. Desativar subcategorias para limpar os dropdowns (evitar o monstro/Frankenstein)
             $this->optionalDdl("UPDATE categories SET active = 0 WHERE parent_id IS NOT NULL");
+        }
+        if ($version < 16) {
+            // 1. Obter IDs das business units (principal e pessoal, se houver)
+            $mainBuId = (int) $this->db->value("SELECT id FROM business_units WHERE is_personal = 0 AND active = 1 ORDER BY sort_order ASC, id ASC LIMIT 1");
+            if (!$mainBuId) {
+                $mainBuId = (int) $this->db->value("SELECT id FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC LIMIT 1");
+            }
+            $personalBuId = (int) $this->db->value("SELECT id FROM business_units WHERE is_personal = 1 LIMIT 1");
+
+            // 2. Garantir que as categorias canônicas oficiais existam e estejam ativas
+            $canonicalList = [
+                // Receitas
+                ['name' => 'Receitas com Assinaturas', 'type' => 'income', 'icon' => '💎', 'color' => '#10b981', 'bu_id' => $mainBuId ?: null, 'order' => 1],
+                ['name' => 'Vendas de Produtos', 'type' => 'income', 'icon' => '📦', 'color' => '#3b82f6', 'bu_id' => $mainBuId ?: null, 'order' => 2],
+                ['name' => 'Serviços e Consultorias', 'type' => 'income', 'icon' => '🛠️', 'color' => '#8b5cf6', 'bu_id' => $mainBuId ?: null, 'order' => 3],
+                ['name' => 'Outras Receitas', 'type' => 'income', 'icon' => '💰', 'color' => '#06b6d4', 'bu_id' => $mainBuId ?: null, 'order' => 4],
+
+                // Despesas Corporativas
+                ['name' => 'Softwares, Cloud & Ferramentas (SaaS)', 'type' => 'expense', 'icon' => '🛠️', 'color' => '#3b82f6', 'bu_id' => $mainBuId ?: null, 'order' => 10],
+                ['name' => 'Operação, Sede & Infraestrutura', 'type' => 'expense', 'icon' => '🏢', 'color' => '#64748b', 'bu_id' => $mainBuId ?: null, 'order' => 11],
+                ['name' => 'Equipe, Parceiros & Terceiros', 'type' => 'expense', 'icon' => '👥', 'color' => '#8b5cf6', 'bu_id' => $mainBuId ?: null, 'order' => 12],
+                ['name' => 'Marketing, Vendas & Publicidade', 'type' => 'expense', 'icon' => '📣', 'color' => '#f59e0b', 'bu_id' => $mainBuId ?: null, 'order' => 13],
+                ['name' => 'Mobilidade, Logística & Viagens', 'type' => 'expense', 'icon' => '🚗', 'color' => '#d97706', 'bu_id' => $mainBuId ?: null, 'order' => 14],
+                ['name' => 'Impostos, Tributos & Taxas', 'type' => 'expense', 'icon' => '🏛️', 'color' => '#ef4444', 'bu_id' => $mainBuId ?: null, 'order' => 15],
+                ['name' => 'Alimentação & Despesas Diárias', 'type' => 'expense', 'icon' => '☕', 'color' => '#10b981', 'bu_id' => $mainBuId ?: null, 'order' => 16],
+                ['name' => 'Investimentos & Equipamentos', 'type' => 'investment', 'icon' => '💰', 'color' => '#06b6d4', 'bu_id' => $mainBuId ?: null, 'order' => 17],
+            ];
+
+            if ($personalBuId > 0) {
+                $canonicalList[] = ['name' => 'Moradia', 'type' => 'expense', 'icon' => '🏠', 'color' => '#0284c7', 'bu_id' => $personalBuId, 'order' => 20];
+                $canonicalList[] = ['name' => 'Transporte Pessoal', 'type' => 'expense', 'icon' => '🚗', 'color' => '#d97706', 'bu_id' => $personalBuId, 'order' => 21];
+                $canonicalList[] = ['name' => 'Alimentação & Mercado', 'type' => 'expense', 'icon' => '🛒', 'color' => '#10b981', 'bu_id' => $personalBuId, 'order' => 22];
+                $canonicalList[] = ['name' => 'Saúde & Cuidados', 'type' => 'expense', 'icon' => '🩺', 'color' => '#ec4899', 'bu_id' => $personalBuId, 'order' => 23];
+                $canonicalList[] = ['name' => 'Lazer & Família', 'type' => 'expense', 'icon' => '🍿', 'color' => '#f97316', 'bu_id' => $personalBuId, 'order' => 24];
+            }
+
+            $canonicalIds = [];
+            $nameToCanonicalId = [];
+
+            foreach ($canonicalList as $c) {
+                $existing = $this->db->fetch("SELECT id FROM categories WHERE name = ? LIMIT 1", [$c['name']]);
+                if ($existing) {
+                    $catId = (int) $existing['id'];
+                    $this->db->query("UPDATE categories SET parent_id = NULL, type = ?, icon = ?, color = ?, sort_order = ?, active = 1 WHERE id = ?", [
+                        $c['type'], $c['icon'], $c['color'], $c['order'], $catId
+                    ]);
+                } else {
+                    $catId = $this->db->insert("INSERT INTO categories (business_unit_id, parent_id, name, type, icon, color, active, sort_order) VALUES (?, NULL, ?, ?, ?, ?, 1, ?)", [
+                        $c['bu_id'], $c['name'], $c['type'], $c['icon'], $c['color'], $c['order']
+                    ]);
+                }
+                $canonicalIds[] = $catId;
+                $nameToCanonicalId[$c['name']] = $catId;
+            }
+
+            // 3. Regras de mesclagem para redirecionar dados antigos para as novas categorias canônicas
+            $mergeRules = [
+                'Marketing' => 'Marketing, Vendas & Publicidade',
+                'Anúncios online' => 'Marketing, Vendas & Publicidade',
+                'Influenciadores e parcerias' => 'Marketing, Vendas & Publicidade',
+                'Design e identidade' => 'Marketing, Vendas & Publicidade',
+                'Materiais promocionais' => 'Marketing, Vendas & Publicidade',
+                'Eventos e feiras' => 'Marketing, Vendas & Publicidade',
+                'Software e ferramentas' => 'Softwares, Cloud & Ferramentas (SaaS)',
+                'SaaS e assinaturas' => 'Softwares, Cloud & Ferramentas (SaaS)',
+                'Servidores e hospedagem' => 'Softwares, Cloud & Ferramentas (SaaS)',
+                'Domínios e SSL' => 'Softwares, Cloud & Ferramentas (SaaS)',
+                'Impostos e taxas' => 'Impostos, Tributos & Taxas',
+                'MEI / Simples Nacional' => 'Impostos, Tributos & Taxas',
+                'Taxas bancárias' => 'Impostos, Tributos & Taxas',
+                'Contabilidade e notas' => 'Impostos, Tributos & Taxas',
+                'Financiamentos e Empréstimos' => 'Impostos, Tributos & Taxas',
+                'Parcelas e empréstimos' => 'Impostos, Tributos & Taxas',
+                'Equipe e parceiros' => 'Equipe, Parceiros & Terceiros',
+                'Prestadores e freelancers' => 'Equipe, Parceiros & Terceiros',
+                'Comissões de vendas' => 'Equipe, Parceiros & Terceiros',
+                'Infraestrutura e escritório' => 'Operação, Sede & Infraestrutura',
+                'Telecomunicações' => 'Operação, Sede & Infraestrutura',
+                'Pacote de dados celular' => 'Operação, Sede & Infraestrutura',
+                'Telefonia móvel' => 'Operação, Sede & Infraestrutura',
+                'Receitas de Assinaturas' => 'Receitas com Assinaturas',
+                'Planos mensais' => 'Receitas com Assinaturas',
+                'Planos anuais' => 'Receitas com Assinaturas',
+                'Setup e ativação' => 'Receitas com Assinaturas',
+                'Investimento' => 'Investimentos & Equipamentos',
+                'Aluguel / Condomínio' => isset($nameToCanonicalId['Moradia']) ? 'Moradia' : 'Operação, Sede & Infraestrutura',
+                'Luz / Energia elétrica' => isset($nameToCanonicalId['Moradia']) ? 'Moradia' : 'Operação, Sede & Infraestrutura',
+                'Água e esgoto' => isset($nameToCanonicalId['Moradia']) ? 'Moradia' : 'Operação, Sede & Infraestrutura',
+                'Internet / Wi-Fi' => isset($nameToCanonicalId['Moradia']) ? 'Moradia' : 'Operação, Sede & Infraestrutura',
+                'Gás residencial' => isset($nameToCanonicalId['Moradia']) ? 'Moradia' : 'Operação, Sede & Infraestrutura',
+                'Financiamento imobiliário' => isset($nameToCanonicalId['Moradia']) ? 'Moradia' : 'Operação, Sede & Infraestrutura',
+                'Transporte e Veículo' => isset($nameToCanonicalId['Transporte Pessoal']) ? 'Transporte Pessoal' : 'Mobilidade, Logística & Viagens',
+                'Gasolina / Combustível' => 'Mobilidade, Logística & Viagens',
+                'Mecânica e manutenção' => 'Mobilidade, Logística & Viagens',
+                'Seguro e IPVA' => 'Mobilidade, Logística & Viagens',
+                'Uber e táxi' => 'Mobilidade, Logística & Viagens',
+                'Financiamento do carro' => 'Mobilidade, Logística & Viagens',
+                'Alimentação e Mercado' => isset($nameToCanonicalId['Alimentação & Mercado']) ? 'Alimentação & Mercado' : 'Alimentação & Despesas Diárias',
+                'Mercado e feira' => isset($nameToCanonicalId['Alimentação & Mercado']) ? 'Alimentação & Mercado' : 'Alimentação & Despesas Diárias',
+                'Restaurantes e padaria' => 'Alimentação & Despesas Diárias',
+                'Delivery / Pizza / Lanches' => 'Alimentação & Despesas Diárias',
+                'Saúde e Bem-estar' => isset($nameToCanonicalId['Saúde & Cuidados']) ? 'Saúde & Cuidados' : 'Alimentação & Despesas Diárias',
+                'Plano de saúde' => isset($nameToCanonicalId['Saúde & Cuidados']) ? 'Saúde & Cuidados' : 'Operação, Sede & Infraestrutura',
+                'Farmácia e medicamentos' => isset($nameToCanonicalId['Saúde & Cuidados']) ? 'Saúde & Cuidados' : 'Alimentação & Despesas Diárias',
+                'Consultas e exames' => isset($nameToCanonicalId['Saúde & Cuidados']) ? 'Saúde & Cuidados' : 'Operação, Sede & Infraestrutura',
+                'Educação e Filhos' => isset($nameToCanonicalId['Lazer & Família']) ? 'Lazer & Família' : 'Investimentos & Equipamentos',
+                'Escola dos filhos' => isset($nameToCanonicalId['Lazer & Família']) ? 'Lazer & Família' : 'Investimentos & Equipamentos',
+                'Vale transporte / Condução' => isset($nameToCanonicalId['Lazer & Família']) ? 'Lazer & Família' : 'Mobilidade, Logística & Viagens',
+                'Cursos e treinamentos' => 'Investimentos & Equipamentos',
+                'Material e livros' => 'Investimentos & Equipamentos',
+                'Lazer e Família' => isset($nameToCanonicalId['Lazer & Família']) ? 'Lazer & Família' : 'Alimentação & Despesas Diárias',
+                'Streaming e entretenimento' => isset($nameToCanonicalId['Lazer & Família']) ? 'Lazer & Família' : 'Softwares, Cloud & Ferramentas (SaaS)',
+                'Passeios e viagens' => isset($nameToCanonicalId['Lazer & Família']) ? 'Lazer & Família' : 'Mobilidade, Logística & Viagens',
+                'Presentes e compras' => isset($nameToCanonicalId['Lazer & Família']) ? 'Lazer & Família' : 'Alimentação & Despesas Diárias',
+            ];
+
+            // 4. Buscar todas as categorias no banco e remapear registros antigos
+            $allExistingCats = $this->db->fetchAll("SELECT id, name, parent_id FROM categories");
+            $defaultExpenseTarget = $nameToCanonicalId['Operação, Sede & Infraestrutura'] ?? $canonicalIds[4];
+
+            foreach ($allExistingCats as $oldCat) {
+                $oldId = (int) $oldCat['id'];
+                if (in_array($oldId, $canonicalIds, true)) {
+                    continue;
+                }
+
+                $targetName = $mergeRules[$oldCat['name']] ?? null;
+                $targetId = $targetName && isset($nameToCanonicalId[$targetName]) ? $nameToCanonicalId[$targetName] : null;
+
+                if (!$targetId && $oldCat['parent_id']) {
+                    $parentName = (string) $this->db->value("SELECT name FROM categories WHERE id = ?", [$oldCat['parent_id']]);
+                    $targetParentName = $mergeRules[$parentName] ?? null;
+                    if ($targetParentName && isset($nameToCanonicalId[$targetParentName])) {
+                        $targetId = $nameToCanonicalId[$targetParentName];
+                    }
+                }
+
+                if (!$targetId) {
+                    $targetId = $defaultExpenseTarget;
+                }
+
+                // Remapear todas as 7 tabelas
+                $this->db->query("UPDATE expenses SET category_id = ? WHERE category_id = ?", [$targetId, $oldId]);
+                $this->db->query("UPDATE payments SET category_id = ? WHERE category_id = ?", [$targetId, $oldId]);
+                $this->db->query("UPDATE products SET category_id = ? WHERE category_id = ?", [$targetId, $oldId]);
+                $this->db->query("UPDATE installments SET category_id = ? WHERE category_id = ?", [$targetId, $oldId]);
+                $this->db->query("UPDATE recurring_templates SET category_id = ? WHERE category_id = ?", [$targetId, $oldId]);
+                $this->db->query("UPDATE credit_card_transactions SET category_id = ? WHERE category_id = ?", [$targetId, $oldId]);
+                $this->db->query("UPDATE cash_entries SET category_id = ? WHERE category_id = ?", [$targetId, $oldId]);
+            }
+
+            // 5. Limpar parent_id e excluir com segurança todas as categorias antigas/subcategorias órfãs que não são canônicas
+            $inClause = implode(',', array_map('intval', $canonicalIds));
+            $this->db->query("UPDATE categories SET parent_id = NULL");
+            $this->db->query("DELETE FROM categories WHERE id NOT IN ({$inClause})");
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",

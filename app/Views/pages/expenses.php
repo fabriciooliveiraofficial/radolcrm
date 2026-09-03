@@ -90,8 +90,14 @@ $frequentSuppliers = $db->fetchAll("SELECT DISTINCT supplier FROM expenses WHERE
     <form class="search-filters" method="get" data-live-filter>
         <input type="hidden" name="page" value="expenses">
         <label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar qualquer informação" value="<?= h($search) ?>"></label>
-        
-
+        <select name="bu">
+            <option value="">Todos os negócios</option>
+            <?php foreach ($allBusinesses as $bu): ?>
+                <option value="<?= (int) $bu['id'] ?>" <?= $buFilter === (int) $bu['id'] ? 'selected' : '' ?>>
+                    <?= h($bu['icon']) ?> <?= h($bu['name']) ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
         <select name="type">
             <option value="">Despesas + investimentos</option>
             <option value="expense" <?= $type === 'expense' ? 'selected' : '' ?>>Despesas</option>

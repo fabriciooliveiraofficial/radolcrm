@@ -8,20 +8,20 @@ echo "Iniciando verificação de contratos da Fase 2: Lançamentos Recorrentes e
 
 // 1. MigrationService contracts
 $migrationFile = (string) file_get_contents($root . '/app/Services/MigrationService.php');
-assert(str_contains($migrationFile, 'private const VERSION = 10;'), 'MigrationService deve estar na versão 10');
+assert(preg_match('/private const VERSION = (\d+);/', $migrationFile, $m) && (int)$m[1] >= 10, 'MigrationService deve estar na versão 10 ou superior');
 assert(str_contains($migrationFile, 'CREATE TABLE IF NOT EXISTS recurring_templates'), 'Migration deve criar tabela recurring_templates');
 assert(str_contains($migrationFile, 'CREATE TABLE IF NOT EXISTS installments'), 'Migration deve criar tabela installments');
 assert(str_contains($migrationFile, 'template_id BIGINT UNSIGNED NOT NULL'), 'Tabela installments deve conter template_id');
 assert(str_contains($migrationFile, 'installment_number SMALLINT UNSIGNED NOT NULL'), 'Tabela installments deve conter installment_number');
 assert(str_contains($migrationFile, 'expense_id BIGINT UNSIGNED NULL'), 'Tabela installments deve conter expense_id para vínculo financeiro');
-echo "✓ Contratos do MigrationService v10 validados.\n";
+echo "✓ Contratos do MigrationService validados.\n";
 
 // 2. Schema SQL contracts
 $schemaFile = (string) file_get_contents($root . '/database/schema.sql');
 assert(str_contains($schemaFile, 'CREATE TABLE IF NOT EXISTS recurring_templates'), 'Schema SQL deve definir recurring_templates');
 assert(str_contains($schemaFile, 'CREATE TABLE IF NOT EXISTS installments'), 'Schema SQL deve definir installments');
-assert(str_contains($schemaFile, 'schema_version\', \'10\''), 'Schema version padrão deve ser 10');
-echo "✓ Contratos do schema.sql v10 validados.\n";
+assert(preg_match('/\'schema_version\', \'(\d+)\'/', $schemaFile, $sm) && (int)$sm[1] >= 10, 'Schema version deve ser 10 ou superior');
+echo "✓ Contratos do schema.sql validados.\n";
 
 // 3. ActionHandler contracts
 $actionFile = (string) file_get_contents($root . '/app/Http/ActionHandler.php');

@@ -8,7 +8,7 @@ echo "Iniciando verificação de contratos e inteligência de Categorias de Rece
 
 // 1. MigrationService Version 14 contracts
 $migrationFile = (string) file_get_contents($root . '/app/Services/MigrationService.php');
-assert(str_contains($migrationFile, 'private const VERSION = 14;'), 'MigrationService deve estar na versão 14');
+assert(preg_match('/private const VERSION = (\d+);/', $migrationFile, $m) && (int)$m[1] >= 14, 'MigrationService deve estar na versão 14 ou superior');
 assert(str_contains($migrationFile, '$version < 14'), 'MigrationService deve ter bloco para version < 14');
 assert(str_contains($migrationFile, 'ALTER TABLE products ADD COLUMN category_id'), 'Migration deve adicionar category_id em products');
 assert(str_contains($migrationFile, 'Receitas com Assinaturas'), 'Migration deve criar categoria padrão de assinaturas');
@@ -19,7 +19,7 @@ echo "✓ 1. Contratos da Migração v14 validados.\n";
 $schemaFile = (string) file_get_contents($root . '/database/schema.sql');
 assert(str_contains($schemaFile, "category_id BIGINT UNSIGNED NULL"), 'Schema SQL deve definir category_id em products');
 assert(str_contains($schemaFile, "fk_products_category"), 'Schema SQL deve ter FK fk_products_category');
-assert(str_contains($schemaFile, "'schema_version', '14'"), 'Schema version padrão deve ser 14');
+assert(preg_match('/\'schema_version\', \'(\d+)\'/', $schemaFile, $sm) && (int)$sm[1] >= 14, 'Schema version deve ser 14 ou superior');
 echo "✓ 2. Contratos do schema.sql validados.\n";
 
 // 3. ActionHandler Product and Renewal contracts
