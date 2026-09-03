@@ -320,7 +320,7 @@ $showForm = isset($_GET['new']) || $edit;
             <input type="hidden" data-money-fee value="0">
 
             <label>
-                Cotação USD → BRL
+                <span data-rate-title><?= ($edit['currency'] ?? 'BRL') === 'USD' ? 'Cotação USD → BRL' : 'Cotação BRL → USD' ?></span>
                 <input name="exchange_rate" type="number" step="0.000001" min="0" data-money-rate value="<?= h($edit['exchange_rate'] ?? '') ?>" placeholder="Automática pela data">
                 <small data-rate-help><?= $edit ? 'Cotação histórica deste movimento' : 'Aguardando a moeda e a data' ?></small>
             </label>
@@ -331,8 +331,8 @@ $showForm = isset($_GET['new']) || $edit;
             </label>
 
             <div class="conversion-preview span-2">
-                <span>Total convertido</span>
-                <strong data-money-preview>R$ 0,00</strong>
+                <span data-preview-label><?= ($edit['currency'] ?? 'BRL') === 'USD' ? 'Total convertido em BRL' : 'Total convertido em USD' ?></span>
+                <strong data-money-preview><?= ($edit['currency'] ?? 'BRL') === 'USD' ? 'R$ 0,00' : 'US$ 0,00' ?></strong>
             </div>
 
             <label class="span-2">

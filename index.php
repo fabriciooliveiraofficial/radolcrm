@@ -35,7 +35,9 @@ $rates = new ExchangeRateService($db);
 if (($_GET['page'] ?? '') === 'exchange-rate') {
     header('Content-Type: application/json; charset=UTF-8');
     try {
-        $quote = $rates->forDate((string) ($_GET['date'] ?? date('Y-m-d')));
+        $base = strtoupper(trim((string) ($_GET['base'] ?? $_GET['currency'] ?? 'USD')));
+        $quoteCurrency = strtoupper(trim((string) ($_GET['quote'] ?? ($base === 'BRL' ? 'USD' : 'BRL'))));
+        $quote = $rates->forDate((string) ($_GET['date'] ?? date('Y-m-d')), false, $base, $quoteCurrency);
         echo json_encode(['ok' => true, 'rate' => $quote], JSON_UNESCAPED_UNICODE);
     } catch (Throwable $exception) {
         http_response_code(422);

@@ -1107,19 +1107,20 @@ final class ActionHandler
         }
         $settlementDate = $this->nullable('settlement_date');
         $currency = $this->choice('currency', ['BRL','USD']);
-        $rate = $currency === 'USD' ? normalize_decimal($_POST['exchange_rate'] ?? 0) : 1.0;
-        $rateSource = $currency === 'USD' ? $this->nullable('exchange_rate_source') : 'BRL';
+        $rate = normalize_decimal($_POST['exchange_rate'] ?? 0);
+        $rateSource = $this->nullable('exchange_rate_source');
         if ($currency === 'USD' && $status === 'paid' && $settlementDate === null) {
             throw new RuntimeException('Informe a data em que o valor em dólar foi resgatado.');
         }
-        if ($currency === 'USD' && $rate <= 0) {
-            $quote = $this->rates->forDate($settlementDate ?: $paymentDate ?: date('Y-m-d'));
-            $rate = $quote['bid'];
+        if ($rate <= 0) {
+            $targetDate = ($currency === 'USD') ? ($settlementDate ?: $paymentDate ?: date('Y-m-d')) : ($paymentDate ?: date('Y-m-d'));
+            $quote = $this->rates->forDate($targetDate, false, $currency);
+            $rate = (float) $quote['bid'];
             $rateSource = $quote['source'];
         }
-        $rateSource = $rateSource ?: ($currency === 'USD' ? 'Manual' : 'BRL');
-        $amountBrl = round($amount * $rate, 2);
-        $feeBrl = round($fee * $rate, 2);
+        $rateSource = $rateSource ?: ($currency === 'USD' ? 'Manual' : ($currency === 'BRL' ? 'Frankfurter · diária' : 'BRL'));
+        $amountBrl = $currency === 'USD' ? round($amount * $rate, 2) : round($amount, 2);
+        $feeBrl = $currency === 'USD' ? round($fee * $rate, 2) : round($fee, 2);
         $netBrl = $amountBrl - $feeBrl;
         $params = [
             $businessUnitId, $subscriptionId, $clientId, $categoryId, $this->nullable('description'), $amount, $currency, $rate, $rateSource, $amountBrl, $fee, $feeBrl, $netBrl,
@@ -1235,9 +1236,10 @@ final class ActionHandler
             throw new RuntimeException('Informe um valor maior que zero.');
         }
         $currency = $this->choice('currency', ['BRL','USD']);
-        $rate = $currency === 'USD' ? normalize_decimal($_POST['exchange_rate'] ?? 0) : 1.0;
-        if ($currency === 'USD' && $rate <= 0) {
-            $rate = $this->rates->forDate($this->required('payment_date', 'Informe a data.'))['bid'];
+        $rate = normalize_decimal($_POST['exchange_rate'] ?? 0);
+        if ($rate <= 0) {
+            $quote = $this->rates->forDate($this->required('payment_date', 'Informe a data.'), false, $currency);
+            $rate = (float) $quote['bid'];
         }
         $businessUnitId = $this->businessUnitId();
         $categoryId = $this->categoryId();
@@ -1249,11 +1251,13 @@ final class ActionHandler
             $categoryName = 'Outros';
         }
 
+        $amountBrl = $currency === 'USD' ? round($amount * $rate, 2) : round($amount, 2);
+
         $params = [
             $businessUnitId, $categoryId,
             $this->choice('type', ['expense','investment']), $categoryName,
             $this->required('description', 'Informe a descrição.'), $this->nullable('supplier'), $amount, $currency, $rate,
-            round($amount * $rate, 2), $this->choice('status', ['pending','paid']),
+            $amountBrl, $this->choice('status', ['pending','paid']),
             $this->required('payment_date', 'Informe a data.'), isset($_POST['is_recurring']) ? 1 : 0, $this->nullable('notes'),
         ];
         if ($id) {
@@ -1285,9 +1289,10 @@ final class ActionHandler
             throw new RuntimeException('Informe um valor maior que zero.');
         }
         $currency = $this->choice('currency', ['BRL','USD']);
-        $rate = $currency === 'USD' ? normalize_decimal($_POST['exchange_rate'] ?? 0) : 1.0;
-        if ($currency === 'USD' && $rate <= 0) {
-            $rate = $this->rates->forDate($this->required('entry_date', 'Informe a data.'))['bid'];
+        $rate = normalize_decimal($_POST['exchange_rate'] ?? 0);
+        if ($rate <= 0) {
+            $quote = $this->rates->forDate($this->required('entry_date', 'Informe a data.'), false, $currency);
+            $rate = (float) $quote['bid'];
         }
         $businessUnitId = $this->businessUnitId();
         $categoryId = $this->categoryId();
@@ -1299,10 +1304,12 @@ final class ActionHandler
             $categoryName = 'Ajuste';
         }
 
+        $amountBrl = $currency === 'USD' ? round($amount * $rate, 2) : round($amount, 2);
+
         $params = [
             $businessUnitId, $categoryId,
             $this->choice('direction', ['in','out']), $categoryName,
-            $this->required('description', 'Informe a descrição.'), $amount, $currency, $rate, round($amount * $rate, 2),
+            $this->required('description', 'Informe a descrição.'), $amount, $currency, $rate, $amountBrl,
             $this->required('entry_date', 'Informe a data.'), $this->nullable('notes'),
         ];
         if ($id) {

@@ -77,43 +77,100 @@
   document.addEventListener('click', async (event) => {
     const copyBtn = event.target.closest('[data-copy-receipt]');
     if (!copyBtn) return;
-    const card = copyBtn.closest('[data-receipt-item]') || copyBtn.closest('.renewal-receipt-panel');
+    event.preventDefault();
+    event.stopPropagation();
+
+    const card = copyBtn.closest('[data-receipt-item]') || copyBtn.closest('.renewal-receipt-panel') || document;
     const rawInput = qs('[data-receipt-raw]', card);
-    const text = rawInput ? rawInput.value : qs('[data-receipt-text]', card)?.innerText || '';
+    const textEl = qs('[data-receipt-text]', card);
+    const text = copyBtn.dataset.rawMessage || (rawInput ? rawInput.value : (textEl ? textEl.innerText : ''));
     if (!text) return;
 
     let success = false;
-    try {
-      if (navigator.clipboard?.writeText) {
+
+    // 1. Tenta API moderna do Clipboard (quando em HTTPS ou localhost)
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
         await navigator.clipboard.writeText(text);
         success = true;
-      }
-    } catch (_) {
-      success = false;
-    }
-
-    if (!success && rawInput) {
-      try {
-        rawInput.select();
-        success = document.execCommand('copy');
       } catch (_) {
         success = false;
       }
     }
 
+    // 2. Fallback universal via elemento textarea temporário (funciona em HTTP e qualquer navegador)
+    if (!success) {
+      try {
+        const tempTextarea = document.createElement('textarea');
+        tempTextarea.value = text;
+        tempTextarea.setAttribute('readonly', '');
+        tempTextarea.style.position = 'fixed';
+        tempTextarea.style.top = '0';
+        tempTextarea.style.left = '0';
+        tempTextarea.style.width = '2em';
+        tempTextarea.style.height = '2em';
+        tempTextarea.style.padding = '0';
+        tempTextarea.style.border = 'none';
+        tempTextarea.style.outline = 'none';
+        tempTextarea.style.boxShadow = 'none';
+        tempTextarea.style.background = 'transparent';
+        tempTextarea.style.opacity = '0.01';
+        tempTextarea.style.zIndex = '999999';
+        document.body.appendChild(tempTextarea);
+
+        tempTextarea.focus();
+        tempTextarea.select();
+        tempTextarea.setSelectionRange(0, tempTextarea.value.length);
+        success = document.execCommand('copy');
+        document.body.removeChild(tempTextarea);
+      } catch (_) {
+        success = false;
+      }
+    }
+
+    // 3. Fallback de seleção direta no elemento visual
+    if (!success && textEl) {
+      try {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(textEl);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        success = document.execCommand('copy');
+        selection.removeAllRanges();
+      } catch (_) {
+        success = false;
+      }
+    }
+
+    const label = qs('.btn-copy-label', copyBtn) || copyBtn;
+    const icon = qs('.btn-copy-icon', copyBtn);
+    const prevLabel = label.textContent;
+    const prevIconHtml = icon ? icon.innerHTML : '';
+
     if (success) {
-      const label = qs('.btn-copy-label', copyBtn) || copyBtn;
-      const icon = qs('.btn-copy-icon', copyBtn);
-      const prevLabel = label.textContent;
-      const prevIcon = icon?.textContent || '';
-      if (icon) icon.textContent = '✓';
-      label.textContent = 'Mensagem copiada!';
       copyBtn.classList.add('copied');
+      if (icon) {
+        icon.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+      }
+      label.textContent = 'Mensagem copiada!';
       setTimeout(() => {
-        if (icon) icon.textContent = prevIcon;
+        if (icon) icon.innerHTML = prevIconHtml;
         label.textContent = prevLabel;
         copyBtn.classList.remove('copied');
       }, 2500);
+    } else {
+      if (textEl) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(textEl);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      label.textContent = 'Texto selecionado! Pressione Ctrl+C';
+      setTimeout(() => {
+        label.textContent = prevLabel;
+      }, 3500);
     }
   });
 
@@ -253,46 +310,83 @@
   }));
 
   const formatBrl = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+  const formatUsd = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
   qsa('[data-money-form]').forEach((form) => {
     const currency = qs('[data-money-currency]', form);
     const amount = qs('[data-money-amount]', form);
     const fee = qs('[data-money-fee]', form);
     const rate = qs('[data-money-rate]', form);
     const preview = qs('[data-money-preview]', form);
+    const previewLabel = qs('[data-preview-label]', form) || qs('.conversion-preview span', form);
     const currentRate = Number(form.dataset.currentRate || 1);
     const dailyRate = form.dataset.dailyRate === '1';
     const rateDate = qs('[data-rate-date]', form);
     const rateSource = qs('[data-rate-source]', form);
     const rateHelp = qs('[data-rate-help]', form);
-    let previousCurrency = currency.value;
+    const rateTitle = qs('[data-rate-title]', form);
+    let previousCurrency = currency?.value || 'BRL';
+
+    const updateLabels = () => {
+      const isUsd = currency.value === 'USD';
+      if (rateTitle) {
+        rateTitle.textContent = isUsd ? 'Cotação USD → BRL' : 'Cotação BRL → USD';
+      } else {
+        const lbl = rate?.closest('label');
+        if (lbl) {
+          const firstText = Array.from(lbl.childNodes).find(n => n.nodeType === Node.TEXT_NODE && n.textContent.trim().length > 0);
+          if (firstText) firstText.textContent = (isUsd ? 'Cotação USD → BRL' : 'Cotação BRL → USD') + '\n';
+        }
+      }
+      if (previewLabel) {
+        previewLabel.textContent = isUsd ? 'Total convertido em BRL' : 'Total convertido em USD';
+      }
+      if (rate) {
+        rate.placeholder = isUsd ? 'Automática pela data (USD → BRL)' : 'Automática pela data (BRL → USD)';
+        rate.readOnly = false;
+        rate.closest('label')?.classList.remove('field-disabled');
+      }
+    };
 
     const calculate = () => {
-      const multiplier = currency.value === 'USD' ? Number(rate.value || (dailyRate ? 0 : currentRate)) : 1;
+      updateLabels();
+      const isUsd = currency.value === 'USD';
       const net = Math.max(0, Number(amount.value || 0) - Number(fee?.value || 0));
-      preview.textContent = formatBrl(net * multiplier);
-      rate.readOnly = currency.value === 'BRL';
-      rate.closest('label')?.classList.toggle('field-disabled', currency.value === 'BRL');
-      if (currency.value === 'BRL') {
-        rate.value = '1';
-        if (rateSource) rateSource.value = 'BRL';
-      } else if (!dailyRate && Number(rate.value) === 1) {
-        rate.value = currentRate;
+      const activeRate = Number(rate.value || 0);
+
+      if (isUsd) {
+        const mult = activeRate || (dailyRate ? 0 : currentRate);
+        preview.textContent = formatBrl(net * mult);
+      } else {
+        const fallbackRate = currentRate > 0 ? (1 / currentRate) : 0;
+        const mult = activeRate || (dailyRate ? 0 : fallbackRate);
+        preview.textContent = formatUsd(net * mult);
       }
     };
 
     const fetchDailyRate = async () => {
-      if (!dailyRate || currency.value !== 'USD' || !rateDate?.value) return;
+      if (!dailyRate || !rateDate?.value) return;
       if (rateHelp) rateHelp.textContent = 'Consultando cotação diária…';
       try {
-        const response = await fetch(`index.php?page=exchange-rate&date=${encodeURIComponent(rateDate.value)}`, {
+        const response = await fetch(`index.php?page=exchange-rate&date=${encodeURIComponent(rateDate.value)}&currency=${encodeURIComponent(currency.value)}`, {
           headers: { Accept: 'application/json' }
         });
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.message || 'Cotação indisponível');
-        rate.value = Number(data.rate.bid).toFixed(6);
+        
+        const bidVal = Number(data.rate.bid);
+        rate.value = bidVal > 0 ? bidVal.toFixed(6) : '';
         rate.dataset.fetchedRate = rate.value;
         if (rateSource) rateSource.value = data.rate.source;
-        if (rateHelp) rateHelp.textContent = `${data.rate.source} · ${rateDate.value.split('-').reverse().join('/')}`;
+        
+        const dateFormatted = rateDate.value.split('-').reverse().join('/');
+        if (rateHelp) {
+          if (currency.value === 'USD') {
+            rateHelp.textContent = `${data.rate.source} · ${dateFormatted} (1 USD = R$ ${bidVal.toFixed(4).replace('.', ',')})`;
+          } else {
+            const usdToBrl = data.rate.usd_to_brl ? Number(data.rate.usd_to_brl).toFixed(4).replace('.', ',') : '';
+            rateHelp.textContent = `${data.rate.source} · ${dateFormatted} (1 BRL = US$ ${bidVal.toFixed(4)} · 1 USD = R$ ${usdToBrl})`;
+          }
+        }
         calculate();
       } catch (error) {
         if (rateHelp) rateHelp.textContent = `${error.message}. Você pode informar a taxa manualmente.`;
@@ -301,7 +395,7 @@
 
     [amount, fee].filter(Boolean).forEach((input) => input.addEventListener('input', calculate));
     currency.addEventListener('input', () => {
-      if (dailyRate && currency.value === 'USD' && previousCurrency === 'BRL') {
+      if (previousCurrency !== currency.value) {
         rate.value = '';
         if (rateSource) rateSource.value = '';
       }
@@ -311,11 +405,11 @@
     });
     rate.addEventListener('input', () => {
       calculate();
-      if (rateSource && rate.value !== rate.dataset.fetchedRate && currency.value === 'USD') rateSource.value = 'Manual';
+      if (rateSource && rate.value !== rate.dataset.fetchedRate) rateSource.value = 'Manual';
     });
     rateDate?.addEventListener('change', fetchDailyRate);
     calculate();
-    if (dailyRate && form.dataset.newRecord === '1' && currency.value === 'USD') fetchDailyRate();
+    if (dailyRate && (form.dataset.newRecord === '1' || !rate.value)) fetchDailyRate();
   });
 
   const productPricingForm = qs('[data-product-pricing]');

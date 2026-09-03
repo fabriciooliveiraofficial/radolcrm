@@ -16,7 +16,7 @@ final class ExchangeRateService
     {
     }
 
-    public function current(bool $forceRefresh = false): array
+    public function current(bool $forceRefresh = false, string $base = 'USD', string $quote = 'BRL'): array
     {
         $latest = $this->db->fetch(
             "SELECT * FROM exchange_rates WHERE base_currency = 'USD' AND quote_currency = 'BRL' AND source LIKE 'Frankfurter%' ORDER BY created_at DESC, id DESC LIMIT 1"
@@ -26,17 +26,17 @@ final class ExchangeRateService
         // A idade do cache é baseada no momento da consulta, não no horário da
         // última negociação (que pode ser de sexta-feira durante o fim de semana).
         if (!$forceRefresh && $latest && strtotime($latest['created_at']) >= time() - ($cacheMinutes * 60)) {
-            return $this->format($latest, false);
+            return $this->format($latest, false, $base, $quote);
         }
 
         try {
-            return $this->store($this->fetchRemote(), true);
+            return $this->store($this->fetchRemote(), true, $base, $quote);
         } catch (\Throwable $exception) {
             $fallback = $latest ?: $this->db->fetch(
                 "SELECT * FROM exchange_rates WHERE base_currency='USD' AND quote_currency='BRL' ORDER BY created_at DESC,id DESC LIMIT 1"
             );
             if ($fallback) {
-                $formatted = $this->format($fallback, false);
+                $formatted = $this->format($fallback, false, $base, $quote);
                 $formatted['warning'] = 'Fonte diária indisponível; usando a última cotação salva.';
                 return $formatted;
             }
@@ -46,18 +46,26 @@ final class ExchangeRateService
                 throw new RuntimeException('Não foi possível obter a cotação e não há taxa manual configurada.', 0, $exception);
             }
 
+            $usdRate = $manual;
+            $brlRate = $usdRate > 0 ? round(1 / $usdRate, 6) : 0.0;
+            $isBrl = strtoupper($base) === 'BRL';
+
             return [
-                'bid' => $manual,
-                'ask' => $manual,
+                'bid' => $isBrl ? $brlRate : $usdRate,
+                'ask' => $isBrl ? $brlRate : $usdRate,
+                'usd_to_brl' => $usdRate,
+                'brl_to_usd' => $brlRate,
                 'source' => 'Taxa manual',
                 'quoted_at' => date('Y-m-d H:i:s'),
                 'fresh' => false,
+                'base_currency' => strtoupper($base),
+                'quote_currency' => strtoupper($quote),
                 'warning' => 'Fonte diária indisponível; usando a taxa manual de segurança.',
             ];
         }
     }
 
-    public function forDate(string $date, bool $forceRefresh = false): array
+    public function forDate(string $date, bool $forceRefresh = false, string $base = 'USD', string $quote = 'BRL'): array
     {
         $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
         $errors = DateTimeImmutable::getLastErrors();
@@ -71,18 +79,18 @@ final class ExchangeRateService
                 [$date]
             );
             if ($stored) {
-                return $this->format($stored, false);
+                return $this->format($stored, false, $base, $quote);
             }
         }
 
         if ($date > date('Y-m-d')) {
-            return $this->current($forceRefresh);
+            return $this->current($forceRefresh, $base, $quote);
         }
 
         try {
-            return $this->store($this->fetchRemote($date), true);
+            return $this->store($this->fetchRemote($date), true, $base, $quote);
         } catch (\Throwable $exception) {
-            return $this->current();
+            return $this->current(false, $base, $quote);
         }
     }
 
@@ -151,14 +159,14 @@ final class ExchangeRateService
         ];
     }
 
-    private function store(array $rate, bool $fresh): array
+    private function store(array $rate, bool $fresh, string $base = 'USD', string $quote = 'BRL'): array
     {
         $rate['id'] = $this->db->insert(
             'INSERT INTO exchange_rates (base_currency, quote_currency, bid, ask, source, quoted_at) VALUES (?, ?, ?, ?, ?, ?)',
             ['USD', 'BRL', $rate['bid'], $rate['ask'], $rate['source'], $rate['quoted_at']]
         );
 
-        return $this->format($rate, $fresh);
+        return $this->format($rate, $fresh, $base, $quote);
     }
 
     private function setting(string $key, string $default): string
@@ -167,14 +175,22 @@ final class ExchangeRateService
         return $value === false ? $default : (string) $value;
     }
 
-    private function format(array $row, bool $fresh): array
+    private function format(array $row, bool $fresh, string $base = 'USD', string $quote = 'BRL'): array
     {
+        $usdRate = (float) $row['bid'];
+        $brlRate = $usdRate > 0 ? round(1 / $usdRate, 6) : 0.0;
+        $isBrl = strtoupper($base) === 'BRL';
+
         return [
-            'bid' => (float) $row['bid'],
-            'ask' => (float) ($row['ask'] ?? $row['bid']),
+            'bid' => $isBrl ? $brlRate : $usdRate,
+            'ask' => $isBrl ? $brlRate : (float) ($row['ask'] ?? $usdRate),
+            'usd_to_brl' => $usdRate,
+            'brl_to_usd' => $brlRate,
             'source' => $row['source'],
             'quoted_at' => $row['quoted_at'],
             'fresh' => $fresh,
+            'base_currency' => strtoupper($base),
+            'quote_currency' => strtoupper($quote),
         ];
     }
 }

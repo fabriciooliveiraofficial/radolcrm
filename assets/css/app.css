@@ -345,12 +345,19 @@ td b { color: var(--ink); }
 .whatsapp-bubble-tag { font-size: 11px; font-weight: 750; color: var(--green-700); text-transform: uppercase; letter-spacing: .5px; }
 .whatsapp-bubble-header small { font-size: 11px; color: var(--muted); }
 .whatsapp-bubble-content { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12.5px; line-height: 1.6; color: #1a2f27; white-space: pre-wrap; background: white; padding: 14px; border-radius: 10px; border: 1px solid #d9e6e0; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
-.receipt-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.copy-receipt-btn { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; cursor: pointer; transition: all .18s ease; }
-.copy-receipt-btn.copied { background: #16a34a !important; border-color: #16a34a !important; color: white !important; }
-.whatsapp-direct-btn { display: inline-flex; align-items: center; gap: 7px; background: #25d366; border: 1px solid #20ba5a; color: white !important; font-weight: 700; border-radius: 8px; padding: 8px 14px; text-decoration: none; font-size: 12px; transition: all .18s ease; }
-.whatsapp-direct-btn:hover { background: #1eb956; box-shadow: 0 2px 8px rgba(37,211,102,.35); }
-.receipt-modal-footer { display: flex; justify-content: flex-end; padding-top: 16px; border-top: 1px solid var(--line); margin-top: 6px; }
+.receipt-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 12px 16px; background: #f8faf9; border: 1px solid #dce8e2; border-radius: 12px; flex-wrap: wrap; }
+.copy-receipt-btn { display: inline-flex !important; align-items: center !important; justify-content: center !important; gap: 8px !important; min-height: 42px !important; padding: 10px 18px !important; border-radius: 8px !important; font-size: 13px !important; font-weight: 700 !important; cursor: pointer !important; color: #ffffff !important; background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important; border: 1px solid #059669 !important; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.28) !important; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important; }
+.copy-receipt-btn:hover { background: linear-gradient(135deg, #059669 0%, #047857 100%) !important; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4) !important; transform: translateY(-1px); }
+.copy-receipt-btn:active { transform: translateY(0); }
+.copy-receipt-btn.copied { background: linear-gradient(135deg, #047857 0%, #065f46 100%) !important; border-color: #047857 !important; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.35) !important; color: #ffffff !important; }
+.copy-receipt-btn .btn-copy-icon { display: inline-flex; align-items: center; justify-content: center; }
+.whatsapp-direct-btn { display: inline-flex !important; align-items: center !important; justify-content: center !important; gap: 8px !important; min-height: 42px !important; padding: 10px 18px !important; border-radius: 8px !important; font-size: 13px !important; font-weight: 700 !important; text-decoration: none !important; cursor: pointer !important; color: #ffffff !important; background: linear-gradient(135deg, #25D366 0%, #128C7E 100%) !important; border: 1px solid #1ebd59 !important; box-shadow: 0 2px 8px rgba(37, 211, 102, 0.3) !important; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important; }
+.whatsapp-direct-btn:hover { background: linear-gradient(135deg, #20ba5a 0%, #0e7064 100%) !important; box-shadow: 0 4px 14px rgba(37, 211, 102, 0.45) !important; transform: translateY(-1px); color: #ffffff !important; }
+.whatsapp-direct-btn:active { transform: translateY(0); }
+.whatsapp-direct-btn .btn-wa-icon { display: inline-flex; align-items: center; justify-content: center; }
+.receipt-modal-footer { display: flex; justify-content: flex-end; align-items: center; padding-top: 18px; margin-top: 20px; border-top: 1px solid var(--line); }
+.receipt-modal-footer .button { min-height: 40px; padding: 0 24px; border-radius: 8px; font-size: 13px; font-weight: 700; color: #334155; background: #f1f5f9; border: 1px solid #cbd5e1; transition: all 0.18s ease; }
+.receipt-modal-footer .button:hover { background: #e2e8f0; color: #0f172a; border-color: #94a3b8; }
 .modal-panel > header { display: flex; justify-content: space-between; margin-bottom: 24px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .modal-panel > header h2 { margin: 0; font: 700 22px Georgia,serif; }
 .modal-panel > header p:last-child { max-width:720px;margin:5px 0 0;color:var(--muted);font-size:10px; }
