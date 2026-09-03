@@ -92,7 +92,58 @@ final class FinancialAutomationService
             }
         }
 
-        // 4. Checar limitadores de orçamento do mês corrente
+        // 4. Auto-Pay: Baixa automática no vencimento para contratos e despesas recorrentes
+        $autoPaidInstallments = 0;
+        $autoPayCandidates = $this->db->fetchAll(
+            "SELECT i.*, rt.auto_pay, rt.type rt_type
+             FROM installments i
+             JOIN recurring_templates rt ON rt.id = i.template_id
+             WHERE rt.active = 1 
+               AND rt.auto_pay = 1 
+               AND i.status IN ('pending', 'overdue') 
+               AND i.due_date <= ?",
+            [$today]
+        );
+
+        foreach ($autoPayCandidates as $inst) {
+            $categoryName = (string) $this->db->value('SELECT name FROM categories WHERE id = ?', [$inst['category_id']]) ?: 'Despesas Recorrentes';
+            $paymentDate = $inst['due_date'];
+
+            $expenseId = $this->db->insert(
+                'INSERT INTO expenses (business_unit_id, category_id, type, category, description, supplier, amount, currency, exchange_rate, amount_brl, status, payment_date, is_recurring, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)',
+                [
+                    $inst['business_unit_id'],
+                    $inst['category_id'],
+                    ($inst['rt_type'] ?? '') === 'investment' ? 'investment' : 'expense',
+                    $categoryName,
+                    $inst['description'],
+                    $inst['supplier'],
+                    $inst['amount'],
+                    $inst['currency'],
+                    $inst['exchange_rate'],
+                    $inst['amount_brl'],
+                    'paid',
+                    $paymentDate,
+                    $inst['notes'] ? "Auto-Pay: Parcela {$inst['installment_number']} · {$inst['notes']}" : "Auto-Pay: Parcela {$inst['installment_number']}",
+                ]
+            );
+
+            $this->db->query(
+                "UPDATE installments SET status = 'paid', payment_date = ?, expense_id = ? WHERE id = ?",
+                [$paymentDate, $expenseId, $inst['id']]
+            );
+
+            audit($this->db, 'auto_pay', 'installment', (int) $inst['id'], [
+                'expense_id' => $expenseId,
+                'due_date' => $inst['due_date'],
+                'amount_brl' => $inst['amount_brl'],
+                'auto_pay' => true,
+            ]);
+
+            $autoPaidInstallments++;
+        }
+
+        // 5. Checar limitadores de orçamento do mês corrente
         $finance = new FinanceService($this->db);
         $indices = $finance->categoryExpenseIndices(date('Y-m-01'), date('Y-m-t'));
         $budgetAlertsCount = count($indices['alerts']);
@@ -102,18 +153,19 @@ final class FinancialAutomationService
             'closed_invoices' => $closedInvoices,
             'overdue_installments' => $overdueInstallments,
             'generated_installments' => $generatedInstallments,
+            'auto_paid_installments' => $autoPaidInstallments,
             'budget_alerts_count' => $budgetAlertsCount,
         ];
 
         $summaryJson = (string) json_encode($summary, JSON_UNESCAPED_UNICODE);
-        $this->db->query(
-            "INSERT INTO settings (setting_key, setting_value) VALUES ('financial_automation_last_run_at', ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)",
-            [date('Y-m-d H:i:s')]
-        );
-        $this->db->query(
-            "INSERT INTO settings (setting_key, setting_value) VALUES ('financial_automation_last_summary', ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)",
-            [$summaryJson]
-        );
+        $existingRun = $this->db->value("SELECT setting_value FROM settings WHERE setting_key = 'financial_automation_last_run_at'");
+        if ($existingRun !== null) {
+            $this->db->query("UPDATE settings SET setting_value = ? WHERE setting_key = 'financial_automation_last_run_at'", [date('Y-m-d H:i:s')]);
+            $this->db->query("UPDATE settings SET setting_value = ? WHERE setting_key = 'financial_automation_last_summary'", [$summaryJson]);
+        } else {
+            $this->db->query("INSERT INTO settings (setting_key, setting_value) VALUES ('financial_automation_last_run_at', ?)", [date('Y-m-d H:i:s')]);
+            $this->db->query("INSERT INTO settings (setting_key, setting_value) VALUES ('financial_automation_last_summary', ?)", [$summaryJson]);
+        }
 
         audit($this->db, 'run', 'financial_automation', null, $summary);
 

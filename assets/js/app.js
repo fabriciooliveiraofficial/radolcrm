@@ -74,6 +74,49 @@
     }
   });
 
+  document.addEventListener('click', async (event) => {
+    const copyBtn = event.target.closest('[data-copy-receipt]');
+    if (!copyBtn) return;
+    const card = copyBtn.closest('[data-receipt-item]') || copyBtn.closest('.renewal-receipt-panel');
+    const rawInput = qs('[data-receipt-raw]', card);
+    const text = rawInput ? rawInput.value : qs('[data-receipt-text]', card)?.innerText || '';
+    if (!text) return;
+
+    let success = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      }
+    } catch (_) {
+      success = false;
+    }
+
+    if (!success && rawInput) {
+      try {
+        rawInput.select();
+        success = document.execCommand('copy');
+      } catch (_) {
+        success = false;
+      }
+    }
+
+    if (success) {
+      const label = qs('.btn-copy-label', copyBtn) || copyBtn;
+      const icon = qs('.btn-copy-icon', copyBtn);
+      const prevLabel = label.textContent;
+      const prevIcon = icon?.textContent || '';
+      if (icon) icon.textContent = '✓';
+      label.textContent = 'Mensagem copiada!';
+      copyBtn.classList.add('copied');
+      setTimeout(() => {
+        if (icon) icon.textContent = prevIcon;
+        label.textContent = prevLabel;
+        copyBtn.classList.remove('copied');
+      }, 2500);
+    }
+  });
+
   const initializePaymentBulk = () => {
     const paymentChecks = qsa('[data-payment-check]');
     const checkAll = qs('[data-check-all]');
@@ -334,6 +377,7 @@
   if (paymentClient && paymentSub) {
     const moneyCurrency = qs('[data-money-currency]', paymentClient.form);
     const moneyAmount = qs('[data-money-amount]', paymentClient.form);
+    const paymentCategory = qs('[data-payment-category]', paymentClient.form);
     const filterSubs = () => {
       const clientId = paymentClient.value;
       qsa('option', paymentSub).forEach((option) => {
@@ -354,6 +398,9 @@
       if (!selected?.value) return;
       moneyCurrency.value = selected.dataset.currency;
       moneyAmount.value = selected.dataset.amount;
+      if (paymentCategory && selected.dataset.category && selected.dataset.category !== '0') {
+        paymentCategory.value = selected.dataset.category;
+      }
       moneyCurrency.dispatchEvent(new Event('input'));
     });
     filterSubs();

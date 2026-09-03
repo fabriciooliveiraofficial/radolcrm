@@ -403,6 +403,72 @@ final class FinanceService
         ];
     }
 
+    public function categoryRevenueIndices(string $from, string $to, ?int $businessUnitId = null): array
+    {
+        $buWhere = $businessUnitId ? ' AND (c.business_unit_id = ' . (int) $businessUnitId . ' OR c.business_unit_id IS NULL)' : '';
+        $buWherePay = $businessUnitId ? ' AND p.business_unit_id = ' . (int) $businessUnitId : '';
+
+        $totalRevenue = (float) $this->db->value(
+            "SELECT COALESCE(SUM(p.amount_brl), 0) FROM payments p WHERE p.status = 'paid'{$buWherePay}
+             AND (CASE WHEN p.currency = 'USD' THEN COALESCE(p.settlement_date, p.payment_date) ELSE p.payment_date END) BETWEEN ? AND ?",
+            [$from, $to]
+        );
+
+        $categories = $this->db->fetchAll(
+            "SELECT c.id, c.name, c.icon, c.color, bu.name bu_name, bu.icon bu_icon,
+                    COALESCE(SUM(p.amount_brl), 0) revenue_brl,
+                    COALESCE(SUM(p.net_brl), 0) net_brl,
+                    COUNT(p.id) payment_count
+             FROM categories c
+             LEFT JOIN business_units bu ON bu.id = c.business_unit_id
+             LEFT JOIN payments p ON p.category_id = c.id AND p.status = 'paid'{$buWherePay}
+                  AND (CASE WHEN p.currency = 'USD' THEN COALESCE(p.settlement_date, p.payment_date) ELSE p.payment_date END) BETWEEN ? AND ?
+             WHERE c.active = 1 AND c.type IN ('income', 'both') {$buWhere}
+             GROUP BY c.id, c.name, c.icon, c.color, bu.name, bu.icon
+             HAVING revenue_brl > 0
+             ORDER BY revenue_brl DESC, c.name ASC",
+            [$from, $to]
+        );
+
+        $uncategorized = $this->db->fetch(
+            "SELECT COALESCE(SUM(p.amount_brl), 0) revenue_brl,
+                    COALESCE(SUM(p.net_brl), 0) net_brl,
+                    COUNT(p.id) payment_count
+             FROM payments p
+             WHERE p.status = 'paid' AND (p.category_id IS NULL OR p.category_id = 0){$buWherePay}
+             AND (CASE WHEN p.currency = 'USD' THEN COALESCE(p.settlement_date, p.payment_date) ELSE p.payment_date END) BETWEEN ? AND ?",
+            [$from, $to]
+        );
+
+        if ((float) ($uncategorized['revenue_brl'] ?? 0) > 0) {
+            $categories[] = [
+                'id' => 0,
+                'name' => 'Outras / Sem categoria',
+                'icon' => '📁',
+                'color' => '#64748b',
+                'bu_name' => null,
+                'bu_icon' => null,
+                'revenue_brl' => (float) $uncategorized['revenue_brl'],
+                'net_brl' => (float) $uncategorized['net_brl'],
+                'payment_count' => (int) $uncategorized['payment_count'],
+            ];
+        }
+
+        $analyzedCategories = [];
+        foreach ($categories as $cat) {
+            $rev = (float) $cat['revenue_brl'];
+            $pct = $totalRevenue > 0 ? round(($rev / $totalRevenue) * 100, 2) : 0.0;
+            $cat['revenue_brl'] = $rev;
+            $cat['pct_of_revenue'] = $pct;
+            $analyzedCategories[] = $cat;
+        }
+
+        return [
+            'total_revenue' => $totalRevenue,
+            'categories' => $analyzedCategories,
+        ];
+    }
+
     public function financialAgenda(string $from, string $to, ?int $businessUnitId = null, float $usdRate = 5.5): array
     {
         $events = [];

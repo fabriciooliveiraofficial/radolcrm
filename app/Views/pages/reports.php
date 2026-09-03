@@ -8,6 +8,7 @@ $metrics = $finance->dashboard($from, $to, $rate['bid']);
 $series = $finance->monthlySeries(12);
 
 $participation = $finance->revenueParticipation($from, $to);
+$revenueIndices = $finance->categoryRevenueIndices($from, $to, $buFilter ?? null);
 $categoryIndices = $finance->categoryExpenseIndices($from, $to);
 
 $byCountry = $db->fetchAll("SELECT c.country, COUNT(DISTINCT p.client_id) clients, COALESCE(SUM(p.amount_brl), 0) revenue FROM payments p JOIN clients c ON c.id=p.client_id WHERE p.status='paid' AND (CASE WHEN p.currency='USD' THEN COALESCE(p.settlement_date, p.payment_date) ELSE p.payment_date END) BETWEEN ? AND ? GROUP BY c.country ORDER BY revenue DESC", [$from, $to]);
@@ -114,7 +115,47 @@ $maxProduct = max(array_column($byProduct, 'revenue') ?: [1]);
     </div>
 </section>
 
-<!-- 2. Category Expense Indices & Limiters Table -->
+<!-- 2. Revenue by Category -->
+<section class="card" style="margin-bottom: 1.5rem;">
+    <div class="card-header padded">
+        <div>
+            <p class="eyebrow">RECEITAS POR CATEGORIA</p>
+            <h2>Origem detalhada do faturamento</h2>
+        </div>
+        <span class="muted">Total Faturado: <b><?= money($revenueIndices['total_revenue']) ?></b></span>
+    </div>
+    <div style="padding: 1rem 1.25rem;">
+        <?php if (!$revenueIndices['categories']): ?>
+            <div class="empty-mini">Nenhuma receita registrada no período.</div>
+        <?php else: ?>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem;">
+                <?php foreach ($revenueIndices['categories'] as $cat): ?>
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <span class="badge" style="background: <?= h($cat['color']) ?>22; color: <?= h($cat['color']) ?>; border: 1px solid <?= h($cat['color']) ?>55;">
+                                <?= h($cat['icon']) ?> <?= h($cat['name']) ?>
+                            </span>
+                            <small class="muted"><?= (int) $cat['payment_count'] ?> recebimento(s)</small>
+                        </div>
+                        <div style="font-size: 1.35rem; font-weight: 700; color: var(--text, #fff); margin-bottom: 0.5rem;">
+                            <?= money($cat['revenue_brl']) ?>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <div style="flex: 1; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden;">
+                                <div style="background: <?= h($cat['color'] ?: '#10b981') ?>; width: <?= min(100, $cat['pct_of_revenue']) ?>%; height: 100%;"></div>
+                            </div>
+                            <span style="font-size: 0.82rem; font-weight: 600; color: <?= h($cat['color'] ?: '#10b981') ?>;">
+                                <?= number_format($cat['pct_of_revenue'], 1, ',', '.') ?>%
+                            </span>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+</section>
+
+<!-- 3. Category Expense Indices & Limiters Table -->
 <section class="card table-card" style="margin-bottom: 1.5rem;">
     <div class="card-header padded">
         <div>

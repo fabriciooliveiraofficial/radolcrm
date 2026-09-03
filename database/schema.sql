@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE TABLE IF NOT EXISTS products (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     business_unit_id BIGINT UNSIGNED NULL,
+    category_id BIGINT UNSIGNED NULL,
     name VARCHAR(160) NOT NULL,
     sku VARCHAR(80) NULL UNIQUE,
     description TEXT NULL,
@@ -102,8 +103,10 @@ CREATE TABLE IF NOT EXISTS products (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_products_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units(id) ON DELETE SET NULL,
+    CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
     INDEX idx_products_active (active),
-    INDEX idx_products_bu (business_unit_id)
+    INDEX idx_products_bu (business_unit_id),
+    INDEX idx_products_category (category_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -341,6 +344,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     end_date DATE NULL,
     day_of_month TINYINT UNSIGNED NULL,
     auto_generate TINYINT(1) NOT NULL DEFAULT 1,
+    auto_pay TINYINT(1) NOT NULL DEFAULT 0,
     notes TEXT NULL,
     active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -490,7 +494,7 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('whatsapp_support_phone', ''),
 ('whatsapp_test_phone', ''),
 ('whatsapp_test_country', 'BR'),
-('schema_version', '11')
+('schema_version', '15')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
 
 INSERT INTO whatsapp_automation_steps

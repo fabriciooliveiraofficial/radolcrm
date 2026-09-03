@@ -104,6 +104,16 @@ $colorOptions = ['#2b826b','#6366f1','#3b82f6','#06b6d4','#10b981','#f59e0b','#f
     </div>
 </section>
 
+<div class="card" style="background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 0.85rem 1.25rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.85rem;">
+    <span style="font-size: 1.5rem;">🎯</span>
+    <div style="font-size: 0.85rem; line-height: 1.4;">
+        <strong style="color: #60a5fa;">Plano de Contas Estratégico & Enxuto (Padrão ERP Moderno)</strong><br>
+        <span style="color: var(--text-muted, #94a3b8);">
+            Mantenha suas categorias amplas e estratégicas (ex.: <em>Softwares & Ferramentas, Operação, Equipe, Marketing</em>). O raio-X cirúrgico de cada gasto é feito no campo <strong>Fornecedor / Descrição</strong> (ex.: <em>OpenAI, Google, Posto Shell</em>), evitando a proliferação desordenada de categorias.
+        </span>
+    </div>
+</div>
+
 <div data-live-results>
     <section class="card table-card">
         <div class="table-meta">

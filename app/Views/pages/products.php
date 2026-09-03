@@ -1,6 +1,8 @@
 <?php
+$buFilter = $buFilter ?? null;
 $search = trim((string) ($_GET['q'] ?? ''));
 $allBusinesses = $db->fetchAll('SELECT id, name, icon, color FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
+$incomeCategories = $db->fetchAll("SELECT id, name, icon, color, business_unit_id FROM categories WHERE active = 1 AND type IN ('income', 'both') ORDER BY sort_order ASC, name ASC");
 $params = [];
 $where = ' WHERE 1=1';
 if ($buFilter !== null) {
@@ -9,15 +11,15 @@ if ($buFilter !== null) {
     $params[] = $buFilter;
 }
 if ($search !== '') {
-    $where .= " AND CONCAT_WS(' ',p.id,p.name,p.sku,p.description,p.price_brl,REPLACE(p.price_brl,'.',','),p.price_usd,REPLACE(p.price_usd,'.',','),p.pricing_mode,CASE p.pricing_mode WHEN 'manual' THEN 'Preços locais independentes' WHEN 'brl' THEN 'Cotado em BRL real' WHEN 'usd' THEN 'Cotado em USD dólar' END,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,CASE p.active WHEN 1 THEN 'Ativo' ELSE 'Inativo' END,(SELECT COUNT(*) FROM subscriptions sx WHERE sx.product_id=p.id AND sx.status='active'),'assinaturas') LIKE ?";
+    $where .= " AND CONCAT_WS(' ',p.id,p.name,p.sku,p.description,p.price_brl,REPLACE(p.price_brl,'.',','),p.price_usd,REPLACE(p.price_usd,'.',','),p.pricing_mode,CASE p.pricing_mode WHEN 'manual' THEN 'Preços locais independentes' WHEN 'brl' THEN 'Cotado em BRL real' WHEN 'usd' THEN 'Cotado em USD dólar' END,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,CASE p.active WHEN 1 THEN 'Ativo' ELSE 'Inativo' END,COALESCE(cat.name,''),(SELECT COUNT(*) FROM subscriptions sx WHERE sx.product_id=p.id AND sx.status='active'),'assinaturas') LIKE ?";
     $params[] = '%' . $search . '%';
 }
 $currentQuote = $rates->current();
 $currentRate = (float) $currentQuote['bid'];
 $pagination = pagination(
     $db,
-    'SELECT COUNT(*) FROM products p' . $where,
-    'SELECT p.*, (SELECT COUNT(*) FROM subscriptions s WHERE s.product_id=p.id AND s.status=\'active\') active_subscriptions FROM products p' . $where . ' ORDER BY p.active DESC,p.created_at DESC',
+    'SELECT COUNT(*) FROM products p LEFT JOIN categories cat ON cat.id=p.category_id' . $where,
+    'SELECT p.*, cat.name as category_name, cat.icon as category_icon, cat.color as category_color, (SELECT COUNT(*) FROM subscriptions s WHERE s.product_id=p.id AND s.status=\'active\') active_subscriptions FROM products p LEFT JOIN categories cat ON cat.id=p.category_id' . $where . ' ORDER BY p.active DESC,p.created_at DESC',
     $params
 );
 foreach ($pagination['rows'] as $key => $product) {
@@ -40,7 +42,7 @@ $pricingMode = $edit['pricing_mode'] ?? 'manual';
 <?php foreach ($pagination['rows'] as $item):
     $modeLabel = ['manual'=>'Preços locais','brl'=>'Cotado em BRL','usd'=>'Cotado em USD'][$item['pricing_mode']] ?? 'Preços locais';
 ?>
-<article class="card product-card <?= !$item['active'] ? 'disabled' : '' ?>"><div class="product-top"><span class="product-icon">◇</span><span class="badge <?= $item['active'] ? 'success' : 'muted' ?>"><?= $item['active'] ? 'Ativo' : 'Inativo' ?></span></div><h2><?= h($item['name']) ?></h2><p><?= h($item['description'] ?: 'Sem descrição') ?></p><div class="product-pricing-mode"><b><?= h($modeLabel) ?></b><?php if ($item['pricing_mode'] !== 'manual'): ?><span>US$ 1 = <?= money($currentRate) ?> · <?= date_br($currentQuote['quoted_at']) ?></span><?php else: ?><span>Valores definidos separadamente</span><?php endif; ?></div><div class="local-prices"><div><small>🇧🇷 BRASIL</small><strong><?= money($item['price_brl']) ?></strong></div><div><small>🇺🇸 ESTADOS UNIDOS</small><strong><?= money($item['price_usd'], 'USD') ?></strong></div></div><footer><span><?= cycle_label($item['billing_cycle']) ?> · <?= (int) $item['active_subscriptions'] ?> assinaturas</span><a href="?page=products&edit=<?= (int) $item['id'] ?>">Editar →</a></footer></article>
+<article class="card product-card <?= !$item['active'] ? 'disabled' : '' ?>"><div class="product-top"><span class="product-icon">◇</span><div style="display: flex; gap: 0.35rem; align-items: center;"><?php if (!empty($item['category_name'])): ?><span class="badge" style="background: <?= h($item['category_color'] ?: '#10b981') ?>22; color: <?= h($item['category_color'] ?: '#10b981') ?>; border: 1px solid <?= h($item['category_color'] ?: '#10b981') ?>55; font-size: 0.72rem; padding: 0.15rem 0.45rem;"><?= h($item['category_icon'] ?: '💎') ?> <?= h($item['category_name']) ?></span><?php endif; ?><span class="badge <?= $item['active'] ? 'success' : 'muted' ?>"><?= $item['active'] ? 'Ativo' : 'Inativo' ?></span></div></div><h2><?= h($item['name']) ?></h2><p><?= h($item['description'] ?: 'Sem descrição') ?></p><div class="product-pricing-mode"><b><?= h($modeLabel) ?></b><?php if ($item['pricing_mode'] !== 'manual'): ?><span>US$ 1 = <?= money($currentRate) ?> · <?= date_br($currentQuote['quoted_at']) ?></span><?php else: ?><span>Valores definidos separadamente</span><?php endif; ?></div><div class="local-prices"><div><small>🇧🇷 BRASIL</small><strong><?= money($item['price_brl']) ?></strong></div><div><small>🇺🇸 ESTADOS UNIDOS</small><strong><?= money($item['price_usd'], 'USD') ?></strong></div></div><footer><span><?= cycle_label($item['billing_cycle']) ?> · <?= (int) $item['active_subscriptions'] ?> assinaturas</span><a href="?page=products&edit=<?= (int) $item['id'] ?>">Editar →</a></footer></article>
 <?php endforeach; ?>
 </section><?= render_pagination($pagination) ?>
 </div>
@@ -49,7 +51,18 @@ $pricingMode = $edit['pricing_mode'] ?? 'manual';
 <div class="modal open"><a class="modal-backdrop" href="?page=products"></a><section class="modal-panel"><header><div><p class="eyebrow">CATÁLOGO</p><h2><?= $edit ? 'Editar produto' : 'Novo produto' ?></h2></div><a href="?page=products" class="modal-close">×</a></header>
 <form method="post" class="form-grid" data-product-pricing data-current-rate="<?= h($currentRate) ?>">
     <?= csrf_field() ?><input type="hidden" name="action" value="save_product"><input type="hidden" name="id" value="<?= (int) ($edit['id'] ?? 0) ?>"><input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
-    <label class="span-2">Unidade de Negócio / Empresa<select name="business_unit_id" required><?php $selectedBuProduct = $edit ? (int)($edit['business_unit_id'] ?? 0) : ($buFilter ?: (int)($allBusinesses[0]['id'] ?? 1)); foreach ($allBusinesses as $bu): ?><option value="<?= (int) $bu['id'] ?>" <?= $selectedBuProduct === (int) $bu['id'] ? 'selected' : '' ?>><?= h($bu['icon']) ?> <?= h($bu['name']) ?></option><?php endforeach; ?></select></label>
+    <label class="span-2">Unidade de Negócio / Empresa<select name="business_unit_id" required><?php $selectedBuProduct = $edit ? (int)($edit['business_unit_id'] ?? 0) : ($buFilter ?: (int)($allBusinesses[0]['id'] ?? 1)); foreach ($allBusinesses as $bu): ?><option value="<?= (int) ($bu['id'] ?? 1) ?>" <?= $selectedBuProduct === (int) ($bu['id'] ?? 1) ? 'selected' : '' ?>><?= h($bu['icon'] ?? '💼') ?> <?= h($bu['name'] ?? '') ?></option><?php endforeach; ?></select></label>
+    <label class="span-2">Categoria de Receita
+        <select name="category_id">
+            <option value="">-- Nenhuma / Categoria Geral --</option>
+            <?php foreach ($incomeCategories as $cat): ?>
+                <option value="<?= (int) ($cat['id'] ?? 0) ?>" <?= ($edit['category_id'] ?? 0) == ($cat['id'] ?? 0) ? 'selected' : '' ?>>
+                    <?= h($cat['icon'] ?? '💎') ?> <?= h($cat['name'] ?? '') ?>
+                </option>
+            <?php endforeach; ?>
+        </select>
+        <small>Toda assinatura ou renovação deste produto herdará esta categoria de receita automaticamente.</small>
+    </label>
     <label class="span-2">Nome do produto<input name="name" required value="<?= h($edit['name'] ?? '') ?>"></label>
     <label>SKU<input name="sku" value="<?= h($edit['sku'] ?? '') ?>" placeholder="PLANO-PRO"></label>
     <label>Ciclo de cobrança<select name="billing_cycle"><option value="monthly" <?= ($edit['billing_cycle'] ?? 'monthly') === 'monthly' ? 'selected' : '' ?>>Mensal</option><option value="quarterly" <?= ($edit['billing_cycle'] ?? '') === 'quarterly' ? 'selected' : '' ?>>Trimestral</option><option value="semiannual" <?= ($edit['billing_cycle'] ?? '') === 'semiannual' ? 'selected' : '' ?>>Semestral</option><option value="annual" <?= ($edit['billing_cycle'] ?? '') === 'annual' ? 'selected' : '' ?>>Anual</option></select></label>

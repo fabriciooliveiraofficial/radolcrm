@@ -61,14 +61,15 @@ $month = $db->fetch(
 $allBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
 
 $allCategories = $db->fetchAll(
-    'SELECT c.*, bu.name bu_name, p.name parent_name
+    'SELECT c.*, bu.name bu_name
      FROM categories c
      LEFT JOIN business_units bu ON bu.id = c.business_unit_id
-     LEFT JOIN categories p ON p.id = c.parent_id
-     WHERE c.active = 1 AND c.type IN ("expense", "investment", "both")' .
+     WHERE c.active = 1 AND (c.parent_id IS NULL OR c.parent_id = 0) AND c.type IN ("expense", "investment", "both")' .
      ($buFilter !== null ? ' AND (c.business_unit_id = ' . (int)$buFilter . ' OR c.business_unit_id IS NULL)' : '') . '
-     ORDER BY COALESCE(c.parent_id, c.id) ASC, (c.parent_id IS NOT NULL) ASC, c.sort_order ASC, c.name ASC'
+     ORDER BY c.sort_order ASC, c.name ASC'
 );
+
+$frequentSuppliers = $db->fetchAll("SELECT DISTINCT supplier FROM expenses WHERE supplier IS NOT NULL AND supplier != '' ORDER BY id DESC LIMIT 50");
 ?>
 <section class="mini-stats money-stats">
     <div>
@@ -233,7 +234,7 @@ $allCategories = $db->fetchAll(
                     <option value="">Selecione uma categoria…</option>
                     <?php foreach ($allCategories as $cat): ?>
                         <option value="<?= (int) $cat['id'] ?>" <?= ((int) ($edit['category_id'] ?? 0)) === (int) $cat['id'] ? 'selected' : '' ?>>
-                            <?= h($cat['icon']) ?> <?= $cat['parent_name'] ? h($cat['parent_name']) . ' ↳ ' : '' ?><?= h($cat['name']) ?><?= $cat['bu_name'] ? ' (' . h($cat['bu_name']) . ')' : '' ?>
+                            <?= h($cat['icon']) ?> <?= h($cat['name']) ?><?= !empty($cat['bu_name']) ? ' (' . h($cat['bu_name']) . ')' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -246,7 +247,12 @@ $allCategories = $db->fetchAll(
 
             <label class="span-2">
                 Fornecedor ou favorecido
-                <input name="supplier" value="<?= h($edit['supplier'] ?? '') ?>" placeholder="Ex.: Posto Shell, Carrefour, AWS, Proprietário">
+                <input name="supplier" list="frequent-suppliers" value="<?= h($edit['supplier'] ?? '') ?>" placeholder="Ex.: Posto Shell, Carrefour, AWS, Proprietário">
+                <datalist id="frequent-suppliers">
+                    <?php foreach ($frequentSuppliers as $sup): ?>
+                        <option value="<?= h($sup['supplier']) ?>">
+                    <?php endforeach; ?>
+                </datalist>
             </label>
 
             <label>

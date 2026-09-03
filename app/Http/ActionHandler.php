@@ -100,9 +100,10 @@ final class ActionHandler
         $service = new \App\Services\FinancialAutomationService($this->db);
         $res = $service->runDailyFinancialAutomation();
 
+        $autoPaidText = ($res['auto_paid_installments'] ?? 0) > 0 ? ", {$res['auto_paid_installments']} parcelas quitadas automaticamente via Auto-Pay" : '';
         Flash::add(
             'success',
-            "Automação executada: {$res['closed_invoices']} faturas fechadas, {$res['overdue_installments']} parcelas vencidas marcadas, {$res['generated_installments']} novas parcelas geradas."
+            "Automação executada: {$res['closed_invoices']} faturas fechadas, {$res['overdue_installments']} parcelas vencidas marcadas, {$res['generated_installments']} novas parcelas geradas{$autoPaidText}."
         );
         return $this->returnUrl('?page=settings#automation');
     }
@@ -319,24 +320,25 @@ final class ActionHandler
         $startDate = $this->required('start_date', 'Informe a data de início ou primeiro vencimento.');
         $dayOfMonth = (int) ($_POST['day_of_month'] ?? 0) ?: (int) date('d', strtotime($startDate));
         $autoGenerate = isset($_POST['auto_generate']) ? 1 : 0;
+        $autoPay = isset($_POST['auto_pay']) ? 1 : 0;
         $notes = $this->nullable('notes');
         $active = isset($_POST['active']) ? 1 : 0;
 
         $params = [
             $businessUnitId, $categoryId, $type, $description, $supplier, $amount, $currency, $rate,
-            $recurrence, $totalInstallments, $startDate, null, $dayOfMonth, $autoGenerate, $notes, $active,
+            $recurrence, $totalInstallments, $startDate, null, $dayOfMonth, $autoGenerate, $autoPay, $notes, $active,
         ];
 
         if ($id) {
             $params[] = $id;
             $this->db->query(
-                'UPDATE recurring_templates SET business_unit_id=?, category_id=?, type=?, description=?, supplier=?, amount=?, currency=?, exchange_rate=?, recurrence=?, total_installments=?, start_date=?, end_date=?, day_of_month=?, auto_generate=?, notes=?, active=? WHERE id=?',
+                'UPDATE recurring_templates SET business_unit_id=?, category_id=?, type=?, description=?, supplier=?, amount=?, currency=?, exchange_rate=?, recurrence=?, total_installments=?, start_date=?, end_date=?, day_of_month=?, auto_generate=?, auto_pay=?, notes=?, active=? WHERE id=?',
                 $params
             );
             audit($this->db, 'update', 'recurring_template', $id, ['description' => $description]);
         } else {
             $id = $this->db->insert(
-                'INSERT INTO recurring_templates (business_unit_id, category_id, type, description, supplier, amount, currency, exchange_rate, recurrence, total_installments, start_date, end_date, day_of_month, auto_generate, notes, active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                'INSERT INTO recurring_templates (business_unit_id, category_id, type, description, supplier, amount, currency, exchange_rate, recurrence, total_installments, start_date, end_date, day_of_month, auto_generate, auto_pay, notes, active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 $params
             );
             audit($this->db, 'create', 'recurring_template', $id, ['description' => $description]);
@@ -631,6 +633,7 @@ final class ActionHandler
     {
         $id = $this->id();
         $businessUnitId = $this->businessUnitId();
+        $categoryId = $this->categoryId();
         $pricingMode = $this->choice('pricing_mode', ['manual', 'brl', 'usd']);
         $priceBrl = normalize_decimal($_POST['price_brl'] ?? 0);
         $priceUsd = normalize_decimal($_POST['price_usd'] ?? 0);
@@ -650,7 +653,7 @@ final class ActionHandler
             throw new RuntimeException('Informe um preço positivo na moeda-base selecionada.');
         }
         $params = [
-            $businessUnitId,
+            $businessUnitId, $categoryId,
             $this->required('name', 'Informe o nome do produto.'), $this->nullable('sku'), $this->nullable('description'),
             $priceBrl, $priceUsd, $pricingMode, $quote['bid'] ?? null, $quote['source'] ?? null,
             isset($quote['quoted_at']) ? substr((string) $quote['quoted_at'], 0, 10) : null,
@@ -658,11 +661,11 @@ final class ActionHandler
         ];
         if ($id) {
             $params[] = $id;
-            $this->db->query('UPDATE products SET business_unit_id=?, name=?, sku=?, description=?, price_brl=?, price_usd=?, pricing_mode=?, price_exchange_rate=?, price_rate_source=?, price_rate_date=?, billing_cycle=?, active=? WHERE id=?', $params);
-            audit($this->db, 'update', 'product', $id, ['pricing_mode'=>$pricingMode,'price_brl'=>$priceBrl,'price_usd'=>$priceUsd,'exchange_rate'=>$quote['bid'] ?? null]);
+            $this->db->query('UPDATE products SET business_unit_id=?, category_id=?, name=?, sku=?, description=?, price_brl=?, price_usd=?, pricing_mode=?, price_exchange_rate=?, price_rate_source=?, price_rate_date=?, billing_cycle=?, active=? WHERE id=?', $params);
+            audit($this->db, 'update', 'product', $id, ['pricing_mode'=>$pricingMode,'price_brl'=>$priceBrl,'price_usd'=>$priceUsd,'category_id'=>$categoryId,'exchange_rate'=>$quote['bid'] ?? null]);
         } else {
-            $id = $this->db->insert('INSERT INTO products (business_unit_id, name, sku, description, price_brl, price_usd, pricing_mode, price_exchange_rate, price_rate_source, price_rate_date, billing_cycle, active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', $params);
-            audit($this->db, 'create', 'product', $id, ['pricing_mode'=>$pricingMode,'price_brl'=>$priceBrl,'price_usd'=>$priceUsd,'exchange_rate'=>$quote['bid'] ?? null]);
+            $id = $this->db->insert('INSERT INTO products (business_unit_id, category_id, name, sku, description, price_brl, price_usd, pricing_mode, price_exchange_rate, price_rate_source, price_rate_date, billing_cycle, active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', $params);
+            audit($this->db, 'create', 'product', $id, ['pricing_mode'=>$pricingMode,'price_brl'=>$priceBrl,'price_usd'=>$priceUsd,'category_id'=>$categoryId,'exchange_rate'=>$quote['bid'] ?? null]);
         }
         Flash::add('success', $pricingMode === 'manual' ? 'Produto salvo com preços locais.' : 'Produto salvo e convertido pela cotação diária.');
         return $this->returnUrl('?page=products');
@@ -932,11 +935,14 @@ final class ActionHandler
 
         $processed = 0;
         $planChanges = 0;
-        $this->db->transaction(function (Database $db) use ($rows, $quotes, &$processed, &$planChanges): void {
+        $receipts = [];
+        $this->db->transaction(function (Database $db) use ($rows, $quotes, &$processed, &$planChanges, &$receipts): void {
             foreach ($rows as $row) {
                 $subscription = $db->fetch(
-                    "SELECT s.*,p.name product,p.billing_cycle
-                     FROM subscriptions s JOIN products p ON p.id=s.product_id
+                    "SELECT s.*, p.name product, p.billing_cycle, c.name client, c.phone client_phone, c.country client_country
+                     FROM subscriptions s
+                     JOIN products p ON p.id=s.product_id
+                     JOIN clients c ON c.id=s.client_id
                      WHERE s.id=? FOR UPDATE",
                     [$row['subscription_id']]
                 );
@@ -982,16 +988,23 @@ final class ActionHandler
                 $buId = (int) $db->value('SELECT business_unit_id FROM clients WHERE id=?', [$subscription['client_id']])
                     ?: ((int) ($product['business_unit_id'] ?? 0) ?: 1);
 
+                $categoryId = (int) ($product['category_id'] ?? 0) ?: null;
+                if (!$categoryId) {
+                    $categoryId = (int) $db->value("SELECT id FROM categories WHERE name='Receitas com Assinaturas' LIMIT 1")
+                        ?: (int) $db->value("SELECT id FROM categories WHERE type IN ('income','both') LIMIT 1")
+                        ?: null;
+                }
+
                 if ($payment) {
                     $paymentId = (int) $payment['id'];
                     $db->query(
-                        "UPDATE payments SET business_unit_id=COALESCE(business_unit_id,?),client_id=?,description=?,amount=?,base_amount=?,discount_amount=?,surcharge_amount=?,manual_adjustment_amount=?,
+                        "UPDATE payments SET business_unit_id=COALESCE(business_unit_id,?),category_id=COALESCE(category_id,?),client_id=?,description=?,amount=?,base_amount=?,discount_amount=?,surcharge_amount=?,manual_adjustment_amount=?,
                             renewal_mode=?,renewal_months=?,renewal_days=?,renewal_start_date=?,renewal_end_date=?,
                             currency=?,exchange_rate=?,exchange_rate_source=?,amount_brl=?,fee_amount=?,fee_brl=?,net_brl=?,status='paid',
                             due_date=?,payment_date=?,settlement_date=?,payment_method=?,external_reference=?,notes=?
                          WHERE id=? AND status='pending'",
                         [
-                            $buId,$subscription['client_id'],$description,$row['amount'],$row['base_amount'],$row['payment_discount'],
+                            $buId,$categoryId,$subscription['client_id'],$description,$row['amount'],$row['base_amount'],$row['payment_discount'],
                             $row['surcharge_amount'],$row['manual_adjustment_amount'],$row['renewal_mode'],$row['renewal_months'],
                             $row['renewal_days'],$row['renewal_start_date'],$row['renewal_end_date'],$row['currency'],$rate,
                             $quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],
@@ -1001,13 +1014,13 @@ final class ActionHandler
                 } else {
                     $paymentId = $db->insert(
                         "INSERT INTO payments (
-                            business_unit_id,subscription_id,client_id,description,amount,base_amount,discount_amount,surcharge_amount,manual_adjustment_amount,
+                            business_unit_id,subscription_id,client_id,category_id,description,amount,base_amount,discount_amount,surcharge_amount,manual_adjustment_amount,
                             renewal_mode,renewal_months,renewal_days,renewal_start_date,renewal_end_date,
                             currency,exchange_rate,exchange_rate_source,amount_brl,fee_amount,fee_brl,net_brl,status,
                             due_date,payment_date,settlement_date,payment_method,external_reference,notes
-                         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'paid',?,?,?,?,?,?)",
+                         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'paid',?,?,?,?,?,?)",
                         [
-                            $buId,$row['subscription_id'],$subscription['client_id'],$description,$row['amount'],$row['base_amount'],
+                            $buId,$row['subscription_id'],$subscription['client_id'],$categoryId,$description,$row['amount'],$row['base_amount'],
                             $row['payment_discount'],$row['surcharge_amount'],$row['manual_adjustment_amount'],$row['renewal_mode'],
                             $row['renewal_months'],$row['renewal_days'],$row['renewal_start_date'],$row['renewal_end_date'],$row['currency'],
                             $rate,$quote['source'],$amountBrl,$row['fee_amount'],$feeBrl,$netBrl,$row['due_date'],$row['receipt_date'],
@@ -1036,9 +1049,30 @@ final class ActionHandler
                     'exchange_rate' => $rate,
                     'amount_brl' => $amountBrl,
                 ]);
+
+                $receipts[] = [
+                    'subscription_id' => $row['subscription_id'],
+                    'client_name' => (string) ($subscription['client'] ?? 'Cliente'),
+                    'client_phone' => (string) ($subscription['client_phone'] ?? ''),
+                    'client_country' => (string) ($subscription['client_country'] ?? 'BR'),
+                    'product_name' => (string) ($product['name'] ?? 'Assinatura'),
+                    'quantity' => (int) ($row['quantity'] ?? 1),
+                    'amount' => (float) $row['amount'],
+                    'currency' => (string) $row['currency'],
+                    'payment_date' => (string) $row['receipt_date'],
+                    'due_date' => (string) $row['due_date'],
+                    'renewal_end_date' => (string) $row['renewal_end_date'],
+                    'period_label' => (string) $periodLabel,
+                    'payment_method' => (string) ($row['payment_method'] ?? ''),
+                ];
+
                 $processed++;
             }
         });
+
+        if (!empty($receipts)) {
+            $_SESSION['_renewal_receipts'] = $receipts;
+        }
 
         $message = $processed . ' renovação(ões) confirmada(s), recebida(s) e registrada(s).';
         if ($planChanges > 0) {
@@ -1164,7 +1198,9 @@ final class ActionHandler
                 $feeBrl = round((float) $payment['fee_amount'] * $rate, 2);
                 $netBrl = $amountBrl - $feeBrl;
                 $statement = $db->query(
-                    "UPDATE payments SET business_unit_id=COALESCE(business_unit_id, (SELECT business_unit_id FROM clients WHERE clients.id=payments.client_id), 1), status='paid', payment_date=COALESCE(payment_date,?), settlement_date=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_brl=?, net_brl=? WHERE id=? AND status='pending'",
+                    "UPDATE payments SET business_unit_id=COALESCE(business_unit_id, (SELECT business_unit_id FROM clients WHERE clients.id=payments.client_id), 1),
+                        category_id=COALESCE(category_id, (SELECT pr.category_id FROM subscriptions s JOIN products pr ON pr.id=s.product_id WHERE s.id=payments.subscription_id), (SELECT id FROM categories WHERE name='Receitas com Assinaturas' LIMIT 1)),
+                        status='paid', payment_date=COALESCE(payment_date,?), settlement_date=?, exchange_rate=?, exchange_rate_source=?, amount_brl=?, fee_brl=?, net_brl=? WHERE id=? AND status='pending'",
                     [$settlementDate, $payment['currency'] === 'USD' ? $settlementDate : null, $rate, $rateSource, $amountBrl, $feeBrl, $netBrl, $payment['id']]
                 );
                 if ($statement->rowCount() !== 1) {

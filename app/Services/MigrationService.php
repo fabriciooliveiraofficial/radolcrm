@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 13;
+    private const VERSION = 15;
 
     public function __construct(private readonly Database $db)
     {
@@ -667,6 +667,132 @@ final class MigrationService
                 UPDATE cash_entries SET business_unit_id = ?
                 WHERE business_unit_id IS NULL OR business_unit_id = 0
             ", [$mainBuId]);
+        }
+        if ($version < 14) {
+            // 1. Adicionar category_id em products se não existir
+            if (!$this->columnExists('products', 'category_id')) {
+                $this->db->query("ALTER TABLE products ADD COLUMN category_id BIGINT UNSIGNED NULL AFTER business_unit_id, ADD INDEX idx_products_category (category_id)");
+                $this->optionalDdl("ALTER TABLE products ADD CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL");
+            }
+
+            // 2. Garantir que existam categorias de receita padrão
+            $mainBuId = (int) ($this->db->value("SELECT id FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC LIMIT 1") ?: 1);
+
+            $defaultIncomeCategories = [
+                ['name' => 'Receitas com Assinaturas', 'icon' => '💎', 'color' => '#10b981', 'sort_order' => 1],
+                ['name' => 'Vendas de Produtos', 'icon' => '📦', 'color' => '#3b82f6', 'sort_order' => 2],
+                ['name' => 'Serviços e Consultorias', 'icon' => '🛠️', 'color' => '#8b5cf6', 'sort_order' => 3],
+                ['name' => 'Outras Receitas', 'icon' => '💰', 'color' => '#f59e0b', 'sort_order' => 4],
+            ];
+
+            foreach ($defaultIncomeCategories as $cat) {
+                $existing = $this->db->value("SELECT id FROM categories WHERE name = ? AND type IN ('income', 'both') LIMIT 1", [$cat['name']]);
+                if (!$existing) {
+                    $this->db->query(
+                        "INSERT INTO categories (business_unit_id, name, type, icon, color, active, sort_order) VALUES (?, ?, 'income', ?, ?, 1, ?)",
+                        [$mainBuId, $cat['name'], $cat['icon'], $cat['color'], $cat['sort_order']]
+                    );
+                }
+            }
+
+            $subCatId = (int) $this->db->value("SELECT id FROM categories WHERE name = 'Receitas com Assinaturas' LIMIT 1")
+                ?: (int) $this->db->value("SELECT id FROM categories WHERE type IN ('income', 'both') LIMIT 1");
+
+            // 3. Vincular produtos existentes à categoria de assinaturas se estiverem nulos
+            if ($subCatId > 0) {
+                $this->db->query("UPDATE products SET category_id = ? WHERE category_id IS NULL OR category_id = 0", [$subCatId]);
+            }
+
+            // 4. Backfill retroativo em pagamentos
+            // 4.1 Pagamentos gerados a partir de assinatura pegam a categoria do produto
+            $this->db->query("
+                UPDATE payments p
+                JOIN subscriptions s ON s.id = p.subscription_id
+                JOIN products pr ON pr.id = s.product_id
+                SET p.category_id = pr.category_id
+                WHERE (p.category_id IS NULL OR p.category_id = 0) AND pr.category_id IS NOT NULL
+            ");
+
+            // 4.2 Pagamentos avulsos que ainda estiverem sem categoria recebem a categoria padrão
+            if ($subCatId > 0) {
+                $this->db->query("
+                    UPDATE payments
+                    SET category_id = ?
+                    WHERE category_id IS NULL OR category_id = 0
+                ", [$subCatId]);
+            }
+        }
+        if ($version < 15) {
+            // 1. Adicionar auto_pay em recurring_templates
+            if (!$this->columnExists('recurring_templates', 'auto_pay')) {
+                $this->optionalDdl("ALTER TABLE recurring_templates ADD COLUMN auto_pay TINYINT(1) NOT NULL DEFAULT 0 AFTER auto_generate");
+            }
+
+            // 2. Garantir as 8 Macro-Categorias Universais Enxutas para Empresas (Plano de Contas Enxuto)
+            $mainBuId = (int) $this->db->value("SELECT id FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC LIMIT 1");
+            $leanCategories = [
+                ['Softwares, Cloud & Ferramentas (SaaS)', 'expense', '🛠️', '#3b82f6', 1],
+                ['Operação, Sede & Infraestrutura', 'expense', '🏢', '#64748b', 2],
+                ['Equipe, Parceiros & Terceiros', 'expense', '👥', '#8b5cf6', 3],
+                ['Marketing, Vendas & Publicidade', 'expense', '📣', '#f59e0b', 4],
+                ['Mobilidade, Logística & Viagens', 'expense', '🚗', '#d97706', 5],
+                ['Impostos, Tributos & Taxas', 'expense', '🏛️', '#ef4444', 6],
+                ['Alimentação & Despesas Diárias', 'expense', '☕', '#10b981', 7],
+                ['Investimentos & Equipamentos', 'expense', '💰', '#06b6d4', 8],
+            ];
+
+            foreach ($leanCategories as $cat) {
+                $existing = $this->db->fetch("SELECT id FROM categories WHERE name = ? AND parent_id IS NULL LIMIT 1", [$cat[0]]);
+                if (!$existing) {
+                    $this->db->insert(
+                        "INSERT INTO categories (business_unit_id, parent_id, name, type, icon, color, active, sort_order) VALUES (?, NULL, ?, ?, ?, ?, 1, ?)",
+                        [$mainBuId ?: null, $cat[0], $cat[1], $cat[2], $cat[3], $cat[4]]
+                    );
+                } else {
+                    $this->db->query("UPDATE categories SET active = 1, icon = ?, color = ?, sort_order = ? WHERE id = ?", [
+                        $cat[2], $cat[3], $cat[4], $existing['id']
+                    ]);
+                }
+            }
+
+            // 3. Remapear lançamentos históricos ligados a subcategorias para a categoria-pai correspondente
+            $this->optionalDdl("
+                UPDATE expenses e
+                JOIN categories c ON c.id = e.category_id
+                SET e.category_id = c.parent_id
+                WHERE c.parent_id IS NOT NULL AND c.parent_id > 0
+            ");
+
+            $this->optionalDdl("
+                UPDATE installments i
+                JOIN categories c ON c.id = i.category_id
+                SET i.category_id = c.parent_id
+                WHERE c.parent_id IS NOT NULL AND c.parent_id > 0
+            ");
+
+            $this->optionalDdl("
+                UPDATE recurring_templates rt
+                JOIN categories c ON c.id = rt.category_id
+                SET rt.category_id = c.parent_id
+                WHERE c.parent_id IS NOT NULL AND c.parent_id > 0
+            ");
+
+            $this->optionalDdl("
+                UPDATE credit_card_transactions ct
+                JOIN categories c ON c.id = ct.category_id
+                SET ct.category_id = c.parent_id
+                WHERE c.parent_id IS NOT NULL AND c.parent_id > 0
+            ");
+
+            $this->optionalDdl("
+                UPDATE cash_entries ce
+                JOIN categories c ON c.id = ce.category_id
+                SET ce.category_id = c.parent_id
+                WHERE c.parent_id IS NOT NULL AND c.parent_id > 0
+            ");
+
+            // 4. Desativar subcategorias para limpar os dropdowns (evitar o monstro/Frankenstein)
+            $this->optionalDdl("UPDATE categories SET active = 0 WHERE parent_id IS NOT NULL");
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",

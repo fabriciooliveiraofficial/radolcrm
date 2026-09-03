@@ -8,7 +8,7 @@ $monthStart = date('Y-m-01');
 $monthEnd = date('Y-m-t');
 
 $allBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
-$allCategories = $db->fetchAll('SELECT c.*, p.name parent_name, bu.name bu_name FROM categories c LEFT JOIN categories p ON p.id = c.parent_id LEFT JOIN business_units bu ON bu.id = c.business_unit_id WHERE c.active = 1 ORDER BY COALESCE(c.parent_id, c.id) ASC, (c.parent_id IS NOT NULL) ASC, c.name ASC');
+$allCategories = $db->fetchAll('SELECT c.*, bu.name bu_name FROM categories c LEFT JOIN business_units bu ON bu.id = c.business_unit_id WHERE c.active = 1 AND (c.parent_id IS NULL OR c.parent_id = 0) ORDER BY c.sort_order ASC, c.name ASC');
 
 // Installments query
 $whereInst = ' WHERE 1=1';
@@ -39,7 +39,7 @@ if ($statusFilter === 'pending') {
 
 $installments = $db->fetchAll(
     'SELECT i.*, bu.name bu_name, bu.icon bu_icon, bu.color bu_color, cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
-            rt.recurrence rt_recurrence, rt.type rt_type
+            rt.recurrence rt_recurrence, rt.type rt_type, rt.auto_pay rt_auto_pay
      FROM installments i
      LEFT JOIN business_units bu ON bu.id = i.business_unit_id
      LEFT JOIN categories cat ON cat.id = i.category_id
@@ -232,6 +232,11 @@ $payInstallment = isset($_GET['pay_inst']) ? $db->fetch('SELECT * FROM installme
                                 <span class="badge <?= $item['status'] === 'paid' ? 'success' : ($isOverdue ? 'danger' : 'warning') ?>">
                                     <?= $item['status'] === 'paid' ? 'Pago em ' . date_br($item['payment_date']) : ($isOverdue ? 'Vencida' : 'Pendente') ?>
                                 </span>
+                                <?php if (!empty($item['rt_auto_pay']) && $item['status'] !== 'paid'): ?>
+                                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.7rem; margin-top: 0.2rem; display: inline-flex; align-items: center; gap: 3px;" title="Será quitada automaticamente no dia do vencimento">
+                                        ⚡ Auto-Pay
+                                    </span>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <div style="display: flex; gap: 0.35rem; align-items: center;">
@@ -307,6 +312,11 @@ $payInstallment = isset($_GET['pay_inst']) ? $db->fetch('SELECT * FROM installme
                                 <span class="badge <?= $tpl['active'] ? 'success' : 'muted' ?>">
                                     <?= $tpl['active'] ? 'Ativo' : 'Encerrado' ?>
                                 </span>
+                                <?php if (!empty($tpl['auto_pay'])): ?>
+                                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.7rem; margin-top: 0.2rem; display: inline-flex; align-items: center; gap: 3px;" title="Baixa automática no vencimento ativa">
+                                        ⚡ Auto-Pay
+                                    </span>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <?php if ($auth->canWrite()): ?>
@@ -363,7 +373,7 @@ $payInstallment = isset($_GET['pay_inst']) ? $db->fetch('SELECT * FROM installme
                     <option value="">Selecione a categoria…</option>
                     <?php foreach ($allCategories as $cat): ?>
                         <option value="<?= (int) $cat['id'] ?>">
-                            <?= h($cat['icon']) ?> <?= $cat['parent_name'] ? h($cat['parent_name']) . ' ↳ ' : '' ?><?= h($cat['name']) ?><?= $cat['bu_name'] ? ' (' . h($cat['bu_name']) . ')' : '' ?>
+                            <?= h($cat['icon']) ?> <?= h($cat['name']) ?><?= !empty($cat['bu_name']) ? ' (' . h($cat['bu_name']) . ')' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -411,6 +421,14 @@ $payInstallment = isset($_GET['pay_inst']) ? $db->fetch('SELECT * FROM installme
             <label>
                 Data do 1º vencimento
                 <input name="start_date" id="fieldStartDate" type="date" required value="<?= date('Y-m-d') ?>">
+            </label>
+
+            <label class="check-label check-inline span-2" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 0.75rem 1rem;">
+                <input type="checkbox" name="auto_pay" value="1" checked>
+                <span>
+                    <strong style="color: #10b981;">⚡ Débito Automático / Baixa Automática no Vencimento (Auto-Pay)</strong><br>
+                    <small style="color: var(--text-muted, #8b9bb4);">No dia do vencimento, o sistema liquida a parcela como "Paga" e gera a despesa no financeiro automaticamente, com zero cliques.</small>
+                </span>
             </label>
 
             <label class="check-label check-inline span-2">

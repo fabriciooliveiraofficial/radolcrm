@@ -1,4 +1,32 @@
 <?php
+$renewalReceipts = $_SESSION['_renewal_receipts'] ?? null;
+if ($renewalReceipts) {
+    unset($_SESSION['_renewal_receipts']);
+}
+
+if (!function_exists('format_whatsapp_renewal_receipt')) {
+    function format_whatsapp_renewal_receipt(array $receipt): string
+    {
+        $fullName = trim((string) ($receipt['client_name'] ?? 'Cliente'));
+        $firstName = trim(explode(' ', $fullName)[0] ?? $fullName);
+        $val = money($receipt['amount'] ?? 0, (string) ($receipt['currency'] ?? 'BRL'));
+        $payDate = date_br($receipt['payment_date'] ?? null);
+        $nextDate = date_br($receipt['renewal_end_date'] ?? null);
+        $product = (string) ($receipt['product_name'] ?? 'Assinatura');
+        if (!empty($receipt['quantity']) && (int) $receipt['quantity'] > 1) {
+            $product .= ' (' . (int) $receipt['quantity'] . ' un.)';
+        }
+
+        return "✅ *Confirmação de Renovação*\n\n"
+            . "Olá, *{$firstName}*! Confirmamos o recebimento da sua assinatura:\n\n"
+            . "📦 *Plano/Assinatura:* {$product}\n"
+            . "💰 *Valor pago:* {$val}\n"
+            . "🗓️ *Data do pagamento:* {$payDate}\n"
+            . "📅 *Próximo vencimento:* {$nextDate}\n\n"
+            . "Agradecemos pela parceria e confiança! Qualquer dúvida estamos à disposição. ✨";
+    }
+}
+
 $buFilter = $buFilter ?? (isset($_GET['bu']) && $_GET['bu'] !== '' ? (int) $_GET['bu'] : null);
 $search = trim((string) ($_GET['q'] ?? ''));
 $status = (string) ($_GET['status'] ?? '');
@@ -409,6 +437,72 @@ if ($historyId > 0) {
 </div>
 
 <?php if ($tomorrowSubscriptions): ?><div class="due-alert-overlay" data-due-alert data-alert-key="<?= date('Y-m-d') ?>"><section class="due-alert-popup" role="dialog" aria-modal="true" aria-labelledby="due-alert-title"><button type="button" class="due-alert-close" data-due-alert-close aria-label="Fechar">×</button><header><span class="due-alert-symbol">→</span><div><p class="eyebrow">ALERTA DE RENOVAÇÕES</p><h2 id="due-alert-title"><?= count($tomorrowSubscriptions) ?> assinatura(s) vencem amanhã</h2><p>Revise os valores e prepare os recebimentos antes do vencimento.</p></div></header><div class="due-alert-list"><?php foreach (array_slice($tomorrowSubscriptions, 0, 8) as $dueItem): $dueValue=max(0,((float)$dueItem['unit_price']*(int)$dueItem['quantity'])-(float)$dueItem['discount']); ?><a href="?page=subscriptions&renewal=<?= (int) $dueItem['id'] ?>"><span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($dueItem['client'],0,1))) ?></span><span><b><?= h($dueItem['client']) ?></b><small><?= h($dueItem['product']) ?></small></span><strong><?= money($dueValue,$dueItem['currency']) ?></strong></a><?php endforeach; ?></div><?php if (count($tomorrowSubscriptions)>8): ?><p class="due-alert-more">+ <?= count($tomorrowSubscriptions)-8 ?> assinatura(s) na lista completa</p><?php endif; ?><footer><button type="button" class="button ghost" data-due-alert-close>Dispensar hoje</button><a class="button primary" href="?page=subscriptions&due=tomorrow">Ver vencimentos de amanhã</a></footer></section></div><?php endif; ?>
+
+<?php if (!empty($renewalReceipts)): ?>
+<div class="modal open renewal-receipt-modal" data-renewal-receipt-modal>
+    <a class="modal-backdrop" href="?page=subscriptions"></a>
+    <section class="modal-panel renewal-receipt-panel" role="dialog" aria-modal="true" aria-labelledby="renewal-receipt-title">
+        <header>
+            <div>
+                <p class="eyebrow"><span class="receipt-badge-icon">✓</span> CONFIRMAÇÃO E COMPROVANTE</p>
+                <h2 id="renewal-receipt-title"><?= count($renewalReceipts) === 1 ? 'Cobrança confirmada com sucesso!' : count($renewalReceipts) . ' cobranças confirmadas com sucesso!' ?></h2>
+                <p>O pagamento e o novo vencimento foram registrados. Copie a mensagem abaixo para enviar ao cliente pelo WhatsApp.</p>
+            </div>
+            <a href="?page=subscriptions" class="modal-close" aria-label="Fechar">×</a>
+        </header>
+
+        <div class="renewal-receipt-body">
+            <?php foreach ($renewalReceipts as $rc):
+                $msgText = format_whatsapp_renewal_receipt($rc);
+                $rawPhone = trim((string) ($rc['client_phone'] ?? ''));
+                $normPhone = class_exists('\App\Services\WhatsAppReminderService')
+                    ? \App\Services\WhatsAppReminderService::normalizePhone($rawPhone, (string) ($rc['client_country'] ?? 'BR'))
+                    : preg_replace('/\D+/', '', $rawPhone);
+                $waUrl = $normPhone ? 'https://wa.me/' . $normPhone . '?text=' . rawurlencode($msgText) : null;
+            ?>
+            <article class="receipt-card" data-receipt-item>
+                <div class="receipt-card-header">
+                    <div class="receipt-client-info">
+                        <span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($rc['client_name'], 0, 1))) ?></span>
+                        <div>
+                            <b><?= h($rc['client_name']) ?></b>
+                            <small><?= h($rc['product_name']) ?> · <?= money($rc['amount'], $rc['currency']) ?><?php if ($rawPhone): ?> · 📞 <?= h($rawPhone) ?><?php endif; ?></small>
+                        </div>
+                    </div>
+                    <span class="receipt-status-pill">✓ Registrado</span>
+                </div>
+
+                <div class="whatsapp-bubble-wrap">
+                    <div class="whatsapp-bubble-header">
+                        <span class="whatsapp-bubble-tag">💬 Mensagem para WhatsApp</span>
+                        <small>Pronta para envio</small>
+                    </div>
+                    <div class="whatsapp-bubble-content" data-receipt-text><?= nl2br(h($msgText)) ?></div>
+                    <textarea class="sr-only" data-receipt-raw readonly><?= h($msgText) ?></textarea>
+                </div>
+
+                <div class="receipt-actions">
+                    <button type="button" class="button primary copy-receipt-btn" data-copy-receipt>
+                        <span class="btn-copy-icon">📋</span>
+                        <span class="btn-copy-label">Copiar mensagem</span>
+                    </button>
+                    <?php if ($waUrl): ?>
+                    <a href="<?= h($waUrl) ?>" target="_blank" rel="noopener noreferrer" class="button whatsapp-direct-btn">
+                        <span class="btn-wa-icon">💬</span>
+                        <span>Abrir no WhatsApp</span>
+                    </a>
+                    <?php endif; ?>
+                </div>
+            </article>
+            <?php endforeach; ?>
+        </div>
+
+        <footer class="receipt-modal-footer">
+            <a class="button secondary" href="?page=subscriptions">Concluir</a>
+        </footer>
+    </section>
+</div>
+<?php endif; ?>
 
 <?php if ($showRenewals): ?>
 <div class="modal open"><a class="modal-backdrop" href="?page=subscriptions"></a><section class="modal-panel renewal-panel <?= $isIndividualRenewal ? 'individual-renewal-panel' : '' ?>"><header><div><p class="eyebrow">RENOVAÇÃO ASSISTIDA</p><h2><?= $isIndividualRenewal ? 'Renovar e receber cobrança' : 'Conferir e receber cobranças' ?></h2><p>Revise os dados. Ao confirmar, <?= $isIndividualRenewal ? 'a cobrança será lançada como paga e a assinatura será renovada' : 'cada cobrança será lançada como paga e as assinaturas serão renovadas' ?> com registro completo no histórico.</p></div><a href="?page=subscriptions" class="modal-close">×</a></header>
