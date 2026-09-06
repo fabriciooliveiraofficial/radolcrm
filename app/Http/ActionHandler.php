@@ -78,8 +78,20 @@ final class ActionHandler
                 'save_user' => $this->saveUser(),
                 'toggle_user' => $this->toggleUser(),
                 'run_financial_automation' => $this->runFinancialAutomation(),
+                // Daily Finance System (Isolado)
+                'save_daily_transaction' => $this->saveDailyTransaction(),
+                'delete_daily_transaction' => $this->deleteDailyTransaction(),
+                'save_daily_card' => $this->saveDailyCard(),
+                'delete_daily_card' => $this->deleteDailyCard(),
+                'pay_daily_card_invoice' => $this->payDailyCardInvoice(),
+                'save_daily_commitment' => $this->saveDailyCommitment(),
+                'pay_daily_commitment' => $this->payDailyCommitment(),
+                'delete_daily_commitment' => $this->deleteDailyCommitment(),
+                'save_daily_category' => $this->saveDailyCategory(),
+                'delete_daily_category' => $this->deleteDailyCategory(),
                 default => throw new RuntimeException('Ação desconhecida.'),
             };
+
         } catch (\Throwable $exception) {
             Flash::add('danger', $exception->getMessage());
             $redirect = $this->returnUrl($redirect);
@@ -1871,4 +1883,359 @@ final class ActionHandler
 
         return $fallback;
     }
+
+    /* -------------------------------------------------------------------------
+     * DAILY FINANCE ISOLATED ACTIONS
+     * ---------------------------------------------------------------------- */
+
+    private function saveDailyTransaction(): string
+    {
+        $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int) $_POST['id'] : null;
+        $type = $this->choice('type', ['expense', 'income']);
+        $payeeName = $this->required('payee_name', 'Informe o favorecido / estabelecimento.');
+        $categoryId = isset($_POST['category_id']) && (int)$_POST['category_id'] > 0 ? (int)$_POST['category_id'] : null;
+        $amount = (float) str_replace(',', '.', (string)($_POST['amount'] ?? 0));
+        if ($amount <= 0) {
+            throw new RuntimeException('O valor deve ser maior que zero.');
+        }
+
+        $paymentMethod = $this->choice('payment_method', ['pix', 'credit_card', 'debit_card', 'cash', 'transfer']);
+        $transactionDate = $this->required('transaction_date', 'Informe a data da movimentação.');
+        $status = $this->choice('status', ['realized', 'pending']);
+        $description = trim((string)($_POST['description'] ?? ''));
+        if ($description === '') {
+            $description = $payeeName;
+        }
+        $notes = $this->nullable('notes');
+
+        $cardId = null;
+        $invoiceId = null;
+        $totalInstallments = 1;
+
+        $dailyService = new \App\Services\DailyFinanceService($this->db);
+
+        // Se for cartão de crédito
+        if ($paymentMethod === 'credit_card') {
+            $cardId = isset($_POST['card_id']) && (int)$_POST['card_id'] > 0 ? (int)$_POST['card_id'] : null;
+            if (!$cardId) {
+                throw new RuntimeException('Selecione o cartão de crédito utilizado.');
+            }
+            $totalInstallments = max(1, (int)($_POST['total_installments'] ?? 1));
+        }
+
+        // Atualizar ou criar registro do favorecido para autocompletar inteligente (Regra 5)
+        $existingPayee = $this->db->fetch("SELECT id, usage_count FROM daily_payees WHERE name = ?", [$payeeName]);
+        $payeeId = null;
+        if ($existingPayee) {
+            $payeeId = (int)$existingPayee['id'];
+            $this->db->execute(
+                "UPDATE daily_payees SET usage_count = usage_count + 1, last_used_at = NOW(), default_category_id = COALESCE(?, default_category_id), default_payment_method = ? WHERE id = ?",
+                [$categoryId, $paymentMethod, $payeeId]
+            );
+        } else {
+            $payeeId = (int)$this->db->insert('daily_payees', [
+                'name' => $payeeName,
+                'default_category_id' => $categoryId,
+                'default_payment_method' => $paymentMethod,
+                'usage_count' => 1,
+                'last_used_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        // Se for compra parcelada no cartão
+        if ($paymentMethod === 'credit_card' && $totalInstallments > 1 && !$id) {
+            $installmentAmount = round($amount / $totalInstallments, 2);
+            $baseDate = new \DateTimeImmutable($transactionDate);
+
+            for ($i = 1; $i <= $totalInstallments; $i++) {
+                $curDate = $baseDate->modify('+' . ($i - 1) . ' months')->format('Y-m-d');
+                $invId = $dailyService->getOrCreateInvoice($cardId, $curDate);
+
+                $instDesc = $description . " ({$i}/{$totalInstallments})";
+                $this->db->insert('daily_transactions', [
+                    'type' => $type,
+                    'category_id' => $categoryId,
+                    'payee_id' => $payeeId,
+                    'payee_name' => $payeeName,
+                    'description' => $instDesc,
+                    'amount' => $installmentAmount,
+                    'payment_method' => 'credit_card',
+                    'card_id' => $cardId,
+                    'invoice_id' => $invId,
+                    'installment_number' => $i,
+                    'total_installments' => $totalInstallments,
+                    'transaction_date' => $curDate,
+                    'status' => 'realized',
+                    'notes' => $notes,
+                ]);
+
+                $dailyService->recalculateInvoiceTotal($invId);
+            }
+
+            Flash::add('success', "Compra parcelada em {$totalInstallments}x de R$ " . number_format($installmentAmount, 2, ',', '.') . " registrada com sucesso!");
+            return $this->returnUrl('?page=financeiro');
+        }
+
+        // Se for transação normal no cartão (1x)
+        if ($paymentMethod === 'credit_card') {
+            $invoiceId = $dailyService->getOrCreateInvoice($cardId, $transactionDate);
+        }
+
+        $data = [
+            'type' => $type,
+            'category_id' => $categoryId,
+            'payee_id' => $payeeId,
+            'payee_name' => $payeeName,
+            'description' => $description,
+            'amount' => $amount,
+            'payment_method' => $paymentMethod,
+            'card_id' => $cardId,
+            'invoice_id' => $invoiceId,
+            'installment_number' => 1,
+            'total_installments' => 1,
+            'transaction_date' => $transactionDate,
+            'status' => $status,
+            'notes' => $notes,
+        ];
+
+        if ($id) {
+            $oldTx = $this->db->fetch("SELECT invoice_id FROM daily_transactions WHERE id = ?", [$id]);
+            $this->db->update('daily_transactions', $data, 'id = ?', [$id]);
+            if (!empty($oldTx['invoice_id'])) {
+                $dailyService->recalculateInvoiceTotal((int)$oldTx['invoice_id']);
+            }
+            if ($invoiceId) {
+                $dailyService->recalculateInvoiceTotal($invoiceId);
+            }
+            Flash::add('success', 'Lançamento atualizado com sucesso.');
+        } else {
+            $this->db->insert('daily_transactions', $data);
+            if ($invoiceId) {
+                $dailyService->recalculateInvoiceTotal($invoiceId);
+            }
+            Flash::add('success', 'Lançamento registrado com sucesso!');
+        }
+
+        return $this->returnUrl('?page=financeiro');
+    }
+
+    private function deleteDailyTransaction(): string
+    {
+        $id = (int)($_POST['id'] ?? 0);
+        $tx = $this->db->fetch("SELECT invoice_id FROM daily_transactions WHERE id = ?", [$id]);
+        if ($tx) {
+            $this->db->execute("DELETE FROM daily_transactions WHERE id = ?", [$id]);
+            if (!empty($tx['invoice_id'])) {
+                $dailyService = new \App\Services\DailyFinanceService($this->db);
+                $dailyService->recalculateInvoiceTotal((int)$tx['invoice_id']);
+            }
+            Flash::add('success', 'Lançamento excluído com sucesso.');
+        }
+        return $this->returnUrl('?page=financeiro');
+    }
+
+    private function saveDailyCard(): string
+    {
+        $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int) $_POST['id'] : null;
+        $name = $this->required('name', 'Informe o nome do cartão.');
+        $brand = trim((string)($_POST['brand'] ?? 'Mastercard'));
+        $lastFourDigits = $this->nullable('last_four_digits');
+        $creditLimit = (float) str_replace(',', '.', (string)($_POST['credit_limit'] ?? 0));
+        $closingDay = max(1, min(31, (int)($_POST['closing_day'] ?? 1)));
+        $dueDay = max(1, min(31, (int)($_POST['due_day'] ?? 10)));
+        $color = trim((string)($_POST['color'] ?? '#6366f1'));
+        $active = isset($_POST['active']) ? 1 : 0;
+        $notes = $this->nullable('notes');
+
+        $data = [
+            'name' => $name,
+            'brand' => $brand,
+            'last_four_digits' => $lastFourDigits,
+            'credit_limit' => $creditLimit,
+            'closing_day' => $closingDay,
+            'due_day' => $dueDay,
+            'color' => $color,
+            'active' => $active,
+            'notes' => $notes,
+        ];
+
+        if ($id) {
+            $this->db->update('daily_credit_cards', $data, 'id = ?', [$id]);
+            Flash::add('success', 'Cartão atualizado com sucesso.');
+        } else {
+            $this->db->insert('daily_credit_cards', $data);
+            Flash::add('success', 'Cartão cadastrado com sucesso!');
+        }
+
+        return $this->returnUrl('?page=financeiro&tab=cards');
+    }
+
+    private function deleteDailyCard(): string
+    {
+        $id = (int)($_POST['id'] ?? 0);
+        $this->db->execute("DELETE FROM daily_credit_cards WHERE id = ?", [$id]);
+        Flash::add('success', 'Cartão excluído com sucesso.');
+        return $this->returnUrl('?page=financeiro&tab=cards');
+    }
+
+    private function payDailyCardInvoice(): string
+    {
+        $id = (int)($_POST['invoice_id'] ?? 0);
+        $invoice = $this->db->fetch("SELECT inv.*, c.name card_name FROM daily_card_invoices inv JOIN daily_credit_cards c ON c.id = inv.card_id WHERE inv.id = ?", [$id]);
+        if (!$invoice) {
+            throw new RuntimeException('Fatura não encontrada.');
+        }
+
+        $paymentDate = $this->required('payment_date', 'Informe a data de pagamento da fatura.');
+        $this->db->execute(
+            "UPDATE daily_card_invoices SET status = 'paid', payment_date = ? WHERE id = ?",
+            [$paymentDate, $id]
+        );
+
+        Flash::add('success', "Fatura do cartão {$invoice['card_name']} marcada como paga!");
+        return $this->returnUrl('?page=financeiro&tab=cards');
+    }
+
+    private function saveDailyCommitment(): string
+    {
+        $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int) $_POST['id'] : null;
+        $type = $this->choice('type', ['expense', 'income']);
+        $payeeName = $this->required('payee_name', 'Informe o beneficiário ou descrição da obrigação (ex: Colégio dos Filhos).');
+        $description = $this->required('description', 'Informe o detalhe do compromisso.');
+        $categoryId = isset($_POST['category_id']) && (int)$_POST['category_id'] > 0 ? (int)$_POST['category_id'] : null;
+        $amount = (float) str_replace(',', '.', (string)($_POST['amount'] ?? 0));
+        if ($amount <= 0) {
+            throw new RuntimeException('O valor deve ser maior que zero.');
+        }
+        $dueDay = max(1, min(31, (int)($_POST['due_day'] ?? 10)));
+        $startDate = $this->required('start_date', 'Informe a data de início.');
+        $endDate = $this->nullable('end_date');
+        $totalInstallments = isset($_POST['total_installments']) && (int)$_POST['total_installments'] > 0 ? (int)$_POST['total_installments'] : null;
+        $currentInstallment = max(1, (int)($_POST['current_installment'] ?? 1));
+        $paymentMethod = $this->choice('payment_method', ['pix', 'credit_card', 'debit_card', 'cash', 'transfer', 'boleto']);
+        $active = isset($_POST['active']) ? 1 : 0;
+        $notes = $this->nullable('notes');
+
+        $data = [
+            'type' => $type,
+            'category_id' => $categoryId,
+            'payee_name' => $payeeName,
+            'description' => $description,
+            'amount' => $amount,
+            'recurrence' => 'monthly',
+            'total_installments' => $totalInstallments,
+            'current_installment' => $currentInstallment,
+            'due_day' => $dueDay,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'payment_method' => $paymentMethod,
+            'active' => $active,
+            'notes' => $notes,
+        ];
+
+        if ($id) {
+            $this->db->update('daily_recurring_commitments', $data, 'id = ?', [$id]);
+            Flash::add('success', 'Compromisso fixo atualizado com sucesso.');
+        } else {
+            $this->db->insert('daily_recurring_commitments', $data);
+            Flash::add('success', 'Compromisso recorrente adicionado com sucesso!');
+        }
+
+        return $this->returnUrl('?page=financeiro&tab=commitments');
+    }
+
+    private function payDailyCommitment(): string
+    {
+        $id = (int)($_POST['commitment_id'] ?? 0);
+        $paymentDate = $this->required('payment_date', 'Informe a data de quitação.');
+        $commitment = $this->db->fetch("SELECT * FROM daily_recurring_commitments WHERE id = ?", [$id]);
+        if (!$commitment) {
+            throw new RuntimeException('Compromisso não encontrado.');
+        }
+
+        $method = in_array($commitment['payment_method'], ['pix', 'credit_card', 'debit_card', 'cash', 'transfer'], true)
+            ? $commitment['payment_method']
+            : 'pix';
+
+        // Lançar transação realizada correspondente
+        $this->db->insert('daily_transactions', [
+            'type' => $commitment['type'],
+            'category_id' => $commitment['category_id'],
+            'payee_name' => $commitment['payee_name'],
+            'description' => $commitment['description'] . (!empty($commitment['total_installments']) ? " ({$commitment['current_installment']}/{$commitment['total_installments']})" : ''),
+            'amount' => $commitment['amount'],
+            'payment_method' => $method,
+            'transaction_date' => $paymentDate,
+            'status' => 'realized',
+            'notes' => 'Quitação de compromisso programado',
+        ]);
+
+        // Se for parcelado, avançar parcela
+        if (!empty($commitment['total_installments'])) {
+            $next = (int)$commitment['current_installment'] + 1;
+            if ($next > (int)$commitment['total_installments']) {
+                $this->db->execute("UPDATE daily_recurring_commitments SET current_installment = ?, active = 0 WHERE id = ?", [$next, $id]);
+            } else {
+                $this->db->execute("UPDATE daily_recurring_commitments SET current_installment = ? WHERE id = ?", [$next, $id]);
+            }
+        }
+
+        Flash::add('success', "Pagamento de '{$commitment['payee_name']}' lançado no extrato diário!");
+        return $this->returnUrl('?page=financeiro&tab=agenda');
+    }
+
+    private function deleteDailyCommitment(): string
+    {
+        $id = (int)($_POST['id'] ?? 0);
+        $this->db->execute("DELETE FROM daily_recurring_commitments WHERE id = ?", [$id]);
+        Flash::add('success', 'Compromisso removido com sucesso.');
+        return $this->returnUrl('?page=financeiro&tab=commitments');
+    }
+
+    private function saveDailyCategory(): string
+    {
+        $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int) $_POST['id'] : null;
+        $parentId = isset($_POST['parent_id']) && (int)$_POST['parent_id'] > 0 ? (int)$_POST['parent_id'] : null;
+        $name = $this->required('name', 'Informe o nome da categoria.');
+        $type = $this->choice('type', ['expense', 'income']);
+        $icon = trim((string)($_POST['icon'] ?? '📁'));
+        $color = trim((string)($_POST['color'] ?? '#2b826b'));
+        $monthlyBudgetLimit = isset($_POST['monthly_budget_limit']) && $_POST['monthly_budget_limit'] !== ''
+            ? (float) str_replace(',', '.', (string)$_POST['monthly_budget_limit'])
+            : null;
+        $sortOrder = (int)($_POST['sort_order'] ?? 0);
+        $active = isset($_POST['active']) ? 1 : 0;
+
+        $data = [
+            'parent_id' => $parentId,
+            'name' => $name,
+            'type' => $type,
+            'icon' => $icon,
+            'color' => $color,
+            'monthly_budget_limit' => $monthlyBudgetLimit,
+            'sort_order' => $sortOrder,
+            'active' => $active,
+        ];
+
+        if ($id) {
+            $this->db->update('daily_categories', $data, 'id = ?', [$id]);
+            Flash::add('success', 'Categoria atualizada com sucesso.');
+        } else {
+            $this->db->insert('daily_categories', $data);
+            Flash::add('success', 'Categoria criada com sucesso!');
+        }
+
+        return $this->returnUrl('?page=financeiro&tab=categories');
+    }
+
+    private function deleteDailyCategory(): string
+    {
+        $id = (int)($_POST['id'] ?? 0);
+        // Desvincular filhos
+        $this->db->execute("UPDATE daily_categories SET parent_id = NULL WHERE parent_id = ?", [$id]);
+        $this->db->execute("DELETE FROM daily_categories WHERE id = ?", [$id]);
+        Flash::add('success', 'Categoria excluída com sucesso.');
+        return $this->returnUrl('?page=financeiro&tab=categories');
+    }
 }
+

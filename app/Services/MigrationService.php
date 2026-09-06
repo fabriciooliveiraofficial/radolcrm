@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 16;
+    private const VERSION = 17;
 
     public function __construct(private readonly Database $db)
     {
@@ -948,6 +948,263 @@ final class MigrationService
             $inClause = implode(',', array_map('intval', $canonicalIds));
             $this->db->query("UPDATE categories SET parent_id = NULL");
             $this->db->query("DELETE FROM categories WHERE id NOT IN ({$inClause})");
+        }
+        if ($version < 17) {
+            // 1. Limpeza cirúrgica de business_units descontinuadas (Transafe, Assistente Virtual, Pessoal Familiar)
+            // Garantir que a unidade comercial Gearzone principal esteja configurada e protegida
+            $gearzoneId = (int) ($this->db->value("SELECT id FROM business_units WHERE is_personal = 0 ORDER BY sort_order ASC, id ASC LIMIT 1") ?: 1);
+            if ($gearzoneId) {
+                $this->db->query(
+                    "UPDATE business_units SET name = 'Gearzone', icon = '💼', color = '#2b826b', is_personal = 0, active = 1, sort_order = 1 WHERE id = ?",
+                    [$gearzoneId]
+                );
+            }
+
+            // Obter IDs das unidades a serem expurgadas
+            $obsoleteBuRows = $this->db->fetchAll(
+                "SELECT id FROM business_units WHERE id != ? AND (name LIKE '%Transafe%' OR name LIKE '%Assistente%' OR name LIKE '%Pessoal%' OR is_personal = 1)",
+                [$gearzoneId]
+            );
+            $obsoleteIds = array_map(static fn(array $r): int => (int) $r['id'], $obsoleteBuRows);
+
+            if (!empty($obsoleteIds)) {
+                $placeholders = implode(',', $obsoleteIds);
+                // Redirecionar quaisquer vínculos órfãos para Gearzone antes de excluir
+                $this->db->query("UPDATE clients SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$gearzoneId]);
+                $this->db->query("UPDATE products SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$gearzoneId]);
+                $this->db->query("UPDATE payments SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$gearzoneId]);
+                $this->db->query("UPDATE expenses SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$gearzoneId]);
+                $this->db->query("UPDATE cash_entries SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$gearzoneId]);
+                $this->db->query("UPDATE recurring_templates SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$gearzoneId]);
+                $this->db->query("UPDATE installments SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$gearzoneId]);
+                $this->db->query("UPDATE credit_cards SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$gearzoneId]);
+                $this->db->query("UPDATE credit_card_transactions SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$gearzoneId]);
+                
+                // Excluir as unidades descontinuadas de business_units
+                $this->db->query("DELETE FROM business_units WHERE id IN ({$placeholders})");
+            }
+
+            // 2. Criação das tabelas dedicadas da Nova Central Financeira Pessoal/Familiar
+            $this->db->query("
+                CREATE TABLE IF NOT EXISTS daily_categories (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    parent_id BIGINT UNSIGNED NULL,
+                    name VARCHAR(100) NOT NULL,
+                    type ENUM('expense','income') NOT NULL DEFAULT 'expense',
+                    icon VARCHAR(30) NOT NULL DEFAULT '📁',
+                    color VARCHAR(20) NOT NULL DEFAULT '#2b826b',
+                    monthly_budget_limit DECIMAL(15,2) NULL,
+                    sort_order SMALLINT NOT NULL DEFAULT 0,
+                    active TINYINT(1) NOT NULL DEFAULT 1,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_daily_cat_parent FOREIGN KEY (parent_id) REFERENCES daily_categories(id) ON DELETE SET NULL,
+                    INDEX idx_daily_cat_type (type, active, sort_order)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            $this->db->query("
+                CREATE TABLE IF NOT EXISTS daily_payees (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(160) NOT NULL,
+                    default_category_id BIGINT UNSIGNED NULL,
+                    default_payment_method VARCHAR(50) NULL,
+                    usage_count INT UNSIGNED NOT NULL DEFAULT 1,
+                    last_used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_daily_payee_name (name),
+                    CONSTRAINT fk_daily_payee_cat FOREIGN KEY (default_category_id) REFERENCES daily_categories(id) ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            $this->db->query("
+                CREATE TABLE IF NOT EXISTS daily_credit_cards (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(120) NOT NULL,
+                    brand VARCHAR(60) NOT NULL DEFAULT 'Mastercard',
+                    last_four_digits VARCHAR(4) NULL,
+                    credit_limit DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+                    closing_day TINYINT UNSIGNED NOT NULL DEFAULT 1,
+                    due_day TINYINT UNSIGNED NOT NULL DEFAULT 10,
+                    color VARCHAR(30) NOT NULL DEFAULT '#6366f1',
+                    active TINYINT(1) NOT NULL DEFAULT 1,
+                    notes TEXT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_daily_cards_active (active)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            $this->db->query("
+                CREATE TABLE IF NOT EXISTS daily_card_invoices (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    card_id BIGINT UNSIGNED NOT NULL,
+                    reference_month VARCHAR(7) NOT NULL,
+                    closing_date DATE NOT NULL,
+                    due_date DATE NOT NULL,
+                    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+                    status ENUM('open','closed','paid') NOT NULL DEFAULT 'open',
+                    payment_date DATE NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_daily_invoices_card FOREIGN KEY (card_id) REFERENCES daily_credit_cards(id) ON DELETE CASCADE,
+                    UNIQUE KEY uk_daily_card_month (card_id, reference_month),
+                    INDEX idx_daily_invoices_due (due_date, status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            $this->db->query("
+                CREATE TABLE IF NOT EXISTS daily_transactions (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    type ENUM('expense','income') NOT NULL DEFAULT 'expense',
+                    category_id BIGINT UNSIGNED NULL,
+                    payee_id BIGINT UNSIGNED NULL,
+                    payee_name VARCHAR(160) NOT NULL,
+                    description VARCHAR(255) NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    payment_method ENUM('pix','credit_card','debit_card','cash','transfer') NOT NULL DEFAULT 'pix',
+                    card_id BIGINT UNSIGNED NULL,
+                    invoice_id BIGINT UNSIGNED NULL,
+                    installment_number SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+                    total_installments SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+                    transaction_date DATE NOT NULL,
+                    status ENUM('realized','pending') NOT NULL DEFAULT 'realized',
+                    notes TEXT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_daily_tx_cat FOREIGN KEY (category_id) REFERENCES daily_categories(id) ON DELETE SET NULL,
+                    CONSTRAINT fk_daily_tx_payee FOREIGN KEY (payee_id) REFERENCES daily_payees(id) ON DELETE SET NULL,
+                    CONSTRAINT fk_daily_tx_card FOREIGN KEY (card_id) REFERENCES daily_credit_cards(id) ON DELETE SET NULL,
+                    CONSTRAINT fk_daily_tx_invoice FOREIGN KEY (invoice_id) REFERENCES daily_card_invoices(id) ON DELETE SET NULL,
+                    INDEX idx_daily_tx_date (transaction_date, type),
+                    INDEX idx_daily_tx_status (status, transaction_date),
+                    INDEX idx_daily_tx_cat (category_id),
+                    INDEX idx_daily_tx_card (card_id, invoice_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            $this->db->query("
+                CREATE TABLE IF NOT EXISTS daily_recurring_commitments (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    type ENUM('expense','income') NOT NULL DEFAULT 'expense',
+                    category_id BIGINT UNSIGNED NULL,
+                    payee_name VARCHAR(160) NOT NULL,
+                    description VARCHAR(255) NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    recurrence ENUM('monthly','weekly','biweekly','quarterly','annual') NOT NULL DEFAULT 'monthly',
+                    total_installments SMALLINT UNSIGNED NULL,
+                    current_installment SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+                    due_day TINYINT UNSIGNED NOT NULL DEFAULT 10,
+                    start_date DATE NOT NULL,
+                    end_date DATE NULL,
+                    payment_method ENUM('pix','credit_card','debit_card','cash','transfer','boleto') NOT NULL DEFAULT 'pix',
+                    auto_post TINYINT(1) NOT NULL DEFAULT 0,
+                    active TINYINT(1) NOT NULL DEFAULT 1,
+                    notes TEXT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_daily_rec_cat FOREIGN KEY (category_id) REFERENCES daily_categories(id) ON DELETE SET NULL,
+                    INDEX idx_daily_rec_active (active, due_day)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            // 3. Carga inicial das Macro e Subcategorias da Nova Central Financeira (Padrão Mobills / YNAB)
+            $dailyCatCount = (int) $this->db->value("SELECT COUNT(*) FROM daily_categories");
+            if ($dailyCatCount === 0) {
+                $categoriesHierarchy = [
+                    // Despesas
+                    [
+                        'name' => 'Alimentação',
+                        'type' => 'expense',
+                        'icon' => '🛒',
+                        'color' => '#10b981',
+                        'limit' => 3500.00,
+                        'order' => 1,
+                        'subs' => ['Supermercado & Feira', 'Restaurantes & Delivery', 'Padaria, Cafés & Lanches']
+                    ],
+                    [
+                        'name' => 'Saúde & Cuidados',
+                        'type' => 'expense',
+                        'icon' => '🩺',
+                        'color' => '#ec4899',
+                        'limit' => 1200.00,
+                        'order' => 2,
+                        'subs' => ['Farmácia & Medicamentos', 'Plano de Saúde & Seguro', 'Consultas, Exames & Terapeutas']
+                    ],
+                    [
+                        'name' => 'Educação & Filhos',
+                        'type' => 'expense',
+                        'icon' => '🎓',
+                        'color' => '#8b5cf6',
+                        'limit' => 2500.00,
+                        'order' => 3,
+                        'subs' => ['Mensalidades Escolares & Cursos', 'Material Escolar & Livros', 'Atividades Extras dos Filhos']
+                    ],
+                    [
+                        'name' => 'Transporte & Veículo',
+                        'type' => 'expense',
+                        'icon' => '🚗',
+                        'color' => '#d97706',
+                        'limit' => 1500.00,
+                        'order' => 4,
+                        'subs' => ['Combustível', 'Manutenção & Mecânica', 'IPVA, Seguro & Licenciamento', 'Estacionamento, Pedágio & Uber']
+                    ],
+                    [
+                        'name' => 'Moradia & Despesas Fixas',
+                        'type' => 'expense',
+                        'icon' => '🏠',
+                        'color' => '#0284c7',
+                        'limit' => 4000.00,
+                        'order' => 5,
+                        'subs' => ['Aluguel, Condomínio & IPTU', 'Energia Elétrica, Água & Gás', 'Internet, Wi-Fi & Telefonia', 'Manutenção & Cuidados da Casa']
+                    ],
+                    [
+                        'name' => 'Lazer & Família',
+                        'type' => 'expense',
+                        'icon' => '🍿',
+                        'color' => '#f97316',
+                        'limit' => 1000.00,
+                        'order' => 6,
+                        'subs' => ['Streaming, TV & Assinaturas', 'Passeios, Viagens & Férias', 'Presentes & Comemorações']
+                    ],
+                    [
+                        'name' => 'Compras & Despesas Diversas',
+                        'type' => 'expense',
+                        'icon' => '🛍️',
+                        'color' => '#06b6d4',
+                        'limit' => 800.00,
+                        'order' => 7,
+                        'subs' => ['Vestuário & Calçados', 'Eletrônicos & Informática', 'Compras Online Diversas', 'Serviços Pessoais & Barbearia']
+                    ],
+
+                    // Receitas
+                    [
+                        'name' => 'Receitas & Entradas',
+                        'type' => 'income',
+                        'icon' => '💰',
+                        'color' => '#10b981',
+                        'limit' => null,
+                        'order' => 10,
+                        'subs' => ['Pró-Labore / Retirada dos Negócios', 'Vendas & Prestação de Serviços', 'Rendimentos & Investimentos', 'Reembolsos & Outras Entradas']
+                    ],
+                ];
+
+                foreach ($categoriesHierarchy as $macro) {
+                    $macroId = $this->db->insert(
+                        "INSERT INTO daily_categories (parent_id, name, type, icon, color, monthly_budget_limit, sort_order, active)
+                         VALUES (NULL, ?, ?, ?, ?, ?, ?, 1)",
+                        [$macro['name'], $macro['type'], $macro['icon'], $macro['color'], $macro['limit'], $macro['order']]
+                    );
+                    $subOrder = 1;
+                    foreach ($macro['subs'] as $subName) {
+                        $this->db->insert(
+                            "INSERT INTO daily_categories (parent_id, name, type, icon, color, monthly_budget_limit, sort_order, active)
+                             VALUES (?, ?, ?, '🔹', ?, NULL, ?, 1)",
+                            [$macroId, $subName, $macro['type'], $macro['color'], $subOrder++]
+                        );
+                    }
+                }
+            }
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",

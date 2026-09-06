@@ -19,7 +19,12 @@
             <span>Visão Geral</span>
         </div>
         <div class="nav-links-group">
+            <a class="nav-item <?= $page === 'financeiro' ? 'active' : '' ?>" href="?page=financeiro" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(99,102,241,0.15)); border: 1px solid rgba(16,185,129,0.3); margin-bottom: 6px;">
+                <span class="nav-icon">⚡</span>
+                <span class="nav-label" style="font-weight: 600; color: #10b981;">Gestão Financeira Diária</span>
+            </a>
             <a class="nav-item <?= $page === 'dashboard' && !$buFilter ? 'active' : '' ?>" href="?page=dashboard">
+
                 <span class="nav-icon">⌂</span>
                 <span class="nav-label">Dashboard Global</span>
             </a>

@@ -494,7 +494,7 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('whatsapp_support_phone', ''),
 ('whatsapp_test_phone', ''),
 ('whatsapp_test_country', 'BR'),
-('schema_version', '16')
+('schema_version', '17')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
 
 INSERT INTO whatsapp_automation_steps
@@ -510,5 +510,116 @@ SELECT 'overdue','Primeira recuperação',1,'09:00',
        'Olá, {{primeiro_nome}}! Sua assinatura {{produto}} venceu em {{data_vencimento}}. Regularize pelo link: {{link_pagamento}}',
        1,1
 WHERE NOT EXISTS (SELECT 1 FROM whatsapp_automation_steps WHERE reminder_type='overdue');
+
+CREATE TABLE IF NOT EXISTS daily_categories (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    parent_id BIGINT UNSIGNED NULL,
+    name VARCHAR(100) NOT NULL,
+    type ENUM('expense','income') NOT NULL DEFAULT 'expense',
+    icon VARCHAR(30) NOT NULL DEFAULT '📁',
+    color VARCHAR(20) NOT NULL DEFAULT '#2b826b',
+    monthly_budget_limit DECIMAL(15,2) NULL,
+    sort_order SMALLINT NOT NULL DEFAULT 0,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_daily_cat_parent FOREIGN KEY (parent_id) REFERENCES daily_categories(id) ON DELETE SET NULL,
+    INDEX idx_daily_cat_type (type, active, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS daily_payees (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(160) NOT NULL,
+    default_category_id BIGINT UNSIGNED NULL,
+    default_payment_method VARCHAR(50) NULL,
+    usage_count INT UNSIGNED NOT NULL DEFAULT 1,
+    last_used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_daily_payee_name (name),
+    CONSTRAINT fk_daily_payee_cat FOREIGN KEY (default_category_id) REFERENCES daily_categories(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS daily_credit_cards (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    brand VARCHAR(60) NOT NULL DEFAULT 'Mastercard',
+    last_four_digits VARCHAR(4) NULL,
+    credit_limit DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    closing_day TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    due_day TINYINT UNSIGNED NOT NULL DEFAULT 10,
+    color VARCHAR(30) NOT NULL DEFAULT '#6366f1',
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_daily_cards_active (active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS daily_card_invoices (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    card_id BIGINT UNSIGNED NOT NULL,
+    reference_month VARCHAR(7) NOT NULL,
+    closing_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    total_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    status ENUM('open','closed','paid') NOT NULL DEFAULT 'open',
+    payment_date DATE NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_daily_invoices_card FOREIGN KEY (card_id) REFERENCES daily_credit_cards(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_daily_card_month (card_id, reference_month),
+    INDEX idx_daily_invoices_due (due_date, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS daily_transactions (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    type ENUM('expense','income') NOT NULL DEFAULT 'expense',
+    category_id BIGINT UNSIGNED NULL,
+    payee_id BIGINT UNSIGNED NULL,
+    payee_name VARCHAR(160) NOT NULL,
+    description VARCHAR(255) NOT NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    payment_method ENUM('pix','credit_card','debit_card','cash','transfer') NOT NULL DEFAULT 'pix',
+    card_id BIGINT UNSIGNED NULL,
+    invoice_id BIGINT UNSIGNED NULL,
+    installment_number SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    total_installments SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    transaction_date DATE NOT NULL,
+    status ENUM('realized','pending') NOT NULL DEFAULT 'realized',
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_daily_tx_cat FOREIGN KEY (category_id) REFERENCES daily_categories(id) ON DELETE SET NULL,
+    CONSTRAINT fk_daily_tx_payee FOREIGN KEY (payee_id) REFERENCES daily_payees(id) ON DELETE SET NULL,
+    CONSTRAINT fk_daily_tx_card FOREIGN KEY (card_id) REFERENCES daily_credit_cards(id) ON DELETE SET NULL,
+    CONSTRAINT fk_daily_tx_invoice FOREIGN KEY (invoice_id) REFERENCES daily_card_invoices(id) ON DELETE SET NULL,
+    INDEX idx_daily_tx_date (transaction_date, type),
+    INDEX idx_daily_tx_status (status, transaction_date),
+    INDEX idx_daily_tx_cat (category_id),
+    INDEX idx_daily_tx_card (card_id, invoice_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS daily_recurring_commitments (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    type ENUM('expense','income') NOT NULL DEFAULT 'expense',
+    category_id BIGINT UNSIGNED NULL,
+    payee_name VARCHAR(160) NOT NULL,
+    description VARCHAR(255) NOT NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    recurrence ENUM('monthly','weekly','biweekly','quarterly','annual') NOT NULL DEFAULT 'monthly',
+    total_installments SMALLINT UNSIGNED NULL,
+    current_installment SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    due_day TINYINT UNSIGNED NOT NULL DEFAULT 10,
+    start_date DATE NOT NULL,
+    end_date DATE NULL,
+    payment_method ENUM('pix','credit_card','debit_card','cash','transfer','boleto') NOT NULL DEFAULT 'pix',
+    auto_post TINYINT(1) NOT NULL DEFAULT 0,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_daily_rec_cat FOREIGN KEY (category_id) REFERENCES daily_categories(id) ON DELETE SET NULL,
+    INDEX idx_daily_rec_active (active, due_day)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

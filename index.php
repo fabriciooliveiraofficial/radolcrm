@@ -54,7 +54,7 @@ if (($_GET['page'] ?? '') === 'export') {
     (new Exporter($db))->download((string) ($_GET['type'] ?? ''));
 }
 
-$allowedPages = ['dashboard','businesses','categories','clients','products','subscriptions','service-badges','reminders','agenda','payments','expenses','recurring','cards','cash','reports','settings'];
+$allowedPages = ['dashboard','businesses','categories','clients','products','subscriptions','service-badges','reminders','agenda','payments','expenses','recurring','cards','cash','reports','settings','financeiro'];
 $page = (string) ($_GET['page'] ?? 'dashboard');
 if (!in_array($page, $allowedPages, true)) {
     http_response_code(404);
@@ -74,6 +74,7 @@ if ($buFilter) {
 }
 
 $pageTitles = [
+    'financeiro' => ['Gestão Financeira Diária', 'Controle pessoal e familiar inteligente: entradas, saídas, cartões e compromissos fixos.'],
     'dashboard' => ['Visão geral', 'Acompanhe os números que movem seu negócio.'],
     'businesses' => ['Unidades de negócio', 'Gerencie seus negócios e finanças pessoais de forma separada.'],
     'categories' => ['Categorias de receitas e gastos', 'Organize e defina limitadores de gastos por categoria.'],
@@ -92,6 +93,7 @@ $pageTitles = [
     'settings' => ['Configurações', 'Empresa, câmbio, acesso e segurança.'],
     '404' => ['Página não encontrada', 'O endereço acessado não existe.'],
 ];
+
 
 if ($selectedBusiness && isset($pageTitles[$page])) {
     $pageTitles[$page][0] .= ' · ' . $selectedBusiness['name'];
