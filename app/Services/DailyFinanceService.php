@@ -381,14 +381,10 @@ final class DailyFinanceService
         $actualDueDay = min($dueDay, $daysInDueMonth);
         $dueDate = sprintf('%04d-%02d-%02d', $dueYear, $dueMonth, $actualDueDay);
 
-        return (int) $this->db->insert('daily_card_invoices', [
-            'card_id' => $cardId,
-            'reference_month' => $refMonth,
-            'closing_date' => $closingDate,
-            'due_date' => $dueDate,
-            'total_amount' => 0.00,
-            'status' => 'open',
-        ]);
+        return (int) $this->db->insert(
+            "INSERT INTO daily_card_invoices (card_id, reference_month, closing_date, due_date, total_amount, status) VALUES (?, ?, ?, ?, 0.00, 'open')",
+            [$cardId, $refMonth, $closingDate, $dueDate]
+        );
     }
 
     public function recalculateInvoiceTotal(int $invoiceId): void
@@ -397,7 +393,7 @@ final class DailyFinanceService
             "SELECT COALESCE(SUM(amount), 0) FROM daily_transactions WHERE invoice_id = ?",
             [$invoiceId]
         );
-        $this->db->execute(
+        $this->db->query(
             "UPDATE daily_card_invoices SET total_amount = ? WHERE id = ?",
             [$sum, $invoiceId]
         );
@@ -441,14 +437,10 @@ final class DailyFinanceService
         $actualClosingDay = min($closingDay, $daysInRefMonth);
         $closingDate = sprintf('%s-%02d', $refMonth, $actualClosingDay);
 
-        return (int) $this->db->insert('daily_card_invoices', [
-            'card_id' => $cardId,
-            'reference_month' => $refMonth,
-            'closing_date' => $closingDate,
-            'due_date' => $dueDate,
-            'total_amount' => 0.00,
-            'status' => 'open',
-        ]);
+        return (int) $this->db->insert(
+            "INSERT INTO daily_card_invoices (card_id, reference_month, closing_date, due_date, total_amount, status) VALUES (?, ?, ?, ?, 0.00, 'open')",
+            [$cardId, $refMonth, $closingDate, $dueDate]
+        );
     }
 }
 

@@ -1927,18 +1927,15 @@ final class ActionHandler
         $payeeId = null;
         if ($existingPayee) {
             $payeeId = (int)$existingPayee['id'];
-            $this->db->execute(
+            $this->db->query(
                 "UPDATE daily_payees SET usage_count = usage_count + 1, last_used_at = NOW(), default_category_id = COALESCE(?, default_category_id), default_payment_method = ? WHERE id = ?",
                 [$categoryId, $paymentMethod, $payeeId]
             );
         } else {
-            $payeeId = (int)$this->db->insert('daily_payees', [
-                'name' => $payeeName,
-                'default_category_id' => $categoryId,
-                'default_payment_method' => $paymentMethod,
-                'usage_count' => 1,
-                'last_used_at' => date('Y-m-d H:i:s'),
-            ]);
+            $payeeId = (int)$this->db->insert(
+                "INSERT INTO daily_payees (name, default_category_id, default_payment_method, usage_count, last_used_at) VALUES (?, ?, ?, 1, NOW())",
+                [$payeeName, $categoryId, $paymentMethod]
+            );
         }
 
         // 1. Edição de transação individual existente
@@ -1953,22 +1950,10 @@ final class ActionHandler
                 $invId = $dailyService->getOrCreateInvoiceForDueDate($cardId, $transactionDate);
             }
 
-            $updateData = [
-                'type' => $type,
-                'category_id' => $categoryId,
-                'payee_id' => $payeeId,
-                'payee_name' => $payeeName,
-                'description' => $description,
-                'amount' => $amount,
-                'payment_method' => $paymentMethod,
-                'card_id' => $cardId,
-                'invoice_id' => $invId,
-                'transaction_date' => $transactionDate,
-                'status' => $status,
-                'notes' => $notes,
-            ];
-
-            $this->db->update('daily_transactions', $updateData, 'id = ?', [$id]);
+            $this->db->query(
+                "UPDATE daily_transactions SET type = ?, category_id = ?, payee_id = ?, payee_name = ?, description = ?, amount = ?, payment_method = ?, card_id = ?, invoice_id = ?, transaction_date = ?, status = ?, notes = ? WHERE id = ?",
+                [$type, $categoryId, $payeeId, $payeeName, $description, $amount, $paymentMethod, $cardId, $invId, $transactionDate, $status, $notes, $id]
+            );
 
             if (!empty($oldTx['invoice_id'])) {
                 $dailyService->recalculateInvoiceTotal((int)$oldTx['invoice_id']);
@@ -2031,22 +2016,10 @@ final class ActionHandler
                     $affectedInvoices[$invId] = true;
                     $instDesc = $description . " ({$inst['number']}/{$totalInstallments})";
 
-                    $this->db->insert('daily_transactions', [
-                        'type' => $type,
-                        'category_id' => $categoryId,
-                        'payee_id' => $payeeId,
-                        'payee_name' => $payeeName,
-                        'description' => $instDesc,
-                        'amount' => $inst['amount'],
-                        'payment_method' => 'credit_card',
-                        'card_id' => $cardId,
-                        'invoice_id' => $invId,
-                        'installment_number' => $inst['number'],
-                        'total_installments' => $totalInstallments,
-                        'transaction_date' => $inst['date'],
-                        'status' => 'realized',
-                        'notes' => $notes,
-                    ]);
+                    $this->db->insert(
+                        "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        [$type, $categoryId, $payeeId, $payeeName, $instDesc, $inst['amount'], 'credit_card', $cardId, $invId, $inst['number'], $totalInstallments, $inst['date'], 'realized', $notes]
+                    );
                 }
 
                 foreach (array_keys($affectedInvoices) as $invId) {
@@ -2066,22 +2039,10 @@ final class ActionHandler
                 }
 
                 $instDesc = $description . " ({$inst['number']}/{$totalInstallments})";
-                $this->db->insert('daily_transactions', [
-                    'type' => $type,
-                    'category_id' => $categoryId,
-                    'payee_id' => $payeeId,
-                    'payee_name' => $payeeName,
-                    'description' => $instDesc,
-                    'amount' => $inst['amount'],
-                    'payment_method' => $paymentMethod,
-                    'card_id' => null,
-                    'invoice_id' => null,
-                    'installment_number' => $inst['number'],
-                    'total_installments' => $totalInstallments,
-                    'transaction_date' => $inst['date'],
-                    'status' => $instStatus,
-                    'notes' => $notes,
-                ]);
+                $this->db->insert(
+                    "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [$type, $categoryId, $payeeId, $payeeName, $instDesc, $inst['amount'], $paymentMethod, null, null, $inst['number'], $totalInstallments, $inst['date'], $instStatus, $notes]
+                );
             }
 
             Flash::add('success', "Parcelamento / Financiamento em {$totalInstallments}x (total R$ " . number_format($sumActual, 2, ',', '.') . ") registrado com sucesso!");
@@ -2094,24 +2055,10 @@ final class ActionHandler
             $invoiceId = $dailyService->getOrCreateInvoice($cardId, $transactionDate);
         }
 
-        $data = [
-            'type' => $type,
-            'category_id' => $categoryId,
-            'payee_id' => $payeeId,
-            'payee_name' => $payeeName,
-            'description' => $description,
-            'amount' => $amount,
-            'payment_method' => $paymentMethod,
-            'card_id' => $cardId,
-            'invoice_id' => $invoiceId,
-            'installment_number' => 1,
-            'total_installments' => 1,
-            'transaction_date' => $transactionDate,
-            'status' => $status,
-            'notes' => $notes,
-        ];
-
-        $this->db->insert('daily_transactions', $data);
+        $this->db->insert(
+            "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [$type, $categoryId, $payeeId, $payeeName, $description, $amount, $paymentMethod, $cardId, $invoiceId, 1, 1, $transactionDate, $status, $notes]
+        );
         if ($invoiceId) {
             $dailyService->recalculateInvoiceTotal($invoiceId);
         }
@@ -2131,17 +2078,10 @@ final class ActionHandler
             $dueDay = max(1, min(31, (int)($_POST['due_day'] ?? 10)));
             $color = trim((string)($_POST['color'] ?? '#6366f1'));
 
-            $id = $this->db->insert('daily_credit_cards', [
-                'name' => $name,
-                'brand' => $brand,
-                'last_four_digits' => $lastFourDigits,
-                'credit_limit' => $creditLimit,
-                'closing_day' => $closingDay,
-                'due_day' => $dueDay,
-                'color' => $color,
-                'active' => 1,
-                'notes' => null,
-            ]);
+            $id = $this->db->insert(
+                "INSERT INTO daily_credit_cards (name, brand, last_four_digits, credit_limit, closing_day, due_day, color, active, notes) VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL)",
+                [$name, $brand, $lastFourDigits, $creditLimit, $closingDay, $dueDay, $color]
+            );
 
             echo json_encode([
                 'ok' => true,
@@ -2167,7 +2107,7 @@ final class ActionHandler
         $id = (int)($_POST['id'] ?? 0);
         $tx = $this->db->fetch("SELECT invoice_id FROM daily_transactions WHERE id = ?", [$id]);
         if ($tx) {
-            $this->db->execute("DELETE FROM daily_transactions WHERE id = ?", [$id]);
+            $this->db->query("DELETE FROM daily_transactions WHERE id = ?", [$id]);
             if (!empty($tx['invoice_id'])) {
                 $dailyService = new \App\Services\DailyFinanceService($this->db);
                 $dailyService->recalculateInvoiceTotal((int)$tx['invoice_id']);
@@ -2203,10 +2143,16 @@ final class ActionHandler
         ];
 
         if ($id) {
-            $this->db->update('daily_credit_cards', $data, 'id = ?', [$id]);
+            $this->db->query(
+                "UPDATE daily_credit_cards SET name = ?, brand = ?, last_four_digits = ?, credit_limit = ?, closing_day = ?, due_day = ?, color = ?, active = ?, notes = ? WHERE id = ?",
+                [$name, $brand, $lastFourDigits, $creditLimit, $closingDay, $dueDay, $color, $active, $notes, $id]
+            );
             Flash::add('success', 'Cartão atualizado com sucesso.');
         } else {
-            $this->db->insert('daily_credit_cards', $data);
+            $this->db->insert(
+                "INSERT INTO daily_credit_cards (name, brand, last_four_digits, credit_limit, closing_day, due_day, color, active, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [$name, $brand, $lastFourDigits, $creditLimit, $closingDay, $dueDay, $color, $active, $notes]
+            );
             Flash::add('success', 'Cartão cadastrado com sucesso!');
         }
 
@@ -2216,7 +2162,7 @@ final class ActionHandler
     private function deleteDailyCard(): string
     {
         $id = (int)($_POST['id'] ?? 0);
-        $this->db->execute("DELETE FROM daily_credit_cards WHERE id = ?", [$id]);
+        $this->db->query("DELETE FROM daily_credit_cards WHERE id = ?", [$id]);
         Flash::add('success', 'Cartão excluído com sucesso.');
         return $this->returnUrl('?page=financeiro&tab=cards');
     }
@@ -2230,7 +2176,7 @@ final class ActionHandler
         }
 
         $paymentDate = $this->required('payment_date', 'Informe a data de pagamento da fatura.');
-        $this->db->execute(
+        $this->db->query(
             "UPDATE daily_card_invoices SET status = 'paid', payment_date = ? WHERE id = ?",
             [$paymentDate, $id]
         );
@@ -2259,28 +2205,17 @@ final class ActionHandler
         $active = isset($_POST['active']) ? 1 : 0;
         $notes = $this->nullable('notes');
 
-        $data = [
-            'type' => $type,
-            'category_id' => $categoryId,
-            'payee_name' => $payeeName,
-            'description' => $description,
-            'amount' => $amount,
-            'recurrence' => 'monthly',
-            'total_installments' => $totalInstallments,
-            'current_installment' => $currentInstallment,
-            'due_day' => $dueDay,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'payment_method' => $paymentMethod,
-            'active' => $active,
-            'notes' => $notes,
-        ];
-
         if ($id) {
-            $this->db->update('daily_recurring_commitments', $data, 'id = ?', [$id]);
+            $this->db->query(
+                "UPDATE daily_recurring_commitments SET type = ?, category_id = ?, payee_name = ?, description = ?, amount = ?, recurrence = ?, total_installments = ?, current_installment = ?, due_day = ?, start_date = ?, end_date = ?, payment_method = ?, active = ?, notes = ? WHERE id = ?",
+                [$type, $categoryId, $payeeName, $description, $amount, 'monthly', $totalInstallments, $currentInstallment, $dueDay, $startDate, $endDate, $paymentMethod, $active, $notes, $id]
+            );
             Flash::add('success', 'Compromisso fixo atualizado com sucesso.');
         } else {
-            $this->db->insert('daily_recurring_commitments', $data);
+            $this->db->insert(
+                "INSERT INTO daily_recurring_commitments (type, category_id, payee_name, description, amount, recurrence, total_installments, current_installment, due_day, start_date, end_date, payment_method, active, notes) VALUES (?, ?, ?, ?, ?, 'monthly', ?, ?, ?, ?, ?, ?, ?, ?)",
+                [$type, $categoryId, $payeeName, $description, $amount, $totalInstallments, $currentInstallment, $dueDay, $startDate, $endDate, $paymentMethod, $active, $notes]
+            );
             Flash::add('success', 'Compromisso recorrente adicionado com sucesso!');
         }
 
@@ -2301,25 +2236,18 @@ final class ActionHandler
             : 'pix';
 
         // Lançar transação realizada correspondente
-        $this->db->insert('daily_transactions', [
-            'type' => $commitment['type'],
-            'category_id' => $commitment['category_id'],
-            'payee_name' => $commitment['payee_name'],
-            'description' => $commitment['description'] . (!empty($commitment['total_installments']) ? " ({$commitment['current_installment']}/{$commitment['total_installments']})" : ''),
-            'amount' => $commitment['amount'],
-            'payment_method' => $method,
-            'transaction_date' => $paymentDate,
-            'status' => 'realized',
-            'notes' => 'Quitação de compromisso programado',
-        ]);
+        $this->db->insert(
+            "INSERT INTO daily_transactions (type, category_id, payee_name, description, amount, payment_method, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'realized', ?)",
+            [$commitment['type'], $commitment['category_id'], $commitment['payee_name'], $commitment['description'] . (!empty($commitment['total_installments']) ? " ({$commitment['current_installment']}/{$commitment['total_installments']})" : ''), $commitment['amount'], $method, $commitment['current_installment'] ?? 1, $commitment['total_installments'] ?? 1, $paymentDate, 'Quitação de compromisso programado']
+        );
 
         // Se for parcelado, avançar parcela
         if (!empty($commitment['total_installments'])) {
             $next = (int)$commitment['current_installment'] + 1;
             if ($next > (int)$commitment['total_installments']) {
-                $this->db->execute("UPDATE daily_recurring_commitments SET current_installment = ?, active = 0 WHERE id = ?", [$next, $id]);
+                $this->db->query("UPDATE daily_recurring_commitments SET current_installment = ?, active = 0 WHERE id = ?", [$next, $id]);
             } else {
-                $this->db->execute("UPDATE daily_recurring_commitments SET current_installment = ? WHERE id = ?", [$next, $id]);
+                $this->db->query("UPDATE daily_recurring_commitments SET current_installment = ? WHERE id = ?", [$next, $id]);
             }
         }
 
@@ -2330,7 +2258,7 @@ final class ActionHandler
     private function deleteDailyCommitment(): string
     {
         $id = (int)($_POST['id'] ?? 0);
-        $this->db->execute("DELETE FROM daily_recurring_commitments WHERE id = ?", [$id]);
+        $this->db->query("DELETE FROM daily_recurring_commitments WHERE id = ?", [$id]);
         Flash::add('success', 'Compromisso removido com sucesso.');
         return $this->returnUrl('?page=financeiro&tab=commitments');
     }
@@ -2349,22 +2277,17 @@ final class ActionHandler
         $sortOrder = (int)($_POST['sort_order'] ?? 0);
         $active = isset($_POST['active']) ? 1 : 0;
 
-        $data = [
-            'parent_id' => $parentId,
-            'name' => $name,
-            'type' => $type,
-            'icon' => $icon,
-            'color' => $color,
-            'monthly_budget_limit' => $monthlyBudgetLimit,
-            'sort_order' => $sortOrder,
-            'active' => $active,
-        ];
-
         if ($id) {
-            $this->db->update('daily_categories', $data, 'id = ?', [$id]);
+            $this->db->query(
+                "UPDATE daily_categories SET parent_id = ?, name = ?, type = ?, icon = ?, color = ?, monthly_budget_limit = ?, sort_order = ?, active = ? WHERE id = ?",
+                [$parentId, $name, $type, $icon, $color, $monthlyBudgetLimit, $sortOrder, $active, $id]
+            );
             Flash::add('success', 'Categoria atualizada com sucesso.');
         } else {
-            $this->db->insert('daily_categories', $data);
+            $this->db->insert(
+                "INSERT INTO daily_categories (parent_id, name, type, icon, color, monthly_budget_limit, sort_order, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [$parentId, $name, $type, $icon, $color, $monthlyBudgetLimit, $sortOrder, $active]
+            );
             Flash::add('success', 'Categoria criada com sucesso!');
         }
 
@@ -2375,8 +2298,8 @@ final class ActionHandler
     {
         $id = (int)($_POST['id'] ?? 0);
         // Desvincular filhos
-        $this->db->execute("UPDATE daily_categories SET parent_id = NULL WHERE parent_id = ?", [$id]);
-        $this->db->execute("DELETE FROM daily_categories WHERE id = ?", [$id]);
+        $this->db->query("UPDATE daily_categories SET parent_id = NULL WHERE parent_id = ?", [$id]);
+        $this->db->query("DELETE FROM daily_categories WHERE id = ?", [$id]);
         Flash::add('success', 'Categoria excluída com sucesso.');
         return $this->returnUrl('?page=financeiro&tab=categories');
     }
