@@ -62,7 +62,17 @@ if (!in_array($page, $allowedPages, true)) {
 }
 
 $buFilter = isset($_GET['bu']) && $_GET['bu'] !== '' ? (int) $_GET['bu'] : null;
-$sidebarBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
+$rawSidebarBusinesses = $db->fetchAll('SELECT id, name, icon, color, is_personal FROM business_units WHERE active = 1 ORDER BY sort_order ASC, id ASC');
+$sidebarBusinesses = [];
+$seenNames = [];
+foreach ($rawSidebarBusinesses as $b) {
+    $normalizedName = mb_strtolower(trim((string) $b['name']));
+    if (isset($seenNames[$normalizedName])) {
+        continue;
+    }
+    $seenNames[$normalizedName] = true;
+    $sidebarBusinesses[] = $b;
+}
 $selectedBusiness = null;
 if ($buFilter) {
     foreach ($sidebarBusinesses as $b) {

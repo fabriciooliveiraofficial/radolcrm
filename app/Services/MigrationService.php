@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 17;
+    private const VERSION = 18;
 
     public function __construct(private readonly Database $db)
     {
@@ -1204,6 +1204,44 @@ final class MigrationService
                         );
                     }
                 }
+            }
+        }
+        if ($version < 18) {
+            // Unificação e eliminação definitiva de unidades de negócio duplicadas
+            // 1. Identificar a unidade canônica principal da Gearzone
+            $canonicalGearzoneId = (int) ($this->db->value(
+                "SELECT id FROM business_units WHERE active = 1 AND is_personal = 0 ORDER BY id ASC LIMIT 1"
+            ) ?: ($this->db->value("SELECT id FROM business_units ORDER BY id ASC LIMIT 1") ?: 1));
+
+            // 2. Garantir integridade cadastral da Gearzone canônica
+            $this->db->query(
+                "UPDATE business_units SET name = 'Gearzone', icon = '💼', color = '#2b826b', is_personal = 0, active = 1, sort_order = 1 WHERE id = ?",
+                [$canonicalGearzoneId]
+            );
+
+            // 3. Localizar qualquer unidade de negócio duplicada ou residual
+            $duplicateUnits = $this->db->fetchAll(
+                "SELECT id FROM business_units WHERE id != ?",
+                [$canonicalGearzoneId]
+            );
+            $duplicateIds = array_map(static fn(array $r): int => (int) $r['id'], $duplicateUnits);
+
+            if (!empty($duplicateIds)) {
+                $placeholders = implode(',', $duplicateIds);
+                // Reatribuir com segurança todas as entidades vinculadas para a Gearzone canônica
+                $this->db->query("UPDATE clients SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+                $this->db->query("UPDATE products SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+                $this->db->query("UPDATE payments SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+                $this->db->query("UPDATE expenses SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+                $this->db->query("UPDATE cash_entries SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+                $this->db->query("UPDATE recurring_templates SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+                $this->db->query("UPDATE installments SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+                $this->db->query("UPDATE credit_cards SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+                $this->db->query("UPDATE credit_card_transactions SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+                $this->db->query("UPDATE categories SET business_unit_id = ? WHERE business_unit_id IN ({$placeholders})", [$canonicalGearzoneId]);
+
+                // Excluir todas as unidades duplicadas da tabela business_units
+                $this->db->query("DELETE FROM business_units WHERE id IN ({$placeholders})");
             }
         }
         $this->db->query(

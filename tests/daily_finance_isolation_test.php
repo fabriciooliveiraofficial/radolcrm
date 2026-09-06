@@ -31,17 +31,18 @@ $dailyTables = [
 foreach ($dailyTables as $table) {
     assert(str_contains($schemaContent, "CREATE TABLE IF NOT EXISTS {$table}"), "Tabela {$table} deve estar definida no schema.sql");
 }
-assert(str_contains($schemaContent, "('schema_version', '17')"), "Versão 17 de schema deve estar no schema.sql");
-echo "✓ 3. Tabelas isoladas daily_* e versão 17 presentes no schema.sql.\n";
+assert(str_contains($schemaContent, "('schema_version', '18')"), "Versão 18 de schema deve estar no schema.sql");
+echo "✓ 3. Tabelas isoladas daily_* e versão 18 presentes no schema.sql.\n";
 
 // 4. Verificar MigrationService.php
 $migrationContent = file_get_contents($root . '/app/Services/MigrationService.php');
-assert(str_contains($migrationContent, "const VERSION = 17;"), "MigrationService deve estar na versão 17");
-assert(str_contains($migrationContent, "\$version < 17"), "MigrationService deve conter o bloco de migração 17");
+assert(str_contains($migrationContent, "const VERSION = 18;"), "MigrationService deve estar na versão 18");
+assert(str_contains($migrationContent, "\$version < 18"), "MigrationService deve conter o bloco de migração 18");
+assert(str_contains($migrationContent, "canonicalGearzoneId"), "MigrationService deve conter a lógica de unificação canônica");
 assert(str_contains($migrationContent, "Gearzone"), "MigrationService deve garantir a preservação da Gearzone");
 assert(str_contains($migrationContent, "Transafe"), "MigrationService deve limpar referências à Transafe");
 assert(str_contains($migrationContent, "Assistente Virtual"), "MigrationService deve limpar referências ao Assistente Virtual");
-echo "✓ 4. MigrationService com versão 17 e blindagem da Gearzone validada.\n";
+echo "✓ 4. MigrationService com versão 18 e blindagem/unificação da Gearzone validada.\n";
 
 // 5. Verificar DailyFinanceService.php
 assert(file_exists($root . '/app/Services/DailyFinanceService.php'), "DailyFinanceService.php deve existir");
