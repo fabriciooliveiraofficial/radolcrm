@@ -2183,7 +2183,7 @@ final class ActionHandler
         $name = $this->required('name', 'Informe o nome do cartão.');
         $brand = trim((string)($_POST['brand'] ?? 'Mastercard'));
         $lastFourDigits = $this->nullable('last_four_digits');
-        $creditLimit = (float) str_replace(',', '.', (string)($_POST['credit_limit'] ?? 0));
+        $creditLimit = normalize_decimal($_POST['credit_limit'] ?? 0);
         $closingDay = max(1, min(31, (int)($_POST['closing_day'] ?? 1)));
         $dueDay = max(1, min(31, (int)($_POST['due_day'] ?? 10)));
         $color = trim((string)($_POST['color'] ?? '#6366f1'));

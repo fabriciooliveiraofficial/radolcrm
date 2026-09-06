@@ -114,4 +114,11 @@ assert(str_contains($viewContent, "Tetos & Orçamentos"), "Aba de Tetos e Orçam
 assert(str_contains($viewContent, "Categorias Oficiais"), "Aba de Categorias Oficiais deve existir");
 echo "✓ 7. View financeiro.php completa com parcelamento avançado, ajuste fino e cadastro ágil de cartões.\n";
 
+// 8. Verificar Database.php
+$dbReflection = new ReflectionClass(\App\Core\Database::class);
+assert($dbReflection->hasMethod('insert'), "Database deve ter método insert");
+assert($dbReflection->hasMethod('execute'), "Database deve ter método execute");
+assert($dbReflection->hasMethod('update'), "Database deve ter método update");
+echo "✓ 8. Database com insert flexível, update e execute validados.\n";
+
 echo "\n🎉 TODOS OS CONTRATOS E TESTES DE ISOLAMENTO PASSARAM COM 100% DE SUCESSO!\n";

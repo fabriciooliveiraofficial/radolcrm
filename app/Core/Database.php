@@ -63,11 +63,42 @@ final class Database
         return $this->query($sql, $params)->fetchColumn();
     }
 
+    public function execute(string $sql, array $params = []): int
+    {
+        return $this->query($sql, $params)->rowCount();
+    }
+
     public function insert(string $sql, array $params = []): int
     {
+        $trimmed = ltrim($sql);
+        if (!str_starts_with(strtoupper($trimmed), 'INSERT')) {
+            $table = $trimmed;
+            $fields = array_keys($params);
+            $placeholders = array_fill(0, count($fields), '?');
+            $sql = sprintf(
+                "INSERT INTO %s (`%s`) VALUES (%s)",
+                $table,
+                implode('`, `', $fields),
+                implode(', ', $placeholders)
+            );
+            $params = array_values($params);
+        }
+
         $this->query($sql, $params);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function update(string $table, array $data, string $where, array $whereParams = []): int
+    {
+        $sets = [];
+        $values = [];
+        foreach ($data as $column => $value) {
+            $sets[] = "`{$column}` = ?";
+            $values[] = $value;
+        }
+        $sql = sprintf("UPDATE %s SET %s WHERE %s", $table, implode(', ', $sets), $where);
+        return $this->execute($sql, array_merge($values, $whereParams));
     }
 
     public function transaction(callable $callback): mixed

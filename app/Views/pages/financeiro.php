@@ -1609,9 +1609,9 @@ async function handleInlineCardSubmit(e) {
             body: formData,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
-        const data = await resp.json();
-        if (!data.ok) {
-            alert('Erro ao salvar cartão: ' + (data.message || 'Erro desconhecido'));
+        const data = await resp.json().catch(() => null);
+        if (!resp.ok || !data || !data.ok) {
+            alert('Erro ao salvar cartão: ' + ((data && data.message) ? data.message : ('Erro no processamento (HTTP ' + resp.status + ')')));
             return;
         }
 
