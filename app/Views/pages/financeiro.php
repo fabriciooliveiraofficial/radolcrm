@@ -710,7 +710,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
 <!-- ========================================================================= -->
 <div id="quickTxModal" class="modal">
     <div class="modal-backdrop" onclick="closeQuickTxModal()"></div>
-    <section class="modal-panel" style="max-width: 640px;">
+    <section class="modal-panel" style="max-width: 760px; width: 95%;">
         <header>
             <div>
                 <p class="eyebrow">LANÇAMENTO INTELIGENTE</p>
@@ -794,15 +794,15 @@ $recentPayees = $dailyService->recentPayees('', 30);
             </div>
 
             <!-- SEÇÃO DE PARCELAMENTO & FINANCIAMENTOS -->
-            <div id="installmentOptionBlock" class="full-field" style="background: #f8fafc; padding: 12px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                    <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; margin: 0;">
+            <div id="installmentOptionBlock" class="full-field" style="background: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                    <label style="display: inline-flex; flex-direction: row; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; margin: 0; font-size: 13px; color: var(--ink);">
                         <input type="checkbox" id="enableInstallmentsCheckbox" onchange="toggleInstallmentsSection(this.checked)">
                         <span id="installmentCheckboxLabel">Dividir em Parcelas / Financiamento</span>
                     </label>
                     <div id="installmentSelectWrapper" style="display: none; align-items: center; gap: 8px;">
-                        <label style="font-size: 12px; margin: 0; color: var(--muted);">Quantidade:</label>
-                        <select name="total_installments" id="totalInstallmentsSelect" style="width: auto; padding: 4px 10px; font-weight: 600;" onchange="handleInstallmentCountChange(this.value)">
+                        <span style="font-size: 12px; color: var(--muted); font-weight: 600;">Quantidade:</span>
+                        <select name="total_installments" id="totalInstallmentsSelect" style="width: 100px; min-height: 36px; padding: 4px 8px; font-weight: 700;" onchange="handleInstallmentCountChange()">
                             <?php for ($i = 2; $i <= 72; $i++): ?>
                                 <option value="<?= $i ?>"><?= $i ?>x</option>
                             <?php endfor; ?>
@@ -812,25 +812,25 @@ $recentPayees = $dailyService->recentPayees('', 30);
             </div>
 
             <!-- CRONOGRAMA AVANÇADO DE PARCELAS COM AJUSTE FINO DE DATAS E VALORES -->
-            <div id="installmentsScheduleBlock" class="full-field" style="display: none; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+            <div id="installmentsScheduleBlock" class="full-field" style="display: none; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <div>
-                        <b style="color: var(--ink); font-size: 14px; display: block;">📅 Cronograma de Parcelas (Ajuste Fino)</b>
-                        <small class="muted">Datas e valores gerados automaticamente. Você pode editar datas e valores livremente.</small>
+                        <b style="color: var(--ink); font-size: 14px; display: flex; align-items: center; gap: 6px;">📅 Cronograma de Parcelas (Ajuste Fino)</b>
+                        <small class="muted" style="font-size: 11px;">Datas e valores gerados automaticamente. Você pode ajustar individualmente cada parcela.</small>
                     </div>
-                    <button type="button" class="button ghost small" onclick="recalculateEqualInstallments()" title="Restaurar distribuição padrão">
+                    <button type="button" class="button ghost small" onclick="recalculateEqualInstallments()" title="Restaurar distribuição padrão de valores" style="font-size: 12px; padding: 6px 12px;">
                         ↺ Redistribuir
                     </button>
                 </div>
 
-                <div class="installments-scroll-wrap" style="max-height: 240px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
-                    <table class="installments-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                        <thead style="background: #f1f5f9; position: sticky; top: 0; z-index: 1;">
+                <div class="installments-scroll-wrap">
+                    <table class="installments-table">
+                        <thead>
                             <tr>
-                                <th style="padding: 6px 10px; text-align: center; width: 60px;">Parcela</th>
-                                <th style="padding: 6px 10px; text-align: left;">Data de Vencimento</th>
-                                <th style="padding: 6px 10px; text-align: right; width: 140px;">Valor (R$)</th>
-                                <th style="padding: 6px 10px; text-align: center; width: 90px;">Status</th>
+                                <th style="text-align: center; width: 70px;">Parcela</th>
+                                <th style="text-align: left; min-width: 180px;">Data de Vencimento</th>
+                                <th style="text-align: right; width: 170px;">Valor (R$)</th>
+                                <th style="text-align: center; width: 110px;">Status</th>
                             </tr>
                         </thead>
                         <tbody id="installmentsTableBody">
@@ -840,19 +840,19 @@ $recentPayees = $dailyService->recentPayees('', 30);
                 </div>
 
                 <!-- Barra de Resumo e Balanço em Tempo Real -->
-                <div id="installmentsBalanceBar" style="margin-top: 10px; padding: 10px; border-radius: 6px; background: #f8fafc; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px;">
+                <div id="installmentsBalanceBar" style="margin-top: 12px; padding: 10px 14px; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 13px;">
                     <div>
                         <span>Soma das Parcelas: <strong id="installmentsSumText" style="color: var(--primary);">R$ 0,00</strong></span>
-                        <span style="margin: 0 6px; color: #cbd5e1;">|</span>
+                        <span style="margin: 0 8px; color: #cbd5e1;">|</span>
                         <span>Total Informado: <strong id="originalTotalText">R$ 0,00</strong></span>
                     </div>
                     <div id="installmentsDiffNotice" style="display: none; align-items: center; gap: 8px;">
                         <span id="diffBadge" class="badge warning" style="font-weight: 600;">Diferença: R$ 0,00</span>
-                        <button type="button" class="button ghost small" onclick="applyDifferenceToLastInstallment()" style="font-size: 11px; padding: 3px 8px;">
+                        <button type="button" class="button ghost small" onclick="applyDifferenceToLastInstallment()" style="font-size: 11px; padding: 4px 8px;">
                             ⚡ Ajustar centavos na última
                         </button>
-                        <button type="button" class="button ghost small" onclick="syncTotalFromInstallments()" style="font-size: 11px; padding: 3px 8px;">
-                            Atualizar Total da Compra
+                        <button type="button" class="button ghost small" onclick="syncTotalFromInstallments()" style="font-size: 11px; padding: 4px 8px;">
+                            Atualizar Total Geral
                         </button>
                     </div>
                 </div>
@@ -868,8 +868,8 @@ $recentPayees = $dailyService->recentPayees('', 30);
 
             <!-- STATUS DO LANÇAMENTO -->
             <div class="full-field" id="statusFieldContainer">
-                <label>Status do Lançamento *</label>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <label style="margin-bottom: 6px;">Status do Lançamento *</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <label class="status-radio-card active-realized" id="statusCardRealized">
                         <input type="radio" name="status" value="realized" checked onchange="handleStatusChange('realized')">
                         <span>✓ Já Pago / Realizado</span>
@@ -2175,39 +2175,81 @@ document.addEventListener('DOMContentLoaded', () => {
     padding: 10px !important;
 }
 
+/* Forçar campos de largura total a ocuparem 100% das 2 colunas do grid */
+.form-grid .full-field {
+    grid-column: 1 / -1 !important;
+}
+
+/* Reset obrigatório de tamanho para checkbox e radio (evita que peguem min-height: 42px) */
+.form-grid input[type="checkbox"],
+.form-grid input[type="radio"] {
+    width: 18px !important;
+    min-height: 18px !important;
+    height: 18px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    cursor: pointer;
+    box-shadow: none !important;
+    display: inline-block !important;
+    flex-shrink: 0 !important;
+}
+
+/* Inputs da Tabela de Parcelamento */
+.installments-table input[type="date"],
+.installments-table input[type="text"] {
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 4px 8px !important;
+    font-size: 13px !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 6px !important;
+    background: #fff !important;
+}
+.installments-table input[type="date"]:focus,
+.installments-table input[type="text"]:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 2px rgba(43, 130, 107, 0.15) !important;
+}
+
 /* Status Radio Cards */
 .status-radio-card {
-    border: 1px solid var(--line);
+    border: 1.5px solid var(--line);
     border-radius: 8px;
-    padding: 10px 14px;
+    padding: 12px 16px;
     display: flex;
+    flex-direction: row !important;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     cursor: pointer;
     background: #fff;
     font-size: 13px;
     font-weight: 600;
     transition: all 0.2s ease;
 }
-.status-radio-card input {
-    margin: 0;
+.status-radio-card input[type="radio"] {
+    accent-color: #10b981;
 }
 .status-radio-card.active-realized {
-    border-color: #10b981;
-    background: #ecfdf5;
-    color: #065f46;
+    border-color: #10b981 !important;
+    background: #ecfdf5 !important;
+    color: #065f46 !important;
 }
 .status-radio-card.active-pending {
-    border-color: #f59e0b;
-    background: #fffbeb;
-    color: #92400e;
+    border-color: #f59e0b !important;
+    background: #fffbeb !important;
+    color: #92400e !important;
+}
+.status-radio-card.active-pending input[type="radio"] {
+    accent-color: #f59e0b;
 }
 
 /* Cronograma de Parcelas */
 .installments-scroll-wrap {
-    max-height: 220px;
+    max-height: 240px;
     overflow-y: auto;
-    border: 1px solid var(--line);
+    overflow-x: hidden;
+    border: 1px solid #e2e8f0;
     border-radius: 6px;
     background: #fff;
 }
@@ -2219,13 +2261,18 @@ document.addEventListener('DOMContentLoaded', () => {
     background: #f8fafc;
     position: sticky;
     top: 0;
-    z-index: 1;
-    padding: 8px 10px;
-    font-size: 12px;
+    z-index: 2;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
     color: #64748b;
     border-bottom: 1px solid #e2e8f0;
+}
+.installments-table td {
+    padding: 6px 10px;
+    vertical-align: middle;
 }
 .button-icon-edit {
     transition: all 0.15s ease;
