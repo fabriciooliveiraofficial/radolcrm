@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 18;
+    private const VERSION = 19;
 
     public function __construct(private readonly Database $db)
     {
@@ -1243,6 +1243,9 @@ final class MigrationService
                 // Excluir todas as unidades duplicadas da tabela business_units
                 $this->db->query("DELETE FROM business_units WHERE id IN ({$placeholders})");
             }
+        }
+        if ($version < 19) {
+            $this->optionalDdl("ALTER TABLE daily_transactions MODIFY COLUMN payment_method ENUM('pix','credit_card','debit_card','cash','transfer','boleto') NOT NULL DEFAULT 'pix'");
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",

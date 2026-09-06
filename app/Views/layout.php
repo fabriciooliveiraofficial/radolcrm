@@ -32,10 +32,6 @@
                 <span class="nav-icon">📅</span>
                 <span class="nav-label">Agenda Financeira</span>
             </a>
-            <a class="nav-item <?= $page === 'categories' && !$buFilter ? 'active' : '' ?>" href="?page=categories">
-                <span class="nav-icon">📁</span>
-                <span class="nav-label">Categorias</span>
-            </a>
             <a class="nav-item <?= $page === 'reports' && !$buFilter ? 'active' : '' ?>" href="?page=reports">
                 <span class="nav-icon">⌁</span>
                 <span class="nav-label">Relatórios</span>

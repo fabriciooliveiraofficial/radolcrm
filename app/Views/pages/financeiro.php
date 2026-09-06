@@ -283,7 +283,8 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                     <b class="tx-amount <?= $isExp ? 'negative' : 'positive' ?>">
                                         <?= $isExp ? '-' : '+' ?> R$ <?= number_format((float)$tx['amount'], 2, ',', '.') ?>
                                     </b>
-                                    <div class="tx-actions">
+                                    <div class="tx-actions" style="display: flex; gap: 4px; align-items: center;">
+                                        <button type="button" class="button-icon-edit" title="Editar lançamento" onclick='openEditTxModal(<?= json_encode($tx, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)' style="background: none; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer; padding: 3px 6px; font-size: 13px; color: #475569;">✎</button>
                                         <form method="post" data-confirm="Excluir este lançamento de R$ <?= number_format((float)$tx['amount'], 2, ',', '.') ?>?" style="display:inline;">
                                             <?= csrf_field() ?>
                                             <input type="hidden" name="action" value="delete_daily_transaction">
@@ -704,29 +705,33 @@ $recentPayees = $dailyService->recentPayees('', 30);
 <!-- ========================================================================= -->
 <!-- MODAL: LANÇAMENTO RÁPIDO (3 TOQUES - PIX, CARTÃO, DÉBITO, DINHEIRO)       -->
 <!-- ========================================================================= -->
+<!-- ========================================================================= -->
+<!-- MODAL: LANÇAMENTO RÁPIDO COM PARCELAMENTO AVANÇADO E AJUSTE FINO          -->
+<!-- ========================================================================= -->
 <div id="quickTxModal" class="modal">
     <div class="modal-backdrop" onclick="closeQuickTxModal()"></div>
-    <section class="modal-panel">
+    <section class="modal-panel" style="max-width: 640px;">
         <header>
             <div>
-                <p class="eyebrow">LANÇAMENTO EM 3 TOQUES</p>
-                <h2>⚡ Novo Lançamento Diário</h2>
+                <p class="eyebrow">LANÇAMENTO INTELIGENTE</p>
+                <h2 id="quickTxModalTitle">⚡ Novo Lançamento Diário</h2>
             </div>
             <button type="button" class="modal-close" onclick="closeQuickTxModal()">×</button>
         </header>
 
-        <form method="post" class="form-grid" style="gap: 14px;">
+        <form method="post" id="quickTxForm" class="form-grid" style="gap: 14px;">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="save_daily_transaction">
+            <input type="hidden" name="id" id="txIdInput" value="">
             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
 
             <!-- TIPO: SAÍDA OU ENTRADA -->
             <div class="full-field type-toggle-buttons">
-                <label class="type-radio-btn active-expense">
+                <label class="type-radio-btn active-expense" id="radioLabelExpense">
                     <input type="radio" name="type" value="expense" checked onchange="handleTypeChange('expense')">
                     <span>💸 Saída / Despesa</span>
                 </label>
-                <label class="type-radio-btn">
+                <label class="type-radio-btn" id="radioLabelIncome">
                     <input type="radio" name="type" value="income" onchange="handleTypeChange('income')">
                     <span>💰 Entrada / Receita</span>
                 </label>
@@ -734,18 +739,18 @@ $recentPayees = $dailyService->recentPayees('', 30);
 
             <!-- VALOR E DATA -->
             <div>
-                <label>Valor (R$) *</label>
-                <input type="text" name="amount" required placeholder="0,00" class="input-lg" autocomplete="off" autofocus>
+                <label>Valor Total (R$) *</label>
+                <input type="text" name="amount" id="txAmountInput" required placeholder="0,00" class="input-lg" autocomplete="off" autofocus oninput="handleAmountOrInstallmentsChange()">
             </div>
             <div>
                 <label>Data *</label>
-                <input type="date" name="transaction_date" required value="<?= date('Y-m-d') ?>">
+                <input type="date" name="transaction_date" id="txDateInput" required value="<?= date('Y-m-d') ?>" onchange="handleAmountOrInstallmentsChange()">
             </div>
 
-            <!-- FAVORECIDO / ESTABELECIMENTO COM AUTOCOMPLETE INTELIGENTE (REGRA 1 & 5) -->
+            <!-- FAVORECIDO / ESTABELECIMENTO COM AUTOCOMPLETE INTELIGENTE -->
             <div class="full-field">
                 <label>Favorecido / Estabelecimento *</label>
-                <input list="payeesList" name="payee_name" id="payeeInput" required placeholder="Ex: Pão de Açúcar, Posto Ipiranga, Drogaria São Paulo..." autocomplete="off" oninput="handlePayeeSelect(this.value)">
+                <input list="payeesList" name="payee_name" id="payeeInput" required placeholder="Ex: Pão de Açúcar, Posto Ipiranga, Drogaria São Paulo, Financiamento Veicular..." autocomplete="off" oninput="handlePayeeSelect(this.value)">
                 <datalist id="payeesList">
                     <?php foreach ($recentPayees as $rp): ?>
                         <option value="<?= h($rp['name']) ?>" data-cat="<?= (int)$rp['default_category_id'] ?>" data-method="<?= h($rp['default_payment_method']) ?>">
@@ -759,34 +764,96 @@ $recentPayees = $dailyService->recentPayees('', 30);
             <!-- FORMA DE PAGAMENTO -->
             <div class="full-field">
                 <label>Forma de Pagamento *</label>
-                <select name="payment_method" id="paymentMethodSelect" onchange="toggleCardSelector(this.value)">
+                <select name="payment_method" id="paymentMethodSelect" onchange="handlePaymentMethodChange(this.value)">
                     <option value="pix">⚡ PIX</option>
                     <option value="credit_card">💳 Cartão de Crédito</option>
                     <option value="debit_card">💳 Cartão de Débito</option>
                     <option value="cash">💵 Dinheiro em Espécie</option>
                     <option value="transfer">🏦 Transferência Bancária</option>
+                    <option value="boleto">📄 Boleto Bancário / Carnê</option>
                 </select>
             </div>
 
-            <!-- BLOCO CONDICIONAL: CARTÃO E PARCELAMENTO -->
-            <div id="cardDetailsBlock" class="full-field card-details-row" style="display: none; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
-                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
-                    <div>
-                        <label>Cartão Utilizado</label>
-                        <select name="card_id">
-                            <?php foreach ($allCards as $c): ?>
-                                <option value="<?= (int)$c['id'] ?>"><?= h($c['name']) ?> (<?= h($c['brand']) ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label>Parcelas</label>
-                        <select name="total_installments">
-                            <option value="1">1x (À vista na fatura)</option>
-                            <?php for ($i = 2; $i <= 24; $i++): ?>
+            <!-- BLOCO CONDICIONAL: CARTÃO DE CRÉDITO -->
+            <div id="cardDetailsBlock" class="full-field card-details-row" style="display: none; background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <label style="margin: 0; font-weight: 600;">Cartão de Crédito Utilizado *</label>
+                    <button type="button" class="btn-link-action" onclick="openInlineNewCardModal()" style="background: none; border: none; color: var(--primary); font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: underline;">
+                        ＋ Novo Cartão
+                    </button>
+                </div>
+                <select name="card_id" id="cardSelectInput" onchange="handleCardSelectChange(this.value)">
+                    <option value="">Selecione o cartão...</option>
+                    <?php foreach ($allCards as $c): ?>
+                        <option value="<?= (int)$c['id'] ?>" data-closing="<?= (int)$c['closing_day'] ?>" data-due="<?= (int)$c['due_day'] ?>">
+                            <?= h($c['name']) ?> (<?= h($c['brand']) ?> · Fecha dia <?= (int)$c['closing_day'] ?> / Vence dia <?= (int)$c['due_day'] ?>)
+                        </option>
+                    <?php endforeach; ?>
+                    <option value="__new__">＋ Cadastrar novo cartão...</option>
+                </select>
+            </div>
+
+            <!-- SEÇÃO DE PARCELAMENTO & FINANCIAMENTOS -->
+            <div id="installmentOptionBlock" class="full-field" style="background: #f8fafc; padding: 12px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; margin: 0;">
+                        <input type="checkbox" id="enableInstallmentsCheckbox" onchange="toggleInstallmentsSection(this.checked)">
+                        <span id="installmentCheckboxLabel">Dividir em Parcelas / Financiamento</span>
+                    </label>
+                    <div id="installmentSelectWrapper" style="display: none; align-items: center; gap: 8px;">
+                        <label style="font-size: 12px; margin: 0; color: var(--muted);">Quantidade:</label>
+                        <select name="total_installments" id="totalInstallmentsSelect" style="width: auto; padding: 4px 10px; font-weight: 600;" onchange="handleInstallmentCountChange(this.value)">
+                            <?php for ($i = 2; $i <= 72; $i++): ?>
                                 <option value="<?= $i ?>"><?= $i ?>x</option>
                             <?php endfor; ?>
                         </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CRONOGRAMA AVANÇADO DE PARCELAS COM AJUSTE FINO DE DATAS E VALORES -->
+            <div id="installmentsScheduleBlock" class="full-field" style="display: none; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                    <div>
+                        <b style="color: var(--ink); font-size: 14px; display: block;">📅 Cronograma de Parcelas (Ajuste Fino)</b>
+                        <small class="muted">Datas e valores gerados automaticamente. Você pode editar datas e valores livremente.</small>
+                    </div>
+                    <button type="button" class="button ghost small" onclick="recalculateEqualInstallments()" title="Restaurar distribuição padrão">
+                        ↺ Redistribuir
+                    </button>
+                </div>
+
+                <div class="installments-scroll-wrap" style="max-height: 240px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                    <table class="installments-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                        <thead style="background: #f1f5f9; position: sticky; top: 0; z-index: 1;">
+                            <tr>
+                                <th style="padding: 6px 10px; text-align: center; width: 60px;">Parcela</th>
+                                <th style="padding: 6px 10px; text-align: left;">Data de Vencimento</th>
+                                <th style="padding: 6px 10px; text-align: right; width: 140px;">Valor (R$)</th>
+                                <th style="padding: 6px 10px; text-align: center; width: 90px;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="installmentsTableBody">
+                            <!-- Gerado dinamicamente via Javascript -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Barra de Resumo e Balanço em Tempo Real -->
+                <div id="installmentsBalanceBar" style="margin-top: 10px; padding: 10px; border-radius: 6px; background: #f8fafc; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px;">
+                    <div>
+                        <span>Soma das Parcelas: <strong id="installmentsSumText" style="color: var(--primary);">R$ 0,00</strong></span>
+                        <span style="margin: 0 6px; color: #cbd5e1;">|</span>
+                        <span>Total Informado: <strong id="originalTotalText">R$ 0,00</strong></span>
+                    </div>
+                    <div id="installmentsDiffNotice" style="display: none; align-items: center; gap: 8px;">
+                        <span id="diffBadge" class="badge warning" style="font-weight: 600;">Diferença: R$ 0,00</span>
+                        <button type="button" class="button ghost small" onclick="applyDifferenceToLastInstallment()" style="font-size: 11px; padding: 3px 8px;">
+                            ⚡ Ajustar centavos na última
+                        </button>
+                        <button type="button" class="button ghost small" onclick="syncTotalFromInstallments()" style="font-size: 11px; padding: 3px 8px;">
+                            Atualizar Total da Compra
+                        </button>
                     </div>
                 </div>
             </div>
@@ -796,21 +863,98 @@ $recentPayees = $dailyService->recentPayees('', 30);
                 <label>Categoria Oficial *</label>
                 <select name="category_id" id="categorySelect" required>
                     <option value="">Selecione uma categoria...</option>
-                    <!-- Preenchido via Javascript dependendo de expense/income -->
                 </select>
+            </div>
+
+            <!-- STATUS DO LANÇAMENTO -->
+            <div class="full-field" id="statusFieldContainer">
+                <label>Status do Lançamento *</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <label class="status-radio-card active-realized" id="statusCardRealized">
+                        <input type="radio" name="status" value="realized" checked onchange="handleStatusChange('realized')">
+                        <span>✓ Já Pago / Realizado</span>
+                    </label>
+                    <label class="status-radio-card" id="statusCardPending">
+                        <input type="radio" name="status" value="pending" onchange="handleStatusChange('pending')">
+                        <span>⏳ Pendente / A Pagar</span>
+                    </label>
+                </div>
             </div>
 
             <!-- DETALHE ADICIONAL -->
             <div class="full-field">
                 <label>Descrição ou Detalhes (Opcional)</label>
-                <input type="text" name="description" placeholder="Ex: Compras da semana, Jantar em família...">
+                <input type="text" name="description" id="txDescriptionInput" placeholder="Ex: Compras da semana, Jantar em família...">
             </div>
 
-            <input type="hidden" name="status" value="realized">
+            <div class="full-field">
+                <label>Observações / Notas (Opcional)</label>
+                <input type="text" name="notes" id="txNotesInput" placeholder="Ex: Informações adicionais, garantia, etc...">
+            </div>
 
             <footer class="form-actions full-field" style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px;">
                 <button type="button" class="button ghost" onclick="closeQuickTxModal()">Cancelar</button>
-                <button type="submit" class="button primary">✓ Salvar Lançamento</button>
+                <button type="submit" class="button primary" id="quickTxSubmitBtn">✓ Salvar Lançamento</button>
+            </footer>
+        </form>
+    </section>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MINI-MODAL: CADASTRO RÁPIDO DE CARTÃO (AJAX)                              -->
+<!-- ========================================================================= -->
+<div id="inlineCardModal" class="modal" style="z-index: 10002;">
+    <div class="modal-backdrop" onclick="closeInlineCardModal()"></div>
+    <section class="modal-panel" style="max-width: 440px;">
+        <header>
+            <div>
+                <p class="eyebrow">CADASTRO INSTANTÂNEO</p>
+                <h2>💳 Novo Cartão de Crédito</h2>
+            </div>
+            <button type="button" class="modal-close" onclick="closeInlineCardModal()">×</button>
+        </header>
+        <form id="inlineCardForm" onsubmit="handleInlineCardSubmit(event)" class="form-grid" style="gap: 12px;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="save_daily_card_ajax">
+
+            <div class="full-field">
+                <label>Nome do Cartão *</label>
+                <input type="text" name="name" id="inlineCardName" required placeholder="Ex: Nubank Black, XP Visa...">
+            </div>
+
+            <div>
+                <label>Bandeira</label>
+                <input type="text" name="brand" id="inlineCardBrand" value="Mastercard" placeholder="Mastercard, Visa, Elo...">
+            </div>
+
+            <div>
+                <label>Últimos 4 Dígitos</label>
+                <input type="text" name="last_four_digits" id="inlineCardDigits" maxlength="4" placeholder="Ex: 1234">
+            </div>
+
+            <div class="full-field">
+                <label>Limite Total de Crédito (R$)</label>
+                <input type="text" name="credit_limit" id="inlineCardLimit" placeholder="0,00" value="5.000,00">
+            </div>
+
+            <div>
+                <label>Dia de Fechamento (1-31) *</label>
+                <input type="number" name="closing_day" id="inlineCardClosing" min="1" max="31" value="1" required>
+            </div>
+
+            <div>
+                <label>Dia de Vencimento (1-31) *</label>
+                <input type="number" name="due_day" id="inlineCardDue" min="1" max="31" value="10" required>
+            </div>
+
+            <div class="full-field">
+                <label>Cor do Cartão</label>
+                <input type="color" name="color" id="inlineCardColor" value="#6366f1" style="height: 38px; padding: 2px;">
+            </div>
+
+            <footer class="form-actions full-field" style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 8px;">
+                <button type="button" class="button ghost" onclick="closeInlineCardModal()">Cancelar</button>
+                <button type="submit" class="button primary" id="inlineCardSaveBtn">✓ Salvar Cartão</button>
             </footer>
         </form>
     </section>
@@ -1073,8 +1217,21 @@ $recentPayees = $dailyService->recentPayees('', 30);
 <script>
 const categoryData = <?= json_encode($categoryTree, JSON_UNESCAPED_UNICODE) ?>;
 const payeesMap = <?= json_encode($recentPayees, JSON_UNESCAPED_UNICODE) ?>;
+let cardsMap = <?= json_encode(array_values($allCards), JSON_UNESCAPED_UNICODE) ?>;
 
-function renderCategoryOptions(type) {
+function parseMonetary(val) {
+    if (typeof val === 'number') return val;
+    if (!val) return 0;
+    const clean = String(val).replace(/[^\d,\.-]/g, '').replace(/\./g, '').replace(',', '.');
+    const num = parseFloat(clean);
+    return isNaN(num) ? 0 : num;
+}
+
+function formatMonetary(num) {
+    return Number(num).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderCategoryOptions(type, selectedId = null) {
     const select = document.getElementById('categorySelect');
     if (!select) return;
     select.innerHTML = '<option value="">Selecione uma categoria...</option>';
@@ -1089,6 +1246,9 @@ function renderCategoryOptions(type) {
         const optGeral = document.createElement('option');
         optGeral.value = macro.id;
         optGeral.textContent = macro.name + ' (Geral)';
+        if (selectedId && String(macro.id) === String(selectedId)) {
+            optGeral.selected = true;
+        }
         group.appendChild(optGeral);
 
         // Subcategorias
@@ -1097,6 +1257,9 @@ function renderCategoryOptions(type) {
                 const opt = document.createElement('option');
                 opt.value = sub.id;
                 opt.textContent = macro.name + ' › ' + sub.name;
+                if (selectedId && String(sub.id) === String(selectedId)) {
+                    opt.selected = true;
+                }
                 group.appendChild(opt);
             });
         }
@@ -1106,20 +1269,246 @@ function renderCategoryOptions(type) {
 
 function handleTypeChange(type) {
     renderCategoryOptions(type);
-    const labels = document.querySelectorAll('.type-radio-btn');
-    labels.forEach(l => {
-        if (l.querySelector('input').value === type) {
-            l.className = 'type-radio-btn ' + (type === 'expense' ? 'active-expense' : 'active-income');
-        } else {
-            l.className = 'type-radio-btn';
-        }
-    });
+    const expLabel = document.getElementById('radioLabelExpense');
+    const incLabel = document.getElementById('radioLabelIncome');
+    if (type === 'expense') {
+        if (expLabel) expLabel.className = 'type-radio-btn active-expense';
+        if (incLabel) incLabel.className = 'type-radio-btn';
+    } else {
+        if (expLabel) expLabel.className = 'type-radio-btn';
+        if (incLabel) incLabel.className = 'type-radio-btn active-income';
+    }
 }
 
-function toggleCardSelector(method) {
-    const block = document.getElementById('cardDetailsBlock');
-    if (block) {
-        block.style.display = (method === 'credit_card') ? 'block' : 'none';
+function handlePaymentMethodChange(method) {
+    const cardBlock = document.getElementById('cardDetailsBlock');
+    const instOption = document.getElementById('installmentOptionBlock');
+    const instLabel = document.getElementById('installmentCheckboxLabel');
+    const enableCheck = document.getElementById('enableInstallmentsCheckbox');
+
+    if (method === 'credit_card') {
+        if (cardBlock) cardBlock.style.display = 'block';
+        if (instLabel) instLabel.textContent = 'Compra Parcelada no Cartão';
+    } else {
+        if (cardBlock) cardBlock.style.display = 'none';
+        if (instLabel) instLabel.textContent = 'Dividir em Parcelas / Financiamento (Boleto, Carnê, etc.)';
+    }
+
+    if (enableCheck && enableCheck.checked) {
+        renderInstallmentsSchedule();
+    }
+}
+
+function handleCardSelectChange(val) {
+    if (val === '__new__') {
+        openInlineNewCardModal();
+        const select = document.getElementById('cardSelectInput');
+        if (select) select.value = '';
+        return;
+    }
+    const enableCheck = document.getElementById('enableInstallmentsCheckbox');
+    if (enableCheck && enableCheck.checked) {
+        renderInstallmentsSchedule();
+    }
+}
+
+function toggleInstallmentsSection(enabled) {
+    const wrapper = document.getElementById('installmentSelectWrapper');
+    const schedule = document.getElementById('installmentsScheduleBlock');
+    if (wrapper) wrapper.style.display = enabled ? 'flex' : 'none';
+    if (schedule) schedule.style.display = enabled ? 'block' : 'none';
+    if (enabled) {
+        renderInstallmentsSchedule();
+    }
+}
+
+function handleInstallmentCountChange() {
+    renderInstallmentsSchedule();
+}
+
+function handleAmountOrInstallmentsChange() {
+    const enableCheck = document.getElementById('enableInstallmentsCheckbox');
+    if (enableCheck && enableCheck.checked) {
+        renderInstallmentsSchedule();
+    }
+}
+
+function calculateInstallmentDates(baseDateStr, count, isCreditCard, cardId) {
+    const dates = [];
+    const baseDate = new Date(baseDateStr + 'T12:00:00');
+    
+    if (isCreditCard && cardId) {
+        const card = cardsMap.find(c => String(c.id) === String(cardId));
+        if (card) {
+            const closingDay = parseInt(card.closing_day, 10) || 1;
+            const dueDay = parseInt(card.due_day, 10) || 10;
+            const txDay = baseDate.getDate();
+            let curYear = baseDate.getFullYear();
+            let curMonth = baseDate.getMonth(); // 0-indexed
+
+            if (txDay >= closingDay) {
+                curMonth++;
+            }
+
+            for (let i = 0; i < count; i++) {
+                let instMonth = curMonth + i;
+                let instYear = curYear;
+                while (instMonth > 11) {
+                    instMonth -= 12;
+                    instYear++;
+                }
+
+                let dueM = instMonth;
+                let dueY = instYear;
+                if (dueDay < closingDay) {
+                    dueM++;
+                    if (dueM > 11) {
+                        dueM = 0;
+                        dueY++;
+                    }
+                }
+
+                const daysInDueM = new Date(dueY, dueM + 1, 0).getDate();
+                const actualDay = Math.min(dueDay, daysInDueM);
+                const dStr = `${dueY}-${String(dueM + 1).padStart(2, '0')}-${String(actualDay).padStart(2, '0')}`;
+                dates.push(dStr);
+            }
+            return dates;
+        }
+    }
+
+    // Para outros métodos (Boleto, Financiamento, etc.):
+    const day = baseDate.getDate();
+    for (let i = 0; i < count; i++) {
+        let targetMonth = baseDate.getMonth() + i;
+        let targetYear = baseDate.getFullYear();
+        while (targetMonth > 11) {
+            targetMonth -= 12;
+            targetYear++;
+        }
+        const maxDays = new Date(targetYear, targetMonth + 1, 0).getDate();
+        const actualDay = Math.min(day, maxDays);
+        const dStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(actualDay).padStart(2, '0')}`;
+        dates.push(dStr);
+    }
+    return dates;
+}
+
+function renderInstallmentsSchedule() {
+    const tbody = document.getElementById('installmentsTableBody');
+    if (!tbody) return;
+
+    const total = parseMonetary(document.getElementById('txAmountInput')?.value || 0);
+    const dateStr = document.getElementById('txDateInput')?.value || new Date().toISOString().split('T')[0];
+    const count = parseInt(document.getElementById('totalInstallmentsSelect')?.value || '2', 10);
+    const method = document.getElementById('paymentMethodSelect')?.value || 'pix';
+    const isCreditCard = (method === 'credit_card');
+    const cardId = document.getElementById('cardSelectInput')?.value;
+
+    const dates = calculateInstallmentDates(dateStr, count, isCreditCard, cardId);
+
+    // Calcular valores das parcelas
+    const baseVal = Math.floor((total / count) * 100) / 100;
+    const diff = Math.round((total - (baseVal * count)) * 100) / 100;
+
+    let html = '';
+    for (let i = 1; i <= count; i++) {
+        const dVal = dates[i - 1] || dateStr;
+        const val = (i === 1) ? Number((baseVal + diff).toFixed(2)) : baseVal;
+        const valFormatted = formatMonetary(val);
+        const isPending = (i > 1) || (!isCreditCard && dVal > new Date().toISOString().split('T')[0]);
+        const statusBadge = isCreditCard
+            ? '<span class="badge" style="background:#e0e7ff; color:#4338ca; font-size:11px;">Fatura</span>'
+            : (isPending ? '<span class="badge warning" style="font-size:11px;">Pendente</span>' : '<span class="badge success" style="font-size:11px;">Pago</span>');
+
+        html += `
+        <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 6px 10px; text-align: center; font-weight: 600; color: #64748b;">${i}/${count}</td>
+            <td style="padding: 6px 10px;">
+                <input type="date" name="installments[${i}][date]" value="${dVal}" class="inst-date-input" style="width: 100%; padding: 4px 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px;" onchange="handleInstallmentFieldChange()">
+            </td>
+            <td style="padding: 6px 10px;">
+                <input type="text" name="installments[${i}][amount]" value="${valFormatted}" class="inst-amount-input" style="width: 100%; text-align: right; padding: 4px 8px; font-size: 13px; font-weight: 600; border: 1px solid #cbd5e1; border-radius: 4px;" oninput="handleInstallmentFieldChange()">
+            </td>
+            <td style="padding: 6px 10px; text-align: center;">
+                ${statusBadge}
+            </td>
+        </tr>`;
+    }
+
+    tbody.innerHTML = html;
+    handleInstallmentFieldChange();
+}
+
+function handleInstallmentFieldChange() {
+    const amountInputs = document.querySelectorAll('.inst-amount-input');
+    let sum = 0;
+    amountInputs.forEach(inp => {
+        sum += parseMonetary(inp.value);
+    });
+
+    const originalTotal = parseMonetary(document.getElementById('txAmountInput')?.value || 0);
+
+    const sumEl = document.getElementById('installmentsSumText');
+    const origEl = document.getElementById('originalTotalText');
+    const diffNotice = document.getElementById('installmentsDiffNotice');
+    const diffBadge = document.getElementById('diffBadge');
+
+    if (sumEl) sumEl.textContent = 'R$ ' + formatMonetary(sum);
+    if (origEl) origEl.textContent = 'R$ ' + formatMonetary(originalTotal);
+
+    const diff = Math.round((originalTotal - sum) * 100) / 100;
+    if (Math.abs(diff) >= 0.01) {
+        if (diffNotice) diffNotice.style.display = 'inline-flex';
+        if (diffBadge) {
+            diffBadge.textContent = (diff > 0 ? 'Falta: R$ ' : 'Excedente: R$ ') + formatMonetary(Math.abs(diff));
+            diffBadge.className = diff > 0 ? 'badge warning' : 'badge danger';
+        }
+    } else {
+        if (diffNotice) diffNotice.style.display = 'none';
+    }
+}
+
+function recalculateEqualInstallments() {
+    renderInstallmentsSchedule();
+}
+
+function applyDifferenceToLastInstallment() {
+    const amountInputs = document.querySelectorAll('.inst-amount-input');
+    if (amountInputs.length === 0) return;
+
+    const originalTotal = parseMonetary(document.getElementById('txAmountInput')?.value || 0);
+    let sumOthers = 0;
+    for (let i = 0; i < amountInputs.length - 1; i++) {
+        sumOthers += parseMonetary(amountInputs[i].value);
+    }
+    const lastVal = Math.max(0, Number((originalTotal - sumOthers).toFixed(2)));
+    amountInputs[amountInputs.length - 1].value = formatMonetary(lastVal);
+    handleInstallmentFieldChange();
+}
+
+function syncTotalFromInstallments() {
+    const amountInputs = document.querySelectorAll('.inst-amount-input');
+    let sum = 0;
+    amountInputs.forEach(inp => {
+        sum += parseMonetary(inp.value);
+    });
+    const totalInp = document.getElementById('txAmountInput');
+    if (totalInp) {
+        totalInp.value = formatMonetary(sum);
+    }
+    handleInstallmentFieldChange();
+}
+
+function handleStatusChange(status) {
+    const cardReal = document.getElementById('statusCardRealized');
+    const cardPend = document.getElementById('statusCardPending');
+    if (status === 'realized') {
+        if (cardReal) cardReal.className = 'status-radio-card active-realized';
+        if (cardPend) cardPend.className = 'status-radio-card';
+    } else {
+        if (cardReal) cardReal.className = 'status-radio-card';
+        if (cardPend) cardPend.className = 'status-radio-card active-pending';
     }
 }
 
@@ -1134,19 +1523,124 @@ function handlePayeeSelect(val) {
             const methodSelect = document.getElementById('paymentMethodSelect');
             if (methodSelect) {
                 methodSelect.value = p.default_payment_method;
-                toggleCardSelector(p.default_payment_method);
+                handlePaymentMethodChange(p.default_payment_method);
             }
         }
     }
 }
 
-// Modal Handlers
+// Modal Quick Launch
 function openQuickTxModal() {
-    renderCategoryOptions('expense');
+    const form = document.getElementById('quickTxForm');
+    if (form) form.reset();
+    document.getElementById('txIdInput').value = '';
+    document.getElementById('quickTxModalTitle').textContent = '⚡ Novo Lançamento Diário';
+    document.getElementById('txDateInput').value = new Date().toISOString().split('T')[0];
+    handleTypeChange('expense');
+    handlePaymentMethodChange('pix');
+    handleStatusChange('realized');
+    toggleInstallmentsSection(false);
+    document.getElementById('enableInstallmentsCheckbox').checked = false;
+    document.getElementById('installmentOptionBlock').style.display = 'block';
     document.getElementById('quickTxModal').classList.add('open');
 }
+
 function closeQuickTxModal() {
     document.getElementById('quickTxModal').classList.remove('open');
+}
+
+// Modal Editar Lançamento
+function openEditTxModal(tx) {
+    document.getElementById('txIdInput').value = tx.id;
+    document.getElementById('quickTxModalTitle').textContent = '✎ Editar Lançamento';
+    document.getElementById('txAmountInput').value = formatMonetary(tx.amount);
+    document.getElementById('txDateInput').value = tx.transaction_date;
+    document.getElementById('payeeInput').value = tx.payee_name;
+    document.getElementById('txDescriptionInput').value = tx.description || '';
+    document.getElementById('txNotesInput').value = tx.notes || '';
+
+    handleTypeChange(tx.type);
+    renderCategoryOptions(tx.type, tx.category_id);
+
+    const methodSelect = document.getElementById('paymentMethodSelect');
+    if (methodSelect) {
+        methodSelect.value = tx.payment_method;
+        handlePaymentMethodChange(tx.payment_method);
+    }
+
+    if (tx.card_id) {
+        const cardSelect = document.getElementById('cardSelectInput');
+        if (cardSelect) cardSelect.value = tx.card_id;
+    }
+
+    handleStatusChange(tx.status || 'realized');
+    const radio = document.querySelector(`input[name="status"][value="${tx.status || 'realized'}"]`);
+    if (radio) radio.checked = true;
+
+    // Em edição individual, esconde o bloco de novos parcelamentos
+    toggleInstallmentsSection(false);
+    document.getElementById('enableInstallmentsCheckbox').checked = false;
+    document.getElementById('installmentOptionBlock').style.display = 'none';
+
+    document.getElementById('quickTxModal').classList.add('open');
+}
+
+// Mini-Modal Cartão Inline (AJAX)
+function openInlineNewCardModal() {
+    const f = document.getElementById('inlineCardForm');
+    if (f) f.reset();
+    document.getElementById('inlineCardModal').classList.add('open');
+}
+function closeInlineCardModal() {
+    document.getElementById('inlineCardModal').classList.remove('open');
+}
+
+async function handleInlineCardSubmit(e) {
+    e.preventDefault();
+    const form = e.target;
+    const btn = document.getElementById('inlineCardSaveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+
+    try {
+        const formData = new FormData(form);
+        const resp = await fetch('index.php', {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const data = await resp.json();
+        if (!data.ok) {
+            alert('Erro ao salvar cartão: ' + (data.message || 'Erro desconhecido'));
+            return;
+        }
+
+        // Adicionar novo cartão no cardsMap
+        cardsMap.push(data.card);
+
+        // Adicionar no select de cartões
+        const select = document.getElementById('cardSelectInput');
+        if (select) {
+            const newOpt = document.createElement('option');
+            newOpt.value = data.card.id;
+            newOpt.textContent = `${data.card.name} (${data.card.brand} · Fecha dia ${data.card.closing_day} / Vence dia ${data.card.due_day})`;
+            newOpt.selected = true;
+            select.insertBefore(newOpt, select.lastElementChild);
+        }
+
+        closeInlineCardModal();
+
+        // Se o parcelamento estiver ativo, recalcular cronograma com base nas datas do novo cartão
+        const enableCheck = document.getElementById('enableInstallmentsCheckbox');
+        if (enableCheck && enableCheck.checked) {
+            renderInstallmentsSchedule();
+        }
+    } catch (err) {
+        alert('Não foi possível conectar para salvar o cartão.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '✓ Salvar Cartão';
+    }
 }
 
 function openPayInvoiceModal(id, cardName, amount) {
@@ -1679,5 +2173,66 @@ document.addEventListener('DOMContentLoaded', () => {
     font-size: 18px !important;
     font-weight: 700 !important;
     padding: 10px !important;
+}
+
+/* Status Radio Cards */
+.status-radio-card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+.status-radio-card input {
+    margin: 0;
+}
+.status-radio-card.active-realized {
+    border-color: #10b981;
+    background: #ecfdf5;
+    color: #065f46;
+}
+.status-radio-card.active-pending {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+}
+
+/* Cronograma de Parcelas */
+.installments-scroll-wrap {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+}
+.installments-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.installments-table th {
+    background: #f8fafc;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 8px 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    border-bottom: 1px solid #e2e8f0;
+}
+.button-icon-edit {
+    transition: all 0.15s ease;
+}
+.button-icon-edit:hover {
+    background: #f1f5f9 !important;
+    border-color: #94a3b8 !important;
+    color: #0f172a !important;
 }
 </style>

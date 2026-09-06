@@ -82,6 +82,7 @@ final class ActionHandler
                 'save_daily_transaction' => $this->saveDailyTransaction(),
                 'delete_daily_transaction' => $this->deleteDailyTransaction(),
                 'save_daily_card' => $this->saveDailyCard(),
+                'save_daily_card_ajax' => $this->saveDailyCardAjax(),
                 'delete_daily_card' => $this->deleteDailyCard(),
                 'pay_daily_card_invoice' => $this->payDailyCardInvoice(),
                 'save_daily_commitment' => $this->saveDailyCommitment(),
@@ -1894,12 +1895,12 @@ final class ActionHandler
         $type = $this->choice('type', ['expense', 'income']);
         $payeeName = $this->required('payee_name', 'Informe o favorecido / estabelecimento.');
         $categoryId = isset($_POST['category_id']) && (int)$_POST['category_id'] > 0 ? (int)$_POST['category_id'] : null;
-        $amount = (float) str_replace(',', '.', (string)($_POST['amount'] ?? 0));
+        $amount = normalize_decimal($_POST['amount'] ?? 0);
         if ($amount <= 0) {
             throw new RuntimeException('O valor deve ser maior que zero.');
         }
 
-        $paymentMethod = $this->choice('payment_method', ['pix', 'credit_card', 'debit_card', 'cash', 'transfer']);
+        $paymentMethod = $this->choice('payment_method', ['pix', 'credit_card', 'debit_card', 'cash', 'transfer', 'boleto']);
         $transactionDate = $this->required('transaction_date', 'Informe a data da movimentação.');
         $status = $this->choice('status', ['realized', 'pending']);
         $description = trim((string)($_POST['description'] ?? ''));
@@ -1909,8 +1910,7 @@ final class ActionHandler
         $notes = $this->nullable('notes');
 
         $cardId = null;
-        $invoiceId = null;
-        $totalInstallments = 1;
+        $totalInstallments = max(1, (int)($_POST['total_installments'] ?? 1));
 
         $dailyService = new \App\Services\DailyFinanceService($this->db);
 
@@ -1920,10 +1920,9 @@ final class ActionHandler
             if (!$cardId) {
                 throw new RuntimeException('Selecione o cartão de crédito utilizado.');
             }
-            $totalInstallments = max(1, (int)($_POST['total_installments'] ?? 1));
         }
 
-        // Atualizar ou criar registro do favorecido para autocompletar inteligente (Regra 5)
+        // Atualizar ou criar registro do favorecido para autocompletar inteligente
         $existingPayee = $this->db->fetch("SELECT id, usage_count FROM daily_payees WHERE name = ?", [$payeeName]);
         $payeeId = null;
         if ($existingPayee) {
@@ -1942,42 +1941,156 @@ final class ActionHandler
             ]);
         }
 
-        // Se for compra parcelada no cartão
-        if ($paymentMethod === 'credit_card' && $totalInstallments > 1 && !$id) {
-            $installmentAmount = round($amount / $totalInstallments, 2);
-            $baseDate = new \DateTimeImmutable($transactionDate);
+        // 1. Edição de transação individual existente
+        if ($id) {
+            $oldTx = $this->db->fetch("SELECT * FROM daily_transactions WHERE id = ?", [$id]);
+            if (!$oldTx) {
+                throw new RuntimeException('Lançamento não encontrado.');
+            }
 
-            for ($i = 1; $i <= $totalInstallments; $i++) {
-                $curDate = $baseDate->modify('+' . ($i - 1) . ' months')->format('Y-m-d');
-                $invId = $dailyService->getOrCreateInvoice($cardId, $curDate);
+            $invId = null;
+            if ($paymentMethod === 'credit_card' && $cardId) {
+                $invId = $dailyService->getOrCreateInvoiceForDueDate($cardId, $transactionDate);
+            }
 
-                $instDesc = $description . " ({$i}/{$totalInstallments})";
+            $updateData = [
+                'type' => $type,
+                'category_id' => $categoryId,
+                'payee_id' => $payeeId,
+                'payee_name' => $payeeName,
+                'description' => $description,
+                'amount' => $amount,
+                'payment_method' => $paymentMethod,
+                'card_id' => $cardId,
+                'invoice_id' => $invId,
+                'transaction_date' => $transactionDate,
+                'status' => $status,
+                'notes' => $notes,
+            ];
+
+            $this->db->update('daily_transactions', $updateData, 'id = ?', [$id]);
+
+            if (!empty($oldTx['invoice_id'])) {
+                $dailyService->recalculateInvoiceTotal((int)$oldTx['invoice_id']);
+            }
+            if ($invId && $invId !== (int)($oldTx['invoice_id'] ?? 0)) {
+                $dailyService->recalculateInvoiceTotal($invId);
+            }
+
+            Flash::add('success', 'Lançamento atualizado com sucesso.');
+            return $this->returnUrl('?page=financeiro');
+        }
+
+        // 2. Compras Parceladas e Financiamentos (totalInstallments > 1)
+        if ($totalInstallments > 1) {
+            $postedInstallments = is_array($_POST['installments'] ?? null) ? $_POST['installments'] : [];
+            $installmentsData = [];
+            $sumActual = 0.0;
+
+            if (!empty($postedInstallments)) {
+                $idx = 1;
+                foreach ($postedInstallments as $pInst) {
+                    $pDate = trim((string)($pInst['date'] ?? ''));
+                    if ($pDate === '') {
+                        $baseDt = new \DateTimeImmutable($transactionDate);
+                        $pDate = $baseDt->modify('+' . ($idx - 1) . ' months')->format('Y-m-d');
+                    }
+                    $pVal = normalize_decimal($pInst['amount'] ?? 0);
+                    if ($pVal <= 0) {
+                        $pVal = round($amount / $totalInstallments, 2);
+                    }
+                    $sumActual += $pVal;
+                    $installmentsData[] = [
+                        'number' => $idx,
+                        'date' => $pDate,
+                        'amount' => $pVal,
+                    ];
+                    $idx++;
+                }
+            } else {
+                $baseInstAmount = round($amount / $totalInstallments, 2);
+                $diff = round($amount - ($baseInstAmount * $totalInstallments), 2);
+                $baseDt = new \DateTimeImmutable($transactionDate);
+                for ($i = 1; $i <= $totalInstallments; $i++) {
+                    $pDate = $baseDt->modify('+' . ($i - 1) . ' months')->format('Y-m-d');
+                    $pVal = ($i === 1) ? round($baseInstAmount + $diff, 2) : $baseInstAmount;
+                    $sumActual += $pVal;
+                    $installmentsData[] = [
+                        'number' => $i,
+                        'date' => $pDate,
+                        'amount' => $pVal,
+                    ];
+                }
+            }
+
+            // Se for no Cartão de Crédito
+            if ($paymentMethod === 'credit_card') {
+                $affectedInvoices = [];
+                foreach ($installmentsData as $inst) {
+                    $invId = $dailyService->getOrCreateInvoiceForDueDate($cardId, $inst['date']);
+                    $affectedInvoices[$invId] = true;
+                    $instDesc = $description . " ({$inst['number']}/{$totalInstallments})";
+
+                    $this->db->insert('daily_transactions', [
+                        'type' => $type,
+                        'category_id' => $categoryId,
+                        'payee_id' => $payeeId,
+                        'payee_name' => $payeeName,
+                        'description' => $instDesc,
+                        'amount' => $inst['amount'],
+                        'payment_method' => 'credit_card',
+                        'card_id' => $cardId,
+                        'invoice_id' => $invId,
+                        'installment_number' => $inst['number'],
+                        'total_installments' => $totalInstallments,
+                        'transaction_date' => $inst['date'],
+                        'status' => 'realized',
+                        'notes' => $notes,
+                    ]);
+                }
+
+                foreach (array_keys($affectedInvoices) as $invId) {
+                    $dailyService->recalculateInvoiceTotal((int)$invId);
+                }
+
+                Flash::add('success', "Compra no cartão parcelada em {$totalInstallments}x (total R$ " . number_format($sumActual, 2, ',', '.') . ") registrada com sucesso!");
+                return $this->returnUrl('?page=financeiro');
+            }
+
+            // Se for Financiamento / Boleto / PIX / Transferência / Débito parcelado
+            foreach ($installmentsData as $inst) {
+                if ($inst['number'] === 1) {
+                    $instStatus = ($status === 'realized' && $inst['date'] <= date('Y-m-d')) ? 'realized' : 'pending';
+                } else {
+                    $instStatus = 'pending';
+                }
+
+                $instDesc = $description . " ({$inst['number']}/{$totalInstallments})";
                 $this->db->insert('daily_transactions', [
                     'type' => $type,
                     'category_id' => $categoryId,
                     'payee_id' => $payeeId,
                     'payee_name' => $payeeName,
                     'description' => $instDesc,
-                    'amount' => $installmentAmount,
-                    'payment_method' => 'credit_card',
-                    'card_id' => $cardId,
-                    'invoice_id' => $invId,
-                    'installment_number' => $i,
+                    'amount' => $inst['amount'],
+                    'payment_method' => $paymentMethod,
+                    'card_id' => null,
+                    'invoice_id' => null,
+                    'installment_number' => $inst['number'],
                     'total_installments' => $totalInstallments,
-                    'transaction_date' => $curDate,
-                    'status' => 'realized',
+                    'transaction_date' => $inst['date'],
+                    'status' => $instStatus,
                     'notes' => $notes,
                 ]);
-
-                $dailyService->recalculateInvoiceTotal($invId);
             }
 
-            Flash::add('success', "Compra parcelada em {$totalInstallments}x de R$ " . number_format($installmentAmount, 2, ',', '.') . " registrada com sucesso!");
+            Flash::add('success', "Parcelamento / Financiamento em {$totalInstallments}x (total R$ " . number_format($sumActual, 2, ',', '.') . ") registrado com sucesso!");
             return $this->returnUrl('?page=financeiro');
         }
 
-        // Se for transação normal no cartão (1x)
-        if ($paymentMethod === 'credit_card') {
+        // 3. Transação à vista (1x)
+        $invoiceId = null;
+        if ($paymentMethod === 'credit_card' && $cardId) {
             $invoiceId = $dailyService->getOrCreateInvoice($cardId, $transactionDate);
         }
 
@@ -1998,25 +2111,55 @@ final class ActionHandler
             'notes' => $notes,
         ];
 
-        if ($id) {
-            $oldTx = $this->db->fetch("SELECT invoice_id FROM daily_transactions WHERE id = ?", [$id]);
-            $this->db->update('daily_transactions', $data, 'id = ?', [$id]);
-            if (!empty($oldTx['invoice_id'])) {
-                $dailyService->recalculateInvoiceTotal((int)$oldTx['invoice_id']);
-            }
-            if ($invoiceId) {
-                $dailyService->recalculateInvoiceTotal($invoiceId);
-            }
-            Flash::add('success', 'Lançamento atualizado com sucesso.');
-        } else {
-            $this->db->insert('daily_transactions', $data);
-            if ($invoiceId) {
-                $dailyService->recalculateInvoiceTotal($invoiceId);
-            }
-            Flash::add('success', 'Lançamento registrado com sucesso!');
+        $this->db->insert('daily_transactions', $data);
+        if ($invoiceId) {
+            $dailyService->recalculateInvoiceTotal($invoiceId);
         }
-
+        Flash::add('success', 'Lançamento registrado com sucesso!');
         return $this->returnUrl('?page=financeiro');
+    }
+
+    private function saveDailyCardAjax(): string
+    {
+        header('Content-Type: application/json; charset=UTF-8');
+        try {
+            $name = $this->required('name', 'Informe o nome do cartão.');
+            $brand = trim((string)($_POST['brand'] ?? 'Mastercard'));
+            $lastFourDigits = $this->nullable('last_four_digits');
+            $creditLimit = normalize_decimal($_POST['credit_limit'] ?? 0);
+            $closingDay = max(1, min(31, (int)($_POST['closing_day'] ?? 1)));
+            $dueDay = max(1, min(31, (int)($_POST['due_day'] ?? 10)));
+            $color = trim((string)($_POST['color'] ?? '#6366f1'));
+
+            $id = $this->db->insert('daily_credit_cards', [
+                'name' => $name,
+                'brand' => $brand,
+                'last_four_digits' => $lastFourDigits,
+                'credit_limit' => $creditLimit,
+                'closing_day' => $closingDay,
+                'due_day' => $dueDay,
+                'color' => $color,
+                'active' => 1,
+                'notes' => null,
+            ]);
+
+            echo json_encode([
+                'ok' => true,
+                'card' => [
+                    'id' => (int) $id,
+                    'name' => $name,
+                    'brand' => $brand,
+                    'last_four_digits' => $lastFourDigits,
+                    'closing_day' => $closingDay,
+                    'due_day' => $dueDay,
+                    'color' => $color,
+                ]
+            ], JSON_UNESCAPED_UNICODE);
+        } catch (\Throwable $e) {
+            http_response_code(422);
+            echo json_encode(['ok' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+        }
+        exit;
     }
 
     private function deleteDailyTransaction(): string

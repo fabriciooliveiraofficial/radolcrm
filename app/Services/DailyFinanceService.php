@@ -402,5 +402,53 @@ final class DailyFinanceService
             [$sum, $invoiceId]
         );
     }
+
+    public function getOrCreateInvoiceForDueDate(int $cardId, string $dueDate): int
+    {
+        $card = $this->db->fetch("SELECT * FROM daily_credit_cards WHERE id = ?", [$cardId]);
+        if (!$card) {
+            throw new \RuntimeException('Cartão não encontrado.');
+        }
+
+        $dueTime = strtotime($dueDate);
+        $dueYear = (int) date('Y', $dueTime);
+        $dueMonth = (int) date('n', $dueTime);
+        $closingDay = (int) $card['closing_day'];
+        $dueDay = (int) $card['due_day'];
+
+        // Determinar o mês de referência da fatura (refMonth)
+        $refYear = $dueYear;
+        $refMonthNum = $dueMonth;
+        if ($dueDay < $closingDay) {
+            $refMonthNum--;
+            if ($refMonthNum < 1) {
+                $refMonthNum = 12;
+                $refYear--;
+            }
+        }
+
+        $refMonth = sprintf('%04d-%02d', $refYear, $refMonthNum);
+
+        $existing = $this->db->fetch(
+            "SELECT id FROM daily_card_invoices WHERE card_id = ? AND reference_month = ?",
+            [$cardId, $refMonth]
+        );
+        if ($existing) {
+            return (int) $existing['id'];
+        }
+
+        $daysInRefMonth = (int) date('t', strtotime("{$refMonth}-01"));
+        $actualClosingDay = min($closingDay, $daysInRefMonth);
+        $closingDate = sprintf('%s-%02d', $refMonth, $actualClosingDay);
+
+        return (int) $this->db->insert('daily_card_invoices', [
+            'card_id' => $cardId,
+            'reference_month' => $refMonth,
+            'closing_date' => $closingDate,
+            'due_date' => $dueDate,
+            'total_amount' => 0.00,
+            'status' => 'open',
+        ]);
+    }
 }
 

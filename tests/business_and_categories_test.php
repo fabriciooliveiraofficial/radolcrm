@@ -46,11 +46,11 @@ echo "✓ Contratos do ActionHandler validados.\n";
 // 4. Index.php & Layout.php routing & navigation
 $indexFile = (string) file_get_contents($root . '/index.php');
 assert(str_contains($indexFile, "'businesses'"), 'index.php deve conter rota businesses');
-assert(str_contains($indexFile, "'categories'"), 'index.php deve conter rota categories');
+assert(str_contains($indexFile, "redirect('index.php?page=financeiro')"), 'index.php deve redirecionar page=categories');
 
 $layoutFile = (string) file_get_contents($root . '/app/Views/layout.php');
 assert(str_contains($layoutFile, '?page=businesses'), 'layout.php deve conter link para Negócios');
-assert(str_contains($layoutFile, '?page=categories'), 'layout.php deve conter link para Categorias');
+assert(!str_contains($layoutFile, '?page=categories'), 'layout.php não deve mais conter link direto para Categorias');
 echo "✓ Roteamento e navegação validados.\n";
 
 // 5. Views existence and contents

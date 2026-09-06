@@ -494,7 +494,7 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('whatsapp_support_phone', ''),
 ('whatsapp_test_phone', ''),
 ('whatsapp_test_country', 'BR'),
-('schema_version', '18')
+('schema_version', '19')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
 
 INSERT INTO whatsapp_automation_steps
@@ -579,7 +579,7 @@ CREATE TABLE IF NOT EXISTS daily_transactions (
     payee_name VARCHAR(160) NOT NULL,
     description VARCHAR(255) NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
-    payment_method ENUM('pix','credit_card','debit_card','cash','transfer') NOT NULL DEFAULT 'pix',
+    payment_method ENUM('pix','credit_card','debit_card','cash','transfer','boleto') NOT NULL DEFAULT 'pix',
     card_id BIGINT UNSIGNED NULL,
     invoice_id BIGINT UNSIGNED NULL,
     installment_number SMALLINT UNSIGNED NOT NULL DEFAULT 1,

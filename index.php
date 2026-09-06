@@ -54,7 +54,11 @@ if (($_GET['page'] ?? '') === 'export') {
     (new Exporter($db))->download((string) ($_GET['type'] ?? ''));
 }
 
-$allowedPages = ['dashboard','businesses','categories','clients','products','subscriptions','service-badges','reminders','agenda','payments','expenses','recurring','cards','cash','reports','settings','financeiro'];
+if (($_GET['page'] ?? '') === 'categories') {
+    redirect('index.php?page=financeiro');
+}
+
+$allowedPages = ['dashboard','businesses','clients','products','subscriptions','service-badges','reminders','agenda','payments','expenses','recurring','cards','cash','reports','settings','financeiro'];
 $page = (string) ($_GET['page'] ?? 'dashboard');
 if (!in_array($page, $allowedPages, true)) {
     http_response_code(404);
