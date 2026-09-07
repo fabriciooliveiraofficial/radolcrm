@@ -1315,8 +1315,10 @@ function handleCardSelectChange(val) {
 function toggleInstallmentsSection(enabled) {
     const wrapper = document.getElementById('installmentSelectWrapper');
     const schedule = document.getElementById('installmentsScheduleBlock');
+    const select = document.getElementById('totalInstallmentsSelect');
     if (wrapper) wrapper.style.display = enabled ? 'flex' : 'none';
     if (schedule) schedule.style.display = enabled ? 'block' : 'none';
+    if (select) select.disabled = !enabled;
     if (enabled) {
         renderInstallmentsSchedule();
     }
