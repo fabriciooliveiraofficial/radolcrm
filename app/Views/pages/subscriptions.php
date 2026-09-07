@@ -608,9 +608,9 @@ if ($historyId > 0) {
             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
             <p class="badge-assignment-lead">Selecione um ou mais badges para identificar rapidamente os serviços desta assinatura.</p>
             <div class="subscription-badge-field">
-                <div><span>Badges de serviços</span><a href="?page=service-badges">Gerenciar biblioteca →</a></div>
+                <div><span>Badges de serviços</span><a href="?page=service-badges<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Gerenciar biblioteca →</a></div>
                 <?php if (!$badgeAssignmentOptions): ?>
-                    <p>Nenhum badge disponível. <a href="?page=service-badges&new=1">Crie o primeiro badge</a> para começar.</p>
+                    <p>Nenhum badge disponível. <a href="?page=service-badges&new=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Crie o primeiro badge</a> para começar.</p>
                 <?php else: ?>
                     <div class="subscription-badge-options">
                         <?php foreach ($badgeAssignmentOptions as $serviceBadge): ?>
@@ -622,7 +622,7 @@ if ($historyId > 0) {
                     </div>
                 <?php endif; ?>
             </div>
-            <footer class="badge-assignment-footer"><a class="button ghost" href="?page=subscriptions">Cancelar</a><button class="button primary">Salvar badges</button></footer>
+            <footer class="badge-assignment-footer"><a class="button ghost" href="?page=subscriptions<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Cancelar</a><button class="button primary">Salvar badges</button></footer>
         </form>
     </section>
 </div>
@@ -651,9 +651,9 @@ if ($historyId > 0) {
             <label class="span-2">Forma de pagamento<input name="payment_method" value="<?= h($edit['payment_method'] ?? '') ?>" placeholder="Cartão, PIX, Stripe, boleto…"></label>
             <label class="span-2">Link de pagamento da assinatura<input name="payment_link" type="url" maxlength="1000" value="<?= h($edit['payment_link'] ?? '') ?>" placeholder="https://pagamento.exemplo.com/cliente"><small>Opcional. Este link individual tem prioridade sobre o link padrão configurado na etapa do WhatsApp.</small></label>
             <div class="subscription-badge-field span-2">
-                <div><span>Badges de serviços</span><a href="?page=service-badges">Gerenciar biblioteca →</a></div>
+                <div><span>Badges de serviços</span><a href="?page=service-badges<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Gerenciar biblioteca →</a></div>
                 <?php if (!$assignableServiceBadges): ?>
-                    <p>Nenhum badge disponível. <a href="?page=service-badges&new=1">Crie o primeiro badge</a> para identificar os serviços desta assinatura.</p>
+                    <p>Nenhum badge disponível. <a href="?page=service-badges&new=1<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>">Crie o primeiro badge</a> para identificar os serviços desta assinatura.</p>
                 <?php else: ?>
                     <div class="subscription-badge-options">
                         <?php foreach ($assignableServiceBadges as $serviceBadge): ?>

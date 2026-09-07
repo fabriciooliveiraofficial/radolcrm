@@ -727,7 +727,7 @@ final class ActionHandler
             audit($this->db, 'create', 'service_badge', $id, compact('name', 'icon', 'tone', 'active'));
         }
         Flash::add('success', 'Badge de serviço salvo com sucesso.');
-        return '?page=service-badges';
+        return $this->returnUrl('?page=service-badges');
     }
 
     private function deleteServiceBadge(): string
@@ -742,7 +742,7 @@ final class ActionHandler
         Flash::add('success', $assignments > 0
             ? 'Badge excluído e removido das assinaturas vinculadas.'
             : 'Badge excluído.');
-        return '?page=service-badges';
+        return $this->returnUrl('?page=service-badges');
     }
 
     private function saveSubscription(): string

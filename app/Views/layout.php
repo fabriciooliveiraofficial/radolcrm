@@ -23,22 +23,9 @@
                 <span class="nav-icon">⚡</span>
                 <span class="nav-label" style="font-weight: 600; color: #10b981;">Gestão Financeira Diária</span>
             </a>
-            <a class="nav-item <?= $page === 'dashboard' && !$buFilter ? 'active' : '' ?>" href="?page=dashboard">
-
-                <span class="nav-icon">⌂</span>
-                <span class="nav-label">Dashboard Global</span>
-            </a>
-            <a class="nav-item <?= $page === 'agenda' && !$buFilter ? 'active' : '' ?>" href="?page=agenda">
-                <span class="nav-icon">📅</span>
-                <span class="nav-label">Agenda Financeira</span>
-            </a>
             <a class="nav-item <?= $page === 'reports' && !$buFilter ? 'active' : '' ?>" href="?page=reports">
                 <span class="nav-icon">⌁</span>
                 <span class="nav-label">Relatórios</span>
-            </a>
-            <a class="nav-item <?= $page === 'service-badges' && !$buFilter ? 'active' : '' ?>" href="?page=service-badges">
-                <span class="nav-icon">✦</span>
-                <span class="nav-label">Badges de serviços</span>
             </a>
             <a class="nav-item <?= $page === 'reminders' && !$buFilter ? 'active' : '' ?>" href="?page=reminders">
                 <span class="nav-icon">◉</span>
@@ -57,7 +44,9 @@
 
         <div class="businesses-list">
         <?php foreach ($sidebarBusinesses as $bu): 
-            $isOpen = $selectedBusiness && (int)$selectedBusiness['id'] === (int)$bu['id'];
+            $isGearzone = (stripos($bu['name'], 'gearzone') !== false) || empty($bu['is_personal']);
+            $isOpen = ($selectedBusiness && (int)$selectedBusiness['id'] === (int)$bu['id'])
+                || ($isGearzone && (in_array($page, ['dashboard', 'agenda', 'service-badges'], true) || (!$buFilter && !in_array($page, ['financeiro', 'reports', 'reminders', 'businesses', 'settings'], true))));
         ?>
         <details class="bu-accordion <?= $isOpen ? 'is-active' : '' ?>" <?= $isOpen ? 'open' : '' ?> style="--bu-color: <?= h($bu['color']) ?>;">
             <summary class="bu-accordion-trigger">
@@ -76,6 +65,16 @@
             </summary>
             
             <div class="bu-subnav-panel">
+                <?php if ($isGearzone): ?>
+                <a class="bu-subnav-link <?= ($isOpen || ($isGearzone && !$buFilter)) && $page === 'dashboard' ? 'active' : '' ?>" href="?page=dashboard&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Dashboard Global</span>
+                </a>
+                <a class="bu-subnav-link <?= ($isOpen || ($isGearzone && !$buFilter)) && $page === 'agenda' ? 'active' : '' ?>" href="?page=agenda&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Agenda Financeira</span>
+                </a>
+                <?php endif; ?>
                 <a class="bu-subnav-link <?= $isOpen && $page === 'clients' ? 'active' : '' ?>" href="?page=clients&bu=<?= (int)$bu['id'] ?>">
                     <span class="sub-dot"></span>
                     <span class="sub-text">Clientes</span>
@@ -88,6 +87,12 @@
                     <span class="sub-dot"></span>
                     <span class="sub-text">Assinaturas</span>
                 </a>
+                <?php if ($isGearzone): ?>
+                <a class="bu-subnav-link <?= ($isOpen || ($isGearzone && !$buFilter)) && $page === 'service-badges' ? 'active' : '' ?>" href="?page=service-badges&bu=<?= (int)$bu['id'] ?>">
+                    <span class="sub-dot"></span>
+                    <span class="sub-text">Badges de Serviços</span>
+                </a>
+                <?php endif; ?>
                 <a class="bu-subnav-link <?= $isOpen && $page === 'payments' ? 'active' : '' ?>" href="?page=payments&bu=<?= (int)$bu['id'] ?>">
                     <span class="sub-dot"></span>
                     <span class="sub-text">Pagamentos</span>

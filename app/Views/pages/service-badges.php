@@ -22,6 +22,7 @@ $iconOptions = service_badge_icon_options();
 $toneOptions = service_badge_tone_options();
 $selectedIcon = (string) ($edit['icon'] ?? 'sparkles');
 $selectedTone = (string) ($edit['tone'] ?? 'emerald');
+$buFilter = isset($_GET['bu']) && $_GET['bu'] !== '' ? (int) $_GET['bu'] : null;
 ?>
 
 <section class="badge-library-hero card">
@@ -40,10 +41,11 @@ $selectedTone = (string) ($edit['tone'] ?? 'emerald');
 <section class="toolbar list-toolbar">
     <form class="search-filters" method="get" data-live-filter>
         <input type="hidden" name="page" value="service-badges">
+        <?php if ($buFilter): ?><input type="hidden" name="bu" value="<?= $buFilter ?>"><?php endif; ?>
         <label class="search-box">⌕<input name="q" autocomplete="off" placeholder="Buscar badge, ícone ou estilo" value="<?= h($search) ?>"></label>
         <span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span>
     </form>
-    <?php if ($auth->canWrite()): ?><a class="button primary" href="?page=service-badges&new=1">＋ Novo badge</a><?php endif; ?>
+    <?php if ($auth->canWrite()): ?><a class="button primary" href="?page=service-badges&new=1<?= $buFilter ? '&bu=' . $buFilter : '' ?>">＋ Novo badge</a><?php endif; ?>
 </section>
 
 <div data-live-results>
@@ -52,7 +54,7 @@ $selectedTone = (string) ($edit['tone'] ?? 'emerald');
             <article class="card empty-state span-full">
                 <span>✦</span><h2>Nenhum badge criado</h2>
                 <p>Monte sua biblioteca visual e aplique os badges nas assinaturas.</p>
-                <?php if ($auth->canWrite()): ?><a class="button primary" href="?page=service-badges&new=1">Criar primeiro badge</a><?php endif; ?>
+                <?php if ($auth->canWrite()): ?><a class="button primary" href="?page=service-badges&new=1<?= $buFilter ? '&bu=' . $buFilter : '' ?>">Criar primeiro badge</a><?php endif; ?>
             </article>
         <?php endif; ?>
         <?php foreach ($badges as $badge): ?>
@@ -65,7 +67,7 @@ $selectedTone = (string) ($edit['tone'] ?? 'emerald');
                 <span class="service-badge tone-<?= h($badge['tone']) ?>"><?= service_badge_icon($badge['icon']) ?><b><?= h($badge['name']) ?></b></span>
                 <footer>
                     <span><?= (int) $badge['subscription_count'] ?> assinatura(s)</span>
-                    <?php if ($auth->canWrite()): ?><a href="?page=service-badges&edit=<?= (int) $badge['id'] ?>">Editar →</a><?php endif; ?>
+                    <?php if ($auth->canWrite()): ?><a href="?page=service-badges&edit=<?= (int) $badge['id'] ?><?= $buFilter ? '&bu=' . $buFilter : '' ?>">Editar →</a><?php endif; ?>
                 </footer>
             </article>
         <?php endforeach; ?>
@@ -74,11 +76,11 @@ $selectedTone = (string) ($edit['tone'] ?? 'emerald');
 
 <?php if ($showForm): ?>
 <div class="modal open">
-    <a class="modal-backdrop" href="?page=service-badges"></a>
+    <a class="modal-backdrop" href="?page=service-badges<?= $buFilter ? '&bu=' . $buFilter : '' ?>"></a>
     <section class="modal-panel service-badge-modal">
         <header>
             <div><p class="eyebrow">BADGE DE SERVIÇO</p><h2><?= $edit ? 'Editar badge' : 'Novo badge' ?></h2><p>Escolha um nome, um ícone e uma assinatura visual premium.</p></div>
-            <a href="?page=service-badges" class="modal-close">×</a>
+            <a href="?page=service-badges<?= $buFilter ? '&bu=' . $buFilter : '' ?>" class="modal-close">×</a>
         </header>
         <form method="post" class="form-grid">
             <?= csrf_field() ?>
@@ -109,11 +111,12 @@ $selectedTone = (string) ($edit['tone'] ?? 'emerald');
                 </div>
             </fieldset>
             <label class="check-label span-2"><input type="checkbox" name="active" value="1" <?= !isset($edit['active']) || $edit['active'] ? 'checked' : '' ?>><span>Badge disponível para novas associações</span></label>
-            <footer class="span-2"><a class="button ghost" href="?page=service-badges">Cancelar</a><button class="button primary">Salvar badge</button></footer>
+            <footer class="span-2"><a class="button ghost" href="?page=service-badges<?= $buFilter ? '&bu=' . $buFilter : '' ?>">Cancelar</a><button class="button primary">Salvar badge</button></footer>
         </form>
         <?php if ($edit && $auth->canWrite()): ?>
             <form method="post" class="danger-zone" data-confirm="Excluir este badge? Ele será removido de todas as assinaturas.">
                 <?= csrf_field() ?><input type="hidden" name="action" value="delete_service_badge"><input type="hidden" name="id" value="<?= (int) $edit['id'] ?>">
+                <input type="hidden" name="_return" value="?page=service-badges<?= $buFilter ? '&bu=' . $buFilter : '' ?>">
                 <button>Excluir badge</button>
             </form>
         <?php endif; ?>
