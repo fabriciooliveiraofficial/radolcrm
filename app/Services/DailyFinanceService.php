@@ -72,6 +72,17 @@ final class DailyFinanceService
         );
 
         foreach ($invoices as $inv) {
+            $invTxs = $this->db->fetchAll(
+                "SELECT t.*, cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
+                        c.name card_name, c.brand card_brand, c.color card_color
+                 FROM daily_transactions t
+                 LEFT JOIN daily_categories cat ON cat.id = t.category_id
+                 LEFT JOIN daily_credit_cards c ON c.id = t.card_id
+                 WHERE t.invoice_id = ?
+                 ORDER BY t.transaction_date ASC, t.id ASC",
+                [$inv['id']]
+            );
+
             $events[] = [
                 'id' => 'card-inv-' . $inv['id'],
                 'type' => 'card_invoice',
@@ -84,14 +95,18 @@ final class DailyFinanceService
                 'icon' => '💳',
                 'status' => $inv['status'],
                 'invoice_id' => (int) $inv['id'],
+                'card_id' => (int) $inv['card_id'],
+                'transactions' => $invTxs,
             ];
         }
 
         // 2. Transações pendentes agendadas
         $pendingTxs = $this->db->fetchAll(
-            "SELECT t.*, cat.name cat_name, cat.icon cat_icon, cat.color cat_color
+            "SELECT t.*, cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
+                    c.name card_name, c.brand card_brand, c.color card_color
              FROM daily_transactions t
              LEFT JOIN daily_categories cat ON cat.id = t.category_id
+             LEFT JOIN daily_credit_cards c ON c.id = t.card_id
              WHERE t.status = 'pending' AND t.transaction_date BETWEEN ? AND ?
              ORDER BY t.transaction_date ASC",
             [$from, $to]
@@ -110,6 +125,7 @@ final class DailyFinanceService
                 'icon' => $pt['cat_icon'] ?: ($pt['type'] === 'income' ? '💰' : '💸'),
                 'status' => 'pending',
                 'tx_id' => (int) $pt['id'],
+                'raw_tx' => $pt,
             ];
         }
 
@@ -165,12 +181,13 @@ final class DailyFinanceService
                     'direction' => $com['type'] === 'income' ? 'in' : 'out',
                     'date' => $eventDateStr,
                     'title' => $com['payee_name'],
-                    'subtitle' => $com['description'] . " ({$instLabel})",
+                    'subtitle' => ($com['cat_name'] ? $com['cat_name'] . ' · ' : '') . $com['description'] . " ({$instLabel})",
                     'amount' => (float) $com['amount'],
-                    'color' => $com['cat_color'] ?: ($com['type'] === 'income' ? '#10b981' : '#f59e0b'),
+                    'color' => $com['cat_color'] ?: '#3b82f6',
                     'icon' => $com['cat_icon'] ?: '🎓',
-                    'status' => 'scheduled',
+                    'status' => 'pending',
                     'commitment_id' => (int) $com['id'],
+                    'raw_commitment' => $com,
                 ];
             }
 
@@ -393,10 +410,14 @@ final class DailyFinanceService
             "SELECT COALESCE(SUM(amount), 0) FROM daily_transactions WHERE invoice_id = ?",
             [$invoiceId]
         );
-        $this->db->query(
-            "UPDATE daily_card_invoices SET total_amount = ? WHERE id = ?",
-            [$sum, $invoiceId]
-        );
+        if ($sum <= 0) {
+            $this->db->query("DELETE FROM daily_card_invoices WHERE id = ? AND status = 'open'", [$invoiceId]);
+        } else {
+            $this->db->query(
+                "UPDATE daily_card_invoices SET total_amount = ? WHERE id = ?",
+                [$sum, $invoiceId]
+            );
+        }
     }
 
     public function getOrCreateInvoiceForDueDate(int $cardId, string $dueDate): int

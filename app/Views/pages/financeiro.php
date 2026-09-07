@@ -283,14 +283,14 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                     <b class="tx-amount <?= $isExp ? 'negative' : 'positive' ?>">
                                         <?= $isExp ? '-' : '+' ?> R$ <?= number_format((float)$tx['amount'], 2, ',', '.') ?>
                                     </b>
-                                    <div class="tx-actions" style="display: flex; gap: 4px; align-items: center;">
-                                        <button type="button" class="button-icon-edit" title="Editar lançamento" onclick='openEditTxModal(<?= json_encode($tx, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)' style="background: none; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer; padding: 3px 6px; font-size: 13px; color: #475569;">✎</button>
-                                        <form method="post" data-confirm="Excluir este lançamento de R$ <?= number_format((float)$tx['amount'], 2, ',', '.') ?>?" style="display:inline;">
+                                    <div class="tx-actions" style="display: flex; gap: 6px; align-items: center;">
+                                        <button type="button" class="btn-icon-action edit" title="Editar lançamento" onclick='openEditTxModal(<?= json_encode($tx, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'>✏️</button>
+                                        <form method="post" data-confirm="Excluir este lançamento de R$ <?= number_format((float)$tx['amount'], 2, ',', '.') ?>?" style="display:inline; margin: 0;">
                                             <?= csrf_field() ?>
                                             <input type="hidden" name="action" value="delete_daily_transaction">
                                             <input type="hidden" name="id" value="<?= (int)$tx['id'] ?>">
                                             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
-                                            <button type="submit" class="button-icon-danger" title="Excluir lançamento">🗑️</button>
+                                            <button type="submit" class="btn-icon-action delete" title="Excluir lançamento">🗑️</button>
                                         </form>
                                     </div>
                                 </div>
@@ -338,7 +338,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
                             <th>Categoria / Detalhes</th>
                             <th>Tipo</th>
                             <th>Valor</th>
-                            <th>Ação Rápida</th>
+                            <th style="text-align: right; width: 140px;">Ações</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -390,23 +390,89 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                         <?= $ev['direction'] === 'in' ? '+' : '-' ?> R$ <?= number_format($ev['amount'], 2, ',', '.') ?>
                                     </b>
                                 </td>
-                                <td>
-                                    <?php if ($ev['type'] === 'card_invoice'): ?>
-                                        <button type="button" class="button primary sm" onclick="openPayInvoiceModal(<?= (int)$ev['invoice_id'] ?>, '<?= h(addslashes($ev['title'])) ?>', '<?= $ev['amount'] ?>')">
-                                            ✓ Pagar Fatura
+                                <td style="text-align: right;">
+                                    <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
+                                    <?php if ($ev['type'] === 'card_invoice'): 
+                                        $invTxs = $ev['transactions'] ?? [];
+                                        $txCount = count($invTxs);
+                                    ?>
+                                        <button type="button" class="btn-icon-action pay" title="Pagar Fatura" onclick="openPayInvoiceModal(<?= (int)$ev['invoice_id'] ?>, '<?= h(addslashes($ev['title'])) ?>', '<?= $ev['amount'] ?>')">
+                                            ✓
                                         </button>
-                                    <?php elseif ($ev['type'] === 'recurring_commitment'): ?>
-                                        <form method="post" data-confirm="Confirmar quitação de '<?= h($ev['title']) ?>' no valor de R$ <?= number_format($ev['amount'], 2, ',', '.') ?>?" style="display:inline;">
+                                        <?php if ($txCount === 1): ?>
+                                            <button type="button" class="btn-icon-action edit" title="Editar lançamento da fatura" onclick='openEditTxModal(<?= json_encode($invTxs[0], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'>
+                                                ✏️
+                                            </button>
+                                            <form method="post" data-confirm="Excluir este lançamento de R$ <?= number_format((float)$ev['amount'], 2, ',', '.') ?> da fatura?" style="display:inline; margin: 0;">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_daily_transaction">
+                                                <input type="hidden" name="id" value="<?= (int)$invTxs[0]['id'] ?>">
+                                                <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+                                                <button type="submit" class="btn-icon-action delete" title="Excluir lançamento">🗑️</button>
+                                            </form>
+                                        <?php elseif ($txCount > 1): ?>
+                                            <button type="button" class="btn-icon-action edit" title="Ver e gerenciar <?= $txCount ?> lançamentos desta fatura" onclick='openInvoiceDetailsModal(<?= json_encode($invTxs, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>, "<?= h(addslashes($ev['title'])) ?>", <?= (int)$ev['invoice_id'] ?>)'>
+                                                ✏️
+                                            </button>
+                                            <form method="post" data-confirm="Excluir toda a fatura <?= h($ev['title']) ?> e seus <?= $txCount ?> lançamentos vinculados?" style="display:inline; margin: 0;">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_daily_card_invoice">
+                                                <input type="hidden" name="invoice_id" value="<?= (int)$ev['invoice_id'] ?>">
+                                                <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+                                                <button type="submit" class="btn-icon-action delete" title="Excluir fatura inteira">🗑️</button>
+                                            </form>
+                                        <?php endif; ?>
+
+                                    <?php elseif ($ev['type'] === 'recurring_commitment'): 
+                                        $rawCom = $ev['raw_commitment'] ?? null;
+                                    ?>
+                                        <form method="post" data-confirm="Confirmar quitação de '<?= h($ev['title']) ?>' no valor de R$ <?= number_format($ev['amount'], 2, ',', '.') ?>?" style="display:inline; margin: 0;">
                                             <?= csrf_field() ?>
                                             <input type="hidden" name="action" value="pay_daily_commitment">
                                             <input type="hidden" name="commitment_id" value="<?= (int)$ev['commitment_id'] ?>">
                                             <input type="hidden" name="payment_date" value="<?= date('Y-m-d') ?>">
                                             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
-                                            <button type="submit" class="button ghost sm">✓ Liquidar</button>
+                                            <button type="submit" class="btn-icon-action pay" title="Liquidar compromisso">✓</button>
                                         </form>
-                                    <?php else: ?>
-                                        <span class="muted">—</span>
+                                        <?php if ($rawCom): ?>
+                                            <button type="button" class="btn-icon-action edit" title="Editar compromisso" onclick='openEditCommitmentModal(<?= json_encode($rawCom, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'>
+                                                ✏️
+                                            </button>
+                                        <?php endif; ?>
+                                        <form method="post" data-confirm="Remover o compromisso recorrente '<?= h($ev['title']) ?>'?" style="display:inline; margin: 0;">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_daily_commitment">
+                                            <input type="hidden" name="id" value="<?= (int)$ev['commitment_id'] ?>">
+                                            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+                                            <button type="submit" class="btn-icon-action delete" title="Excluir compromisso">🗑️</button>
+                                        </form>
+
+                                    <?php else: 
+                                        $rawTx = $ev['raw_tx'] ?? null;
+                                    ?>
+                                        <?php if ($rawTx): ?>
+                                            <form method="post" data-confirm="Efetivar este lançamento de R$ <?= number_format($ev['amount'], 2, ',', '.') ?> como realizado?" style="display:inline; margin: 0;">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="mark_daily_transaction_paid">
+                                                <input type="hidden" name="id" value="<?= (int)$rawTx['id'] ?>">
+                                                <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+                                                <button type="submit" class="btn-icon-action pay" title="Marcar como Pago">✓</button>
+                                            </form>
+                                            <button type="button" class="btn-icon-action edit" title="Editar lançamento" onclick='openEditTxModal(<?= json_encode($rawTx, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'>
+                                                ✏️
+                                            </button>
+                                            <form method="post" data-confirm="Excluir este lançamento de R$ <?= number_format($ev['amount'], 2, ',', '.') ?>?" style="display:inline; margin: 0;">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_daily_transaction">
+                                                <input type="hidden" name="id" value="<?= (int)$rawTx['id'] ?>">
+                                                <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+                                                <button type="submit" class="btn-icon-action delete" title="Excluir lançamento">🗑️</button>
+                                            </form>
+                                        <?php else: ?>
+                                            <span class="muted">—</span>
+                                        <?php endif; ?>
                                     <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -469,18 +535,21 @@ $recentPayees = $dailyService->recentPayees('', 30);
 
                     <div class="cci-footer">
                         <small>Fechamento dia <?= (int)$card['closing_day'] ?> · Vencimento dia <?= (int)$card['due_day'] ?></small>
-                        <div class="cci-actions">
+                        <div class="cci-actions" style="display: flex; gap: 6px; align-items: center;">
                             <?php if ($card['current_open_invoice_id'] && $used > 0): ?>
-                                <button type="button" class="button primary sm" onclick="openPayInvoiceModal(<?= (int)$card['current_open_invoice_id'] ?>, '<?= h(addslashes($card['name'])) ?>', '<?= $used ?>')">
-                                    Pagar Fatura
+                                <button type="button" class="btn-icon-action pay" title="Pagar Fatura" onclick="openPayInvoiceModal(<?= (int)$card['current_open_invoice_id'] ?>, '<?= h(addslashes($card['name'])) ?>', '<?= $used ?>')">
+                                    ✓
                                 </button>
                             <?php endif; ?>
-                            <form method="post" data-confirm="Excluir o cartão <?= h($card['name']) ?>?" style="display:inline;">
+                            <button type="button" class="btn-icon-action edit" title="Editar cartão" onclick='openEditCardModal(<?= json_encode($card, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'>
+                                ✏️
+                            </button>
+                            <form method="post" data-confirm="Excluir o cartão <?= h($card['name']) ?>?" style="display:inline; margin: 0;">
                                 <?= csrf_field() ?>
                                 <input type="hidden" name="action" value="delete_daily_card">
                                 <input type="hidden" name="id" value="<?= (int)$card['id'] ?>">
                                 <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
-                                <button type="submit" class="button ghost sm" title="Excluir">🗑️</button>
+                                <button type="submit" class="btn-icon-action delete" title="Excluir cartão">🗑️</button>
                             </form>
                         </div>
                     </div>
@@ -555,14 +624,19 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                         <span class="badge danger">Encerrado</span>
                                     <?php endif; ?>
                                 </td>
-                                <td>
-                                    <form method="post" data-confirm="Remover o compromisso <?= h($com['payee_name']) ?>?" style="display:inline;">
-                                        <?= csrf_field() ?>
-                                        <input type="hidden" name="action" value="delete_daily_commitment">
-                                        <input type="hidden" name="id" value="<?= (int)$com['id'] ?>">
-                                        <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
-                                        <button type="submit" class="button ghost sm">🗑️</button>
-                                    </form>
+                                <td style="text-align: right;">
+                                    <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
+                                        <button type="button" class="btn-icon-action edit" title="Editar compromisso" onclick='openEditCommitmentModal(<?= json_encode($com, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'>
+                                            ✏️
+                                        </button>
+                                        <form method="post" data-confirm="Remover o compromisso recorrente <?= h($com['payee_name']) ?>?" style="display:inline; margin: 0;">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_daily_commitment">
+                                            <input type="hidden" name="id" value="<?= (int)$com['id'] ?>">
+                                            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+                                            <button type="submit" class="btn-icon-action delete" title="Excluir compromisso">🗑️</button>
+                                        </form>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -998,7 +1072,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
 </div>
 
 <!-- ========================================================================= -->
-<!-- MODAL: NOVO CARTÃO DE CRÉDITO                                              -->
+<!-- MODAL: NOVO / EDITAR CARTÃO DE CRÉDITO                                     -->
 <!-- ========================================================================= -->
 <div id="newCardModal" class="modal">
     <div class="modal-backdrop" onclick="closeNewCardModal()"></div>
@@ -1006,60 +1080,61 @@ $recentPayees = $dailyService->recentPayees('', 30);
         <header>
             <div>
                 <p class="eyebrow">MEIOS DE PAGAMENTO</p>
-                <h2>💳 Novo Cartão de Crédito</h2>
+                <h2 id="cardModalTitle">💳 Novo Cartão de Crédito</h2>
             </div>
             <button type="button" class="modal-close" onclick="closeNewCardModal()">×</button>
         </header>
-        <form method="post" class="form-grid" style="gap: 14px;">
+        <form method="post" id="newCardForm" class="form-grid" style="gap: 14px;">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="save_daily_card">
+            <input type="hidden" name="id" id="cardIdInput" value="">
             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
 
             <div class="full-field">
                 <label>Nome do Cartão *</label>
-                <input type="text" name="name" required placeholder="Ex: Nubank Ultravioleta, XP Visa Infinite...">
+                <input type="text" name="name" id="cardNameInput" required placeholder="Ex: Nubank Ultravioleta, XP Visa Infinite...">
             </div>
 
             <div>
                 <label>Bandeira</label>
-                <input type="text" name="brand" value="Mastercard" placeholder="Mastercard, Visa, Elo...">
+                <input type="text" name="brand" id="cardBrandInput" value="Mastercard" placeholder="Mastercard, Visa, Elo...">
             </div>
 
             <div>
                 <label>Últimos 4 Dígitos</label>
-                <input type="text" name="last_four_digits" maxlength="4" placeholder="Ex: 8821">
+                <input type="text" name="last_four_digits" id="cardDigitsInput" maxlength="4" placeholder="Ex: 8821">
             </div>
 
             <div class="full-field">
                 <label>Limite Total de Crédito (R$)</label>
-                <input type="text" name="credit_limit" placeholder="0,00" value="5000,00">
+                <input type="text" name="credit_limit" id="cardLimitInput" placeholder="0,00" value="5000,00">
             </div>
 
             <div>
                 <label>Dia de Fechamento (1 a 31) *</label>
-                <input type="number" name="closing_day" min="1" max="31" value="1" required>
+                <input type="number" name="closing_day" id="cardClosingInput" min="1" max="31" value="1" required>
             </div>
 
             <div>
                 <label>Dia de Vencimento (1 a 31) *</label>
-                <input type="number" name="due_day" min="1" max="31" value="10" required>
+                <input type="number" name="due_day" id="cardDueInput" min="1" max="31" value="10" required>
             </div>
 
             <div>
                 <label>Cor de Identificação</label>
-                <input type="color" name="color" value="#6366f1" style="height: 40px; padding: 2px;">
+                <input type="color" name="color" id="cardColorInput" value="#6366f1" style="height: 40px; padding: 2px;">
             </div>
 
             <div style="display: flex; align-items: center; margin-top: 20px;">
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                    <input type="checkbox" name="active" value="1" checked>
+                    <input type="checkbox" name="active" id="cardActiveInput" value="1" checked>
                     Cartão Ativo
                 </label>
             </div>
 
             <footer class="form-actions full-field" style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px;">
                 <button type="button" class="button ghost" onclick="closeNewCardModal()">Cancelar</button>
-                <button type="submit" class="button primary">Cadastrar Cartão</button>
+                <button type="submit" class="button primary" id="cardSubmitBtn">Cadastrar Cartão</button>
             </footer>
         </form>
     </section>
@@ -1074,48 +1149,49 @@ $recentPayees = $dailyService->recentPayees('', 30);
         <header>
             <div>
                 <p class="eyebrow">PLANEJAMENTO FAMILIAR</p>
-                <h2>🎓 Novo Compromisso Fixo / Filhos</h2>
+                <h2 id="comModalTitle">🎓 Novo Compromisso Fixo / Filhos</h2>
             </div>
             <button type="button" class="modal-close" onclick="closeNewCommitmentModal()">×</button>
         </header>
-        <form method="post" class="form-grid" style="gap: 14px;">
+        <form method="post" id="newCommitmentForm" class="form-grid" style="gap: 14px;">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="save_daily_commitment">
+            <input type="hidden" name="id" id="comIdInput" value="">
             <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
 
             <div class="full-field">
                 <label>Beneficiário / Obrigação *</label>
-                <input type="text" name="payee_name" required placeholder="Ex: Colégio Bernoulli, Cursinho de Inglês, Condomínio...">
+                <input type="text" name="payee_name" id="comPayeeInput" required placeholder="Ex: Colégio Bernoulli, Cursinho de Inglês, Condomínio...">
             </div>
 
             <div class="full-field">
                 <label>Descrição do Compromisso *</label>
-                <input type="text" name="description" required placeholder="Ex: Mensalidade escolar Filhos, Natação, Aluguel...">
+                <input type="text" name="description" id="comDescriptionInput" required placeholder="Ex: Mensalidade escolar Filhos, Natação, Aluguel...">
             </div>
 
             <div>
                 <label>Valor Recorrente (R$) *</label>
-                <input type="text" name="amount" required placeholder="0,00">
+                <input type="text" name="amount" id="comAmountInput" required placeholder="0,00">
             </div>
 
             <div>
                 <label>Dia de Vencimento *</label>
-                <input type="number" name="due_day" min="1" max="31" value="10" required>
+                <input type="number" name="due_day" id="comDueDayInput" min="1" max="31" value="10" required>
             </div>
 
             <div>
                 <label>Data de Início *</label>
-                <input type="date" name="start_date" required value="<?= date('Y-m-01') ?>">
+                <input type="date" name="start_date" id="comStartDateInput" required value="<?= date('Y-m-01') ?>">
             </div>
 
             <div>
                 <label>Total de Parcelas (Opcional)</label>
-                <input type="number" name="total_installments" placeholder="Ex: 12 (ou vazio se for contínuo)">
+                <input type="number" name="total_installments" id="comTotalInstallmentsInput" placeholder="Ex: 12 (ou vazio se for contínuo)">
             </div>
 
             <div class="full-field">
                 <label>Categoria Oficial</label>
-                <select name="category_id">
+                <select name="category_id" id="comCategorySelect">
                     <option value="">Selecione...</option>
                     <?php foreach ($categoryTree['expense'] as $macro): ?>
                         <optgroup label="<?= h($macro['icon'] . ' ' . $macro['name']) ?>">
@@ -1130,7 +1206,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
 
             <div class="full-field">
                 <label>Forma de Pagamento Habitual</label>
-                <select name="payment_method">
+                <select name="payment_method" id="comPaymentMethodSelect">
                     <option value="pix">⚡ PIX</option>
                     <option value="boleto">📄 Boleto Bancário</option>
                     <option value="transfer">🏦 Débito em Conta / Transferência</option>
@@ -1138,12 +1214,12 @@ $recentPayees = $dailyService->recentPayees('', 30);
                 </select>
             </div>
 
-            <input type="hidden" name="type" value="expense">
-            <input type="hidden" name="active" value="1">
+            <input type="hidden" name="type" id="comTypeInput" value="expense">
+            <input type="hidden" name="active" id="comActiveInput" value="1">
 
             <footer class="form-actions full-field" style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px;">
                 <button type="button" class="button ghost" onclick="closeNewCommitmentModal()">Cancelar</button>
-                <button type="submit" class="button primary">Salvar Compromisso</button>
+                <button type="submit" class="button primary" id="comSubmitBtn">Salvar Compromisso</button>
             </footer>
         </form>
     </section>
@@ -1208,6 +1284,53 @@ $recentPayees = $dailyService->recentPayees('', 30);
                 <button type="submit" class="button primary">Salvar Categoria</button>
             </footer>
         </form>
+    </section>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: DETALHES E LANÇAMENTOS DA FATURA DO CARTÃO                         -->
+<!-- ========================================================================= -->
+<div id="invoiceDetailsModal" class="modal">
+    <div class="modal-backdrop" onclick="closeInvoiceDetailsModal()"></div>
+    <section class="modal-panel" style="max-width: 680px; width: 95%;">
+        <header>
+            <div>
+                <p class="eyebrow">DETALHES DA FATURA</p>
+                <h2 id="invDetailsModalTitle">💳 Lançamentos da Fatura</h2>
+            </div>
+            <button type="button" class="modal-close" onclick="closeInvoiceDetailsModal()">×</button>
+        </header>
+        
+        <div style="padding: 16px 20px;">
+            <p class="muted" style="margin-bottom: 12px; font-size: 13px;">
+                Gerencie individualmente cada compra desta fatura com os botões de editar (✏️) e excluir (🗑️).
+            </p>
+            <div style="max-height: 320px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
+                            <th style="padding: 8px 12px; text-align: left;">Data</th>
+                            <th style="padding: 8px 12px; text-align: left;">Estabelecimento / Detalhe</th>
+                            <th style="padding: 8px 12px; text-align: right;">Valor</th>
+                            <th style="padding: 8px 12px; text-align: right; width: 100px;">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="invoiceDetailsTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <footer class="form-actions full-field" style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-top: 1px solid #f1f5f9;">
+            <form method="post" id="deleteEntireInvoiceForm" data-confirm="Tem certeza que deseja excluir toda a fatura e TODOS os lançamentos vinculados?" style="margin: 0;">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="delete_daily_card_invoice">
+                <input type="hidden" name="invoice_id" id="deleteEntireInvoiceId" value="">
+                <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+                <button type="submit" class="btn-icon-action delete" title="Excluir Toda a Fatura" style="width: auto; padding: 0 12px; font-size: 12px; gap: 6px; display: inline-flex;">🗑️ Excluir Toda a Fatura</button>
+            </form>
+            <button type="button" class="button ghost" onclick="closeInvoiceDetailsModal()">Fechar</button>
+        </footer>
     </section>
 </div>
 
@@ -1655,16 +1778,113 @@ function closePayInvoiceModal() {
     document.getElementById('payInvoiceModal').classList.remove('open');
 }
 
+function openInvoiceDetailsModal(txs, title, invoiceId) {
+    document.getElementById('invDetailsModalTitle').textContent = '💳 ' + (title || 'Lançamentos da Fatura');
+    document.getElementById('deleteEntireInvoiceId').value = invoiceId;
+    const tbody = document.getElementById('invoiceDetailsTableBody');
+    if (!tbody) return;
+
+    if (!txs || txs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: #94a3b8;">Nenhum lançamento encontrado nesta fatura.</td></tr>';
+    } else {
+        let html = '';
+        txs.forEach(tx => {
+            const dateFmt = tx.transaction_date ? tx.transaction_date.split('-').reverse().join('/') : '—';
+            const valFmt = 'R$ ' + parseFloat(tx.amount || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2});
+            const txJson = JSON.stringify(tx).replace(/"/g, '&quot;');
+            html += `
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+                <td style="padding: 8px 12px; font-size: 13px; color: #64748b;">${dateFmt}</td>
+                <td style="padding: 8px 12px; font-size: 13px;">
+                    <b>${tx.payee_name || 'Lançamento'}</b>
+                    ${tx.description ? `<small style="display:block; color:#94a3b8;">${tx.description}</small>` : ''}
+                </td>
+                <td style="padding: 8px 12px; font-size: 13px; text-align: right; font-weight: 700; color: #dc2626;">-${valFmt}</td>
+                <td style="padding: 8px 12px; text-align: right;">
+                    <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
+                        <button type="button" class="btn-icon-action edit" title="Editar lançamento" onclick='closeInvoiceDetailsModal(); openEditTxModal(${txJson})'>✏️</button>
+                        <form method="post" data-confirm="Excluir este lançamento de ${valFmt} da fatura?" style="display:inline; margin: 0;">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="action" value="delete_daily_transaction">
+                            <input type="hidden" name="id" value="${tx.id}">
+                            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+                            <button type="submit" class="btn-icon-action delete" title="Excluir lançamento">🗑️</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+
+    document.getElementById('invoiceDetailsModal').classList.add('open');
+}
+
+function closeInvoiceDetailsModal() {
+    document.getElementById('invoiceDetailsModal').classList.remove('open');
+}
+
 function openNewCardModal() {
+    const form = document.getElementById('newCardForm');
+    if (form) form.reset();
+    document.getElementById('cardIdInput').value = '';
+    document.getElementById('cardModalTitle').textContent = '💳 Novo Cartão de Crédito';
+    document.getElementById('cardSubmitBtn').textContent = 'Cadastrar Cartão';
+    document.getElementById('cardActiveInput').checked = true;
     document.getElementById('newCardModal').classList.add('open');
 }
+
+function openEditCardModal(card) {
+    document.getElementById('cardIdInput').value = card.id;
+    document.getElementById('cardModalTitle').textContent = '✎ Editar Cartão de Crédito';
+    document.getElementById('cardNameInput').value = card.name || '';
+    document.getElementById('cardBrandInput').value = card.brand || 'Mastercard';
+    document.getElementById('cardDigitsInput').value = card.last_four_digits || '';
+    document.getElementById('cardLimitInput').value = formatMonetary(card.credit_limit || 0);
+    document.getElementById('cardClosingInput').value = card.closing_day || 1;
+    document.getElementById('cardDueInput').value = card.due_day || 10;
+    document.getElementById('cardColorInput').value = card.color || '#6366f1';
+    document.getElementById('cardActiveInput').checked = (String(card.active) === '1' || card.active === 1);
+    document.getElementById('cardSubmitBtn').textContent = '✓ Salvar Alterações';
+    document.getElementById('newCardModal').classList.add('open');
+}
+
 function closeNewCardModal() {
     document.getElementById('newCardModal').classList.remove('open');
 }
 
 function openNewCommitmentModal() {
+    const form = document.getElementById('newCommitmentForm');
+    if (form) form.reset();
+    document.getElementById('comIdInput').value = '';
+    document.getElementById('comModalTitle').textContent = '🎓 Novo Compromisso Fixo / Filhos';
+    document.getElementById('comSubmitBtn').textContent = 'Salvar Compromisso';
+    document.getElementById('comStartDateInput').value = new Date().toISOString().split('T')[0];
     document.getElementById('newCommitmentModal').classList.add('open');
 }
+
+function openEditCommitmentModal(com) {
+    document.getElementById('comIdInput').value = com.id;
+    document.getElementById('comModalTitle').textContent = '✎ Editar Compromisso Fixo';
+    document.getElementById('comPayeeInput').value = com.payee_name || '';
+    document.getElementById('comDescriptionInput').value = com.description || '';
+    document.getElementById('comAmountInput').value = formatMonetary(com.amount || 0);
+    document.getElementById('comDueDayInput').value = com.due_day || 10;
+    document.getElementById('comStartDateInput').value = com.start_date || '';
+    document.getElementById('comTotalInstallmentsInput').value = com.total_installments || '';
+    document.getElementById('comTypeInput').value = com.type || 'expense';
+    document.getElementById('comActiveInput').value = com.active !== undefined ? com.active : 1;
+    
+    if (com.category_id) {
+        document.getElementById('comCategorySelect').value = com.category_id;
+    }
+    if (com.payment_method) {
+        document.getElementById('comPaymentMethodSelect').value = com.payment_method;
+    }
+    document.getElementById('comSubmitBtn').textContent = '✓ Salvar Alterações';
+    document.getElementById('newCommitmentModal').classList.add('open');
+}
+
 function closeNewCommitmentModal() {
     document.getElementById('newCommitmentModal').classList.remove('open');
 }
@@ -1915,6 +2135,52 @@ document.addEventListener('DOMContentLoaded', () => {
 }
 .button-icon-danger:hover {
     opacity: 1;
+}
+
+/* Botões de Ação em Formato de Ícone Padronizados */
+.btn-icon-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    color: #475569;
+    transition: all 0.15s ease-in-out;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    padding: 0;
+    vertical-align: middle;
+}
+.btn-icon-action:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.btn-icon-action.edit:hover {
+    background: #eff6ff !important;
+    border-color: #93c5fd !important;
+    color: #1d4ed8 !important;
+}
+.btn-icon-action.delete:hover {
+    background: #fef2f2 !important;
+    border-color: #fca5a5 !important;
+    color: #b91c1c !important;
+}
+.btn-icon-action.pay {
+    background: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #059669;
+    font-weight: 700;
+}
+.btn-icon-action.pay:hover {
+    background: #10b981 !important;
+    border-color: #10b981 !important;
+    color: #ffffff !important;
 }
 
 /* Agenda Preditiva */

@@ -81,9 +81,11 @@ final class ActionHandler
                 // Daily Finance System (Isolado)
                 'save_daily_transaction' => $this->saveDailyTransaction(),
                 'delete_daily_transaction' => $this->deleteDailyTransaction(),
+                'mark_daily_transaction_paid' => $this->markDailyTransactionPaid(),
                 'save_daily_card' => $this->saveDailyCard(),
                 'save_daily_card_ajax' => $this->saveDailyCardAjax(),
                 'delete_daily_card' => $this->deleteDailyCard(),
+                'delete_daily_card_invoice' => $this->deleteDailyCardInvoice(),
                 'pay_daily_card_invoice' => $this->payDailyCardInvoice(),
                 'save_daily_commitment' => $this->saveDailyCommitment(),
                 'pay_daily_commitment' => $this->payDailyCommitment(),
@@ -2115,6 +2117,30 @@ final class ActionHandler
             Flash::add('success', 'Lançamento excluído com sucesso.');
         }
         return $this->returnUrl('?page=financeiro');
+    }
+
+    private function markDailyTransactionPaid(): string
+    {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id > 0) {
+            $this->db->query("UPDATE daily_transactions SET status = 'realized' WHERE id = ?", [$id]);
+            Flash::add('success', 'Lançamento marcado como pago / realizado!');
+        }
+        return $this->returnUrl('?page=financeiro');
+    }
+
+    private function deleteDailyCardInvoice(): string
+    {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0 && isset($_POST['invoice_id'])) {
+            $id = (int)$_POST['invoice_id'];
+        }
+        if ($id > 0) {
+            $this->db->query("DELETE FROM daily_transactions WHERE invoice_id = ?", [$id]);
+            $this->db->query("DELETE FROM daily_card_invoices WHERE id = ?", [$id]);
+            Flash::add('success', 'Fatura e lançamentos vinculados excluídos com sucesso.');
+        }
+        return $this->returnUrl('?page=financeiro&tab=agenda');
     }
 
     private function saveDailyCard(): string
