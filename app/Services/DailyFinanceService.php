@@ -362,6 +362,24 @@ final class DailyFinanceService
         return $cards;
     }
 
+    public function transactionsForCard(int $cardId): array
+    {
+        return $this->db->fetchAll(
+            "SELECT t.*,
+                    cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
+                    pcat.name parent_cat_name,
+                    inv.due_date invoice_due_date, inv.payment_date invoice_payment_date,
+                    inv.status invoice_status, inv.reference_month invoice_reference_month
+             FROM daily_transactions t
+             LEFT JOIN daily_categories cat ON cat.id = t.category_id
+             LEFT JOIN daily_categories pcat ON pcat.id = cat.parent_id
+             LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
+             WHERE t.card_id = ?
+             ORDER BY t.transaction_date DESC, t.id DESC",
+            [$cardId]
+        );
+    }
+
     public function commitmentsList(bool $onlyActive = true): array
     {
         $where = $onlyActive ? ' WHERE r.active = 1' : '';

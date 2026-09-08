@@ -24,6 +24,22 @@ $allCards = $dailyService->cardsList();
 $allCommitments = $dailyService->commitmentsList(false);
 $agendaData = $dailyService->agenda($from, date('Y-m-d', strtotime($to . ' +30 days')));
 
+// Página dedicada de extrato de um cartão específico (aba Cartões > clicar em um cartão)
+$cardStatementId = ($activeTab === 'cards' && isset($_GET['card'])) ? (int) $_GET['card'] : 0;
+$cardStatement = null;
+$cardStatementTxs = [];
+if ($cardStatementId > 0) {
+    foreach ($allCards as $c) {
+        if ((int) $c['id'] === $cardStatementId) {
+            $cardStatement = $c;
+            break;
+        }
+    }
+    if ($cardStatement) {
+        $cardStatementTxs = $dailyService->transactionsForCard($cardStatementId);
+    }
+}
+
 // Query do Extrato Diário
 // Lançamentos no cartão de crédito aparecem/impactam o saldo na data de
 // vencimento da fatura (ou de pagamento, se já quitada) — não na data da compra.
@@ -539,7 +555,117 @@ $recentPayees = $dailyService->recentPayees('', 30);
     <!-- ========================================================================= -->
     <!-- ABA 3: CARTÕES DE CRÉDITO & FATURAS                                       -->
     <!-- ========================================================================= -->
-    <?php if ($activeTab === 'cards'): ?>
+    <?php if ($activeTab === 'cards' && $cardStatement): ?>
+    <?php
+        $stmtLimit = (float) $cardStatement['credit_limit'];
+        $stmtUsed = (float) $cardStatement['open_invoices_sum'];
+        $stmtAvail = (float) $cardStatement['available_limit'];
+        $stmtUsedPct = $stmtLimit > 0 ? min(100, round(($stmtUsed / $stmtLimit) * 100, 1)) : 0;
+    ?>
+    <div class="card-statement-view" style="margin-top: 16px;">
+        <a href="?page=financeiro&tab=cards<?= $buFilter ? '&bu=' . (int)$buFilter : '' ?>" class="button ghost small" style="margin-bottom: 14px; display: inline-flex;">← Voltar aos Cartões</a>
+
+        <div class="credit-card-item card-statement-header" style="border-top: 4px solid <?= h($cardStatement['color'] ?: '#6366f1') ?>; max-width: 420px;">
+            <div class="cci-header">
+                <div>
+                    <b class="cci-name"><?= h($cardStatement['name']) ?></b>
+                    <span class="cci-brand"><?= h($cardStatement['brand']) ?> <?= $cardStatement['last_four_digits'] ? '•••• ' . h($cardStatement['last_four_digits']) : '' ?></span>
+                </div>
+                <span class="badge <?= $cardStatement['active'] ? 'good' : 'warning' ?>"><?= $cardStatement['active'] ? 'Ativo' : 'Inativo' ?></span>
+            </div>
+            <div class="cci-invoice-box">
+                <small>Fatura Aberta Atual (<?= h($cardStatement['current_open_invoice_month'] ?: 'Atual') ?>)</small>
+                <b class="cci-inv-val">R$ <?= number_format($stmtUsed, 2, ',', '.') ?></b>
+                <?php if ($cardStatement['current_open_invoice_due']): ?>
+                    <span class="cci-due">Vencimento: <?= date_br($cardStatement['current_open_invoice_due']) ?></span>
+                <?php endif; ?>
+            </div>
+            <div class="cci-limit-bar">
+                <div class="limit-labels">
+                    <small>Limite Usado: <?= $stmtUsedPct ?>%</small>
+                    <small>Disponível: R$ <?= number_format($stmtAvail, 2, ',', '.') ?></small>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" style="width: <?= $stmtUsedPct ?>%; background: <?= $stmtUsedPct > 80 ? '#ef4444' : ($stmtUsedPct > 50 ? '#f59e0b' : '#10b981') ?>;"></div>
+                </div>
+                <small class="block" style="margin-top: 4px;">Limite Total: R$ <?= number_format($stmtLimit, 2, ',', '.') ?> · Fechamento dia <?= (int)$cardStatement['closing_day'] ?> · Vencimento dia <?= (int)$cardStatement['due_day'] ?></small>
+            </div>
+        </div>
+
+        <section class="card" style="margin-top: 16px; padding: 0; overflow: hidden;">
+            <header style="padding: 14px 18px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <b>Extrato completo · <?= count($cardStatementTxs) ?> lançamento(s)</b>
+            </header>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="text-align: left;">Descrição</th>
+                            <th style="text-align: left;">Categoria</th>
+                            <th style="text-align: left;">Data do Lançamento</th>
+                            <th style="text-align: left;">Vencimento da Fatura</th>
+                            <th style="text-align: right;">Valor</th>
+                            <th style="text-align: center;">Situação</th>
+                            <th class="actions-column"><span class="sr-only">Ações</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($cardStatementTxs)): ?>
+                            <tr><td colspan="7" class="empty-cell">Nenhum lançamento registrado neste cartão ainda.</td></tr>
+                        <?php endif; ?>
+                        <?php foreach ($cardStatementTxs as $tx): ?>
+                            <tr>
+                                <td>
+                                    <b><?= h($tx['payee_name']) ?></b>
+                                    <?php if (!empty($tx['description']) && $tx['description'] !== $tx['payee_name']): ?>
+                                        <small class="block muted"><?= h($tx['description']) ?></small>
+                                    <?php endif; ?>
+                                    <?php if ($tx['total_installments'] > 1): ?>
+                                        <span class="badge" style="background: #fef3c7; color: #b45309; font-size: 11px;">
+                                            <?= (int)$tx['installment_number'] ?>/<?= (int)$tx['total_installments'] ?>x
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <span class="category-pill" style="border-left: 3px solid <?= h($tx['cat_color'] ?? '#94a3b8') ?>;">
+                                        <?= h($tx['parent_cat_name'] ? $tx['parent_cat_name'] . ' › ' : '') ?><?= h($tx['cat_name'] ?? 'Geral') ?>
+                                    </span>
+                                </td>
+                                <td><?= date_br($tx['transaction_date']) ?></td>
+                                <td>
+                                    <?= $tx['invoice_due_date'] ? date_br($tx['invoice_due_date']) : '—' ?>
+                                    <?php if ($tx['invoice_reference_month']): ?>
+                                        <small class="block muted">Fatura <?= h($tx['invoice_reference_month']) ?></small>
+                                    <?php endif; ?>
+                                </td>
+                                <td style="text-align: right;"><b class="negative">- R$ <?= number_format((float)$tx['amount'], 2, ',', '.') ?></b></td>
+                                <td style="text-align: center;">
+                                    <?php if ($tx['invoice_status'] === 'paid'): ?>
+                                        <span class="badge success">Paga em <?= date_br($tx['invoice_payment_date']) ?></span>
+                                    <?php else: ?>
+                                        <span class="badge warning">Em aberto</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <div class="row-actions" style="display: flex; gap: 6px; justify-content: flex-end;">
+                                        <button type="button" class="btn-icon-action edit" title="Editar lançamento" onclick='openEditTxModal(<?= json_encode($tx, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'>✏️</button>
+                                        <form method="post" data-confirm="Excluir este lançamento de R$ <?= number_format((float)$tx['amount'], 2, ',', '.') ?>?" style="display:inline; margin: 0;">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="action" value="delete_daily_transaction">
+                                            <input type="hidden" name="id" value="<?= (int)$tx['id'] ?>">
+                                            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+                                            <button type="submit" class="btn-icon-action delete" title="Excluir lançamento">🗑️</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    <?php elseif ($activeTab === 'cards'): ?>
     <div class="cards-view-container" style="margin-top: 16px;">
         <div style="display: flex; justify-content: flex-end; margin-bottom: 14px;">
             <button type="button" class="button ghost" onclick="openNewCardModal()">＋ Adicionar Novo Cartão</button>
@@ -552,18 +678,19 @@ $recentPayees = $dailyService->recentPayees('', 30);
                 </div>
             <?php endif; ?>
 
-            <?php foreach ($allCards as $card): 
+            <?php foreach ($allCards as $card):
                 $limit = (float) $card['credit_limit'];
                 $used = (float) $card['open_invoices_sum'];
                 $avail = (float) $card['available_limit'];
                 $usedPct = $limit > 0 ? min(100, round(($used / $limit) * 100, 1)) : 0;
+                $statementUrl = '?page=financeiro&tab=cards&card=' . (int)$card['id'] . ($buFilter ? '&bu=' . (int)$buFilter : '');
             ?>
                 <div class="credit-card-item" style="border-top: 4px solid <?= h($card['color'] ?: '#6366f1') ?>;">
                     <div class="cci-header">
-                        <div>
+                        <a href="<?= h($statementUrl) ?>" title="Ver extrato completo do cartão" style="text-decoration: none; color: inherit;">
                             <b class="cci-name"><?= h($card['name']) ?></b>
                             <span class="cci-brand"><?= h($card['brand']) ?> <?= $card['last_four_digits'] ? '•••• ' . h($card['last_four_digits']) : '' ?></span>
-                        </div>
+                        </a>
                         <span class="badge <?= $card['active'] ? 'good' : 'warning' ?>"><?= $card['active'] ? 'Ativo' : 'Inativo' ?></span>
                     </div>
 
@@ -589,6 +716,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
                     <div class="cci-footer">
                         <small>Fechamento dia <?= (int)$card['closing_day'] ?> · Vencimento dia <?= (int)$card['due_day'] ?></small>
                         <div class="cci-actions" style="display: flex; gap: 6px; align-items: center;">
+                            <a href="<?= h($statementUrl) ?>" class="btn-icon-action" title="Ver extrato completo">📄</a>
                             <?php if ($card['current_open_invoice_id'] && $used > 0): ?>
                                 <button type="button" class="btn-icon-action pay" title="Pagar Fatura" onclick="openPayInvoiceModal(<?= (int)$card['current_open_invoice_id'] ?>, '<?= h(addslashes($card['name'])) ?>', '<?= $used ?>')">
                                     ✓
