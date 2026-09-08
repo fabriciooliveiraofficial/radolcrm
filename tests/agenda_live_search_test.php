@@ -20,6 +20,6 @@ $viewCode = (string) file_get_contents($root . '/app/Views/pages/financeiro.php'
 assert(str_contains($viewCode, 'data-live-filter'), 'financeiro.php deve conter formulário com data-live-filter');
 assert(str_contains($viewCode, 'data-live-results'), 'financeiro.php deve conter container com data-live-results');
 assert(str_contains($viewCode, 'placeholder="Buscar favorecido, cartão, categoria, valor..."'), 'financeiro.php deve conter input de busca preditiva na aba agenda');
-assert(str_contains($viewCode, '$dailyService->agenda($from, date(\'Y-m-d\', strtotime($to . \' +30 days\')), $search, $typeFilter)'), 'financeiro.php deve passar $search e $typeFilter para $dailyService->agenda');
+assert(str_contains($viewCode, '$dailyService->agenda($from, $to, $search, $typeFilter)'), 'financeiro.php deve passar $search e $typeFilter para $dailyService->agenda');
 
 echo "✓ Busca preditiva na Agenda Preditiva totalmente validada com sucesso!\n";

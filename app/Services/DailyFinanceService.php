@@ -795,9 +795,24 @@ final class DailyFinanceService
         $actualClosingDay = min($closingDay, $daysInRefMonth);
         $closingDate = sprintf('%s-%02d', $refMonth, $actualClosingDay);
 
+        // Calcular o vencimento real a partir do dia de vencimento configurado no cartão
+        // (não usar o dia bruto recebido, que pode não coincidir com o due_day do cartão).
+        $actualDueYear = $refYear;
+        $actualDueMonth = $refMonthNum;
+        if ($dueDay < $closingDay) {
+            $actualDueMonth++;
+            if ($actualDueMonth > 12) {
+                $actualDueMonth = 1;
+                $actualDueYear++;
+            }
+        }
+        $daysInDueMonth = (int) date('t', strtotime(sprintf('%04d-%02d-01', $actualDueYear, $actualDueMonth)));
+        $actualDueDay = min($dueDay, $daysInDueMonth);
+        $computedDueDate = sprintf('%04d-%02d-%02d', $actualDueYear, $actualDueMonth, $actualDueDay);
+
         return (int) $this->db->insert(
             "INSERT INTO daily_card_invoices (card_id, reference_month, closing_date, due_date, total_amount, status) VALUES (?, ?, ?, ?, 0.00, 'open')",
-            [$cardId, $refMonth, $closingDate, $dueDate]
+            [$cardId, $refMonth, $closingDate, $computedDueDate]
         );
     }
 }

@@ -2015,13 +2015,15 @@ final class ActionHandler
             if ($paymentMethod === 'credit_card') {
                 $affectedInvoices = [];
                 foreach ($installmentsData as $inst) {
+                    // A data de lançamento é sempre a data real da compra (constante para todas
+                    // as parcelas); apenas a fatura/vencimento avança a cada parcela.
                     $invId = $dailyService->getOrCreateInvoiceForDueDate($cardId, $inst['date']);
                     $affectedInvoices[$invId] = true;
                     $instDesc = $description . " ({$inst['number']}/{$totalInstallments})";
 
                     $this->db->insert(
                         "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        [$type, $categoryId, $payeeId, $payeeName, $instDesc, $inst['amount'], 'credit_card', $cardId, $invId, $inst['number'], $totalInstallments, $inst['date'], 'realized', $notes]
+                        [$type, $categoryId, $payeeId, $payeeName, $instDesc, $inst['amount'], 'credit_card', $cardId, $invId, $inst['number'], $totalInstallments, $transactionDate, 'realized', $notes]
                     );
                 }
 

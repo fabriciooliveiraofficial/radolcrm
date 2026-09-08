@@ -22,7 +22,7 @@ $summary = $dailyService->summary($from, $to, $search, $typeFilter, $methodFilte
 $allCategoriesGrouped = $dailyService->categoriesWithBudgets($currentMonth);
 $allCards = $dailyService->cardsList();
 $allCommitments = $dailyService->commitmentsList(false);
-$agendaData = $dailyService->agenda($from, date('Y-m-d', strtotime($to . ' +30 days')), $search, $typeFilter);
+$agendaData = $dailyService->agenda($from, $to, $search, $typeFilter);
 
 // Página dedicada de extrato de um cartão específico (aba Cartões > clicar em um cartão)
 $cardStatementId = ($activeTab === 'cards' && isset($_GET['card'])) ? (int) $_GET['card'] : 0;
