@@ -1949,7 +1949,7 @@ final class ActionHandler
 
             $invId = null;
             if ($paymentMethod === 'credit_card' && $cardId) {
-                $invId = $dailyService->getOrCreateInvoiceForDueDate($cardId, $transactionDate);
+                $invId = $dailyService->getOrCreateInvoice($cardId, $transactionDate);
             }
 
             $this->db->query(

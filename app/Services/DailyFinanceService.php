@@ -18,32 +18,36 @@ final class DailyFinanceService
         $today = date('Y-m-d');
         $in15Days = date('Y-m-d', strtotime('+15 days'));
 
-        $where = "transaction_date BETWEEN ? AND ?";
+        // Lançamentos no cartão de crédito só impactam o saldo na data de
+        // vencimento da fatura (ou na data em que a fatura foi paga, se já
+        // quitada) — nunca na data em que a compra foi feita.
+        $where = "COALESCE(inv.payment_date, inv.due_date, t.transaction_date) BETWEEN ? AND ?";
         $params = [$from, $to];
 
         if ($search !== '') {
-            $where .= " AND (payee_name LIKE ? OR description LIKE ? OR notes LIKE ?)";
+            $where .= " AND (t.payee_name LIKE ? OR t.description LIKE ? OR t.notes LIKE ?)";
             $params[] = '%' . $search . '%';
             $params[] = '%' . $search . '%';
             $params[] = '%' . $search . '%';
         }
         if (in_array($typeFilter, ['expense', 'income'], true)) {
-            $where .= " AND type = ?";
+            $where .= " AND t.type = ?";
             $params[] = $typeFilter;
         }
         if (in_array($methodFilter, ['pix', 'credit_card', 'debit_card', 'cash', 'transfer', 'boleto'], true)) {
-            $where .= " AND payment_method = ?";
+            $where .= " AND t.payment_method = ?";
             $params[] = $methodFilter;
         }
 
         $totals = $this->db->fetch(
-            "SELECT 
-                COALESCE(SUM(CASE WHEN type = 'income' AND status = 'realized' THEN amount ELSE 0 END), 0) total_income,
-                COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'realized' THEN amount ELSE 0 END), 0) total_expense,
-                COALESCE(SUM(CASE WHEN type = 'income' AND status = 'pending' THEN amount ELSE 0 END), 0) pending_income,
-                COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'pending' THEN amount ELSE 0 END), 0) pending_expense,
-                COUNT(id) tx_count
-             FROM daily_transactions
+            "SELECT
+                COALESCE(SUM(CASE WHEN t.type = 'income' AND t.status = 'realized' THEN t.amount ELSE 0 END), 0) total_income,
+                COALESCE(SUM(CASE WHEN t.type = 'expense' AND t.status = 'realized' THEN t.amount ELSE 0 END), 0) total_expense,
+                COALESCE(SUM(CASE WHEN t.type = 'income' AND t.status = 'pending' THEN t.amount ELSE 0 END), 0) pending_income,
+                COALESCE(SUM(CASE WHEN t.type = 'expense' AND t.status = 'pending' THEN t.amount ELSE 0 END), 0) pending_expense,
+                COUNT(t.id) tx_count
+             FROM daily_transactions t
+             LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
              WHERE {$where}",
             $params
         );
@@ -275,10 +279,12 @@ final class DailyFinanceService
             $allIds = array_merge([$macroId], $subIds);
             $inClause = implode(',', $allIds);
 
-            // Gasto no mês
+            // Gasto no mês (cartão de crédito conta na data de vencimento/pagamento da fatura)
             $spent = (float) $this->db->value(
-                "SELECT COALESCE(SUM(amount), 0) FROM daily_transactions 
-                 WHERE category_id IN ({$inClause}) AND type = 'expense' AND status = 'realized' AND transaction_date BETWEEN ? AND ?",
+                "SELECT COALESCE(SUM(t.amount), 0) FROM daily_transactions t
+                 LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
+                 WHERE t.category_id IN ({$inClause}) AND t.type = 'expense' AND t.status = 'realized'
+                   AND COALESCE(inv.payment_date, inv.due_date, t.transaction_date) BETWEEN ? AND ?",
                 [$startOfMonth, $endOfMonth]
             );
 

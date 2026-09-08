@@ -25,7 +25,9 @@ $allCommitments = $dailyService->commitmentsList(false);
 $agendaData = $dailyService->agenda($from, date('Y-m-d', strtotime($to . ' +30 days')));
 
 // Query do Extrato Diário
-$whereTx = " WHERE t.transaction_date BETWEEN ? AND ?";
+// Lançamentos no cartão de crédito aparecem/impactam o saldo na data de
+// vencimento da fatura (ou de pagamento, se já quitada) — não na data da compra.
+$whereTx = " WHERE COALESCE(inv.payment_date, inv.due_date, t.transaction_date) BETWEEN ? AND ?";
 $paramsTx = [$from, $to];
 
 if ($search !== '') {
@@ -44,7 +46,9 @@ if (in_array($methodFilter, ['pix', 'credit_card', 'debit_card', 'cash', 'transf
 }
 
 $transactions = $db->fetchAll(
-    "SELECT t.*, 
+    "SELECT t.*,
+            COALESCE(inv.payment_date, inv.due_date, t.transaction_date) effective_date,
+            inv.due_date invoice_due_date, inv.payment_date invoice_payment_date, inv.status invoice_status,
             cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
             pcat.name parent_cat_name,
             c.name card_name, c.brand card_brand, c.color card_color
@@ -52,16 +56,17 @@ $transactions = $db->fetchAll(
      LEFT JOIN daily_categories cat ON cat.id = t.category_id
      LEFT JOIN daily_categories pcat ON pcat.id = cat.parent_id
      LEFT JOIN daily_credit_cards c ON c.id = t.card_id
+     LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
      {$whereTx}
-     ORDER BY t.transaction_date DESC, t.id DESC
+     ORDER BY effective_date DESC, t.id DESC
      LIMIT 500",
     $paramsTx
 );
 
-// Agrupamento do extrato por dia
+// Agrupamento do extrato por dia (data efetiva: vencimento/pagamento da fatura para cartão)
 $transactionsByDate = [];
 foreach ($transactions as $tx) {
-    $d = $tx['transaction_date'];
+    $d = $tx['effective_date'];
     if (!isset($transactionsByDate[$d])) {
         $transactionsByDate[$d] = [
             'income' => 0.0,
@@ -284,7 +289,8 @@ $recentPayees = $dailyService->recentPayees('', 30);
                             $isExp = $tx['type'] === 'expense';
                             $methodBadge = match($tx['payment_method']) {
                                 'pix' => '⚡ PIX',
-                                'credit_card' => '💳 Cartão (' . ($tx['card_name'] ?? 'Crédito') . ')',
+                                'credit_card' => '💳 Cartão (' . ($tx['card_name'] ?? 'Crédito') . ')'
+                                    . ($tx['invoice_due_date'] ? ' · ' . ($tx['invoice_status'] === 'paid' ? 'paga em ' . date_br($tx['invoice_payment_date']) : 'fatura vence ' . date_br($tx['invoice_due_date'])) : ''),
                                 'debit_card' => '💳 Débito',
                                 'cash' => '💵 Dinheiro',
                                 'transfer' => '🏦 Transferência',
@@ -313,6 +319,11 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                             <?= h($tx['parent_cat_name'] ? $tx['parent_cat_name'] . ' › ' : '') ?><?= h($tx['cat_name'] ?? 'Geral') ?>
                                         </span>
                                         <span class="method-tag"><?= $methodBadge ?></span>
+                                        <?php if ($tx['payment_method'] === 'credit_card' && $tx['transaction_date'] !== $tx['effective_date']): ?>
+                                            <small class="muted" style="font-size: 11px;" title="Data em que a compra foi realizada">
+                                                🛒 Comprado em <?= date_br($tx['transaction_date']) ?>
+                                            </small>
+                                        <?php endif; ?>
                                         <?php if ($tx['status'] === 'pending'): ?>
                                             <span class="badge warning"><?= $isExp ? 'A Pagar' : 'A Receber' ?></span>
                                         <?php endif; ?>

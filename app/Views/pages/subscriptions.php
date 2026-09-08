@@ -64,30 +64,29 @@ $tableSortHeader = static function (string $key, string $label) use ($sort, $sor
         . h(http_build_query($query)) . '" title="Ordenar por ' . h($label) . '" aria-label="Ordenar por ' . h($label) . ', ordem ' . $nextLabel . '"><span>'
         . h($label) . '</span><span class="table-sort-indicator" aria-hidden="true">' . $indicator . '</span></a></th>';
 };
-$where = ' WHERE 1=1';
+$conditions = [];
 $params = [];
 if ($buFilter !== null) {
-    $where .= ' AND (c.business_unit_id=? OR (c.business_unit_id IS NULL AND ? = 1))';
+    $conditions[] = '(c.business_unit_id=? OR (c.business_unit_id IS NULL AND ? = 1))';
     $params[] = $buFilter;
     $params[] = $buFilter;
 }
 if ($search !== '') {
-    $where .= " AND CONCAT_WS(' ',s.id,c.name,c.company,c.email,c.country,CASE c.country WHEN 'BR' THEN 'Brasil' WHEN 'US' THEN 'Estados Unidos' END,p.name,p.sku,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,s.quantity,s.currency,s.unit_price,REPLACE(s.unit_price,'.',','),s.discount,REPLACE(s.discount,'.',','),s.status,CASE s.status WHEN 'active' THEN 'Ativa Ativo' WHEN 'trial' THEN 'Teste' WHEN 'past_due' THEN 'Em atraso Atrasada' WHEN 'paused' THEN 'Pausada' WHEN 'canceled' THEN 'Cancelada' END,s.start_date,DATE_FORMAT(s.start_date,'%d/%m/%Y'),s.next_billing_date,DATE_FORMAT(s.next_billing_date,'%d/%m/%Y'),DATEDIFF(s.next_billing_date,CURDATE()),CASE WHEN s.next_billing_date<CURDATE() THEN 'Vencida atrasada' WHEN s.next_billing_date=CURDATE() THEN 'Vence hoje' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY) THEN 'Vence amanhã' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 2 DAY) THEN 'Vence em 2 dias' WHEN s.next_billing_date<=DATE_ADD(CURDATE(),INTERVAL 7 DAY) THEN 'Próximos 7 dias' END,s.payment_method,s.payment_link,s.notes) LIKE ?";
-    $params[] = '%' . $search . '%';
-        $where = ' WHERE 1=1' . ($buFilter !== null ? ' AND (c.business_unit_id=' . (int)$buFilter . ' OR (c.business_unit_id IS NULL AND ' . (int)$buFilter . ' = 1))' : '') . ' AND (' . substr($where, strlen(' WHERE 1=1' . ($buFilter !== null ? ' AND (c.business_unit_id=' . (int)$buFilter . ' OR (c.business_unit_id IS NULL AND ' . (int)$buFilter . ' = 1))' : '') . ' AND '))
+    $conditions[] = "(CONCAT_WS(' ',s.id,c.name,c.company,c.email,c.country,CASE c.country WHEN 'BR' THEN 'Brasil' WHEN 'US' THEN 'Estados Unidos' END,p.name,p.sku,p.billing_cycle,CASE p.billing_cycle WHEN 'monthly' THEN 'Mensal' WHEN 'quarterly' THEN 'Trimestral' WHEN 'semiannual' THEN 'Semestral' WHEN 'annual' THEN 'Anual' END,s.quantity,s.currency,s.unit_price,REPLACE(s.unit_price,'.',','),s.discount,REPLACE(s.discount,'.',','),s.status,CASE s.status WHEN 'active' THEN 'Ativa Ativo' WHEN 'trial' THEN 'Teste' WHEN 'past_due' THEN 'Em atraso Atrasada' WHEN 'paused' THEN 'Pausada' WHEN 'canceled' THEN 'Cancelada' END,s.start_date,DATE_FORMAT(s.start_date,'%d/%m/%Y'),s.next_billing_date,DATE_FORMAT(s.next_billing_date,'%d/%m/%Y'),DATEDIFF(s.next_billing_date,CURDATE()),CASE WHEN s.next_billing_date<CURDATE() THEN 'Vencida atrasada' WHEN s.next_billing_date=CURDATE() THEN 'Vence hoje' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY) THEN 'Vence amanhã' WHEN s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 2 DAY) THEN 'Vence em 2 dias' WHEN s.next_billing_date<=DATE_ADD(CURDATE(),INTERVAL 7 DAY) THEN 'Próximos 7 dias' END,s.payment_method,s.payment_link,s.notes) LIKE ?"
         . " OR EXISTS (
                 SELECT 1 FROM subscription_service_badges search_ssb
                 JOIN service_badges search_badge ON search_badge.id=search_ssb.badge_id
                 WHERE search_ssb.subscription_id=s.id AND search_badge.name LIKE ?
             ))";
     $params[] = '%' . $search . '%';
+    $params[] = '%' . $search . '%';
 }
 if (in_array($status, ['trial', 'active', 'past_due', 'paused', 'canceled'], true)) {
-    $where .= ' AND s.status=?';
+    $conditions[] = 's.status=?';
     $params[] = $status;
 }
 if (in_array($dueFilter, ['overdue', 'today', 'tomorrow', 'two_days', 'next_7'], true)) {
-    $where .= " AND s.status IN ('active','trial','past_due')" . match ($dueFilter) {
+    $conditions[] = "s.status IN ('active','trial','past_due')" . match ($dueFilter) {
         'overdue' => ' AND s.next_billing_date<CURDATE()',
         'today' => ' AND s.next_billing_date=CURDATE()',
         'tomorrow' => ' AND s.next_billing_date=DATE_ADD(CURDATE(),INTERVAL 1 DAY)',
@@ -96,12 +95,13 @@ if (in_array($dueFilter, ['overdue', 'today', 'tomorrow', 'two_days', 'next_7'],
     };
 }
 if ($badgeFilter > 0) {
-    $where .= ' AND EXISTS (
+    $conditions[] = 'EXISTS (
         SELECT 1 FROM subscription_service_badges filter_ssb
         WHERE filter_ssb.subscription_id=s.id AND filter_ssb.badge_id=?
     )';
     $params[] = $badgeFilter;
 }
+$where = ' WHERE 1=1' . ($conditions ? ' AND ' . implode(' AND ', $conditions) : '');
 $countSql = 'SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id' . $where;
 $dataSql = "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,((s.unit_price*s.quantity)-s.discount) recurring_value,DATEDIFF(s.next_billing_date,CURDATE()) due_in_days FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id{$where} ORDER BY {$orderBy}";
 $pagination = pagination($db, $countSql, $dataSql, $params, $perPage);
