@@ -16,7 +16,7 @@ $typeFilter = (string) ($_GET['type'] ?? '');
 $methodFilter = (string) ($_GET['method'] ?? '');
 
 // Dados Consolidados do Resumo (Período)
-$summary = $dailyService->summary($from, $to);
+$summary = $dailyService->summary($from, $to, $search, $typeFilter, $methodFilter);
 
 // Dados das Abas
 $allCategoriesGrouped = $dailyService->categoriesWithBudgets($currentMonth);
@@ -115,7 +115,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
     <?php 
         $projectedBalance = ($summary['total_income'] + $summary['pending_income']) - ($summary['total_expense'] + $summary['pending_expense']);
     ?>
-    <section class="mini-stats daily-kpis">
+    <section class="mini-stats daily-kpis" data-live-results>
         <div class="kpi-card <?= $summary['net_balance'] >= 0 ? 'good' : 'danger' ?>">
             <span class="dot <?= $summary['net_balance'] >= 0 ? 'green' : 'red' ?>"></span>
             <div class="kpi-info">

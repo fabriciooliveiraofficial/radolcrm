@@ -13,10 +13,28 @@ final class DailyFinanceService
     {
     }
 
-    public function summary(string $from, string $to): array
+    public function summary(string $from, string $to, string $search = '', string $typeFilter = '', string $methodFilter = ''): array
     {
         $today = date('Y-m-d');
         $in15Days = date('Y-m-d', strtotime('+15 days'));
+
+        $where = "transaction_date BETWEEN ? AND ?";
+        $params = [$from, $to];
+
+        if ($search !== '') {
+            $where .= " AND (payee_name LIKE ? OR description LIKE ? OR notes LIKE ?)";
+            $params[] = '%' . $search . '%';
+            $params[] = '%' . $search . '%';
+            $params[] = '%' . $search . '%';
+        }
+        if (in_array($typeFilter, ['expense', 'income'], true)) {
+            $where .= " AND type = ?";
+            $params[] = $typeFilter;
+        }
+        if (in_array($methodFilter, ['pix', 'credit_card', 'debit_card', 'cash', 'transfer', 'boleto'], true)) {
+            $where .= " AND payment_method = ?";
+            $params[] = $methodFilter;
+        }
 
         $totals = $this->db->fetch(
             "SELECT 
@@ -26,8 +44,8 @@ final class DailyFinanceService
                 COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'pending' THEN amount ELSE 0 END), 0) pending_expense,
                 COUNT(id) tx_count
              FROM daily_transactions
-             WHERE transaction_date BETWEEN ? AND ?",
-            [$from, $to]
+             WHERE {$where}",
+            $params
         );
 
         $totalIncome = (float) ($totals['total_income'] ?? 0);
@@ -35,13 +53,19 @@ final class DailyFinanceService
         $netBalance = $totalIncome - $totalExpense;
 
         // Faturas de cartões em aberto
-        $cardsOpenTotal = (float) $this->db->value(
-            "SELECT COALESCE(SUM(total_amount), 0) FROM daily_card_invoices WHERE status != 'paid'"
-        );
+        $cardsOpenTotal = 0.0;
+        if ($typeFilter !== 'income' && !in_array($methodFilter, ['pix', 'debit_card', 'cash', 'transfer', 'boleto'], true)) {
+            $cardsOpenTotal = (float) $this->db->value(
+                "SELECT COALESCE(SUM(total_amount), 0) FROM daily_card_invoices WHERE status != 'paid'"
+            );
+        }
 
         // Obrigações a vencer nos próximos 15 dias (faturas de cartão + parcelas pendentes)
-        $agendaData = $this->agenda($today, $in15Days);
-        $upcomingObligationsTotal = $agendaData['expected_out'];
+        $upcomingObligationsTotal = 0.0;
+        if ($typeFilter !== 'income') {
+            $agendaData = $this->agenda($today, $in15Days);
+            $upcomingObligationsTotal = $agendaData['expected_out'];
+        }
 
         return [
             'total_income' => $totalIncome,
