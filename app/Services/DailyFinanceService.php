@@ -493,11 +493,11 @@ final class DailyFinanceService
             }
         }
         if ($from !== '') {
-            $conditions[] = 't.transaction_date >= ?';
+            $conditions[] = 'COALESCE(inv.payment_date, inv.due_date, t.transaction_date) >= ?';
             $params[] = $from;
         }
         if ($to !== '') {
-            $conditions[] = 't.transaction_date <= ?';
+            $conditions[] = 'COALESCE(inv.payment_date, inv.due_date, t.transaction_date) <= ?';
             $params[] = $to;
         }
 
@@ -512,7 +512,7 @@ final class DailyFinanceService
              LEFT JOIN daily_categories pcat ON pcat.id = cat.parent_id
              LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
              WHERE " . implode(' AND ', $conditions) . "
-             ORDER BY t.transaction_date DESC, t.id DESC",
+             ORDER BY COALESCE(inv.payment_date, inv.due_date, t.transaction_date) DESC, t.id DESC",
             $params
         );
     }
