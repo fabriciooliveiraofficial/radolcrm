@@ -83,7 +83,7 @@ final class DailyFinanceService
         ];
     }
 
-    public function agenda(string $from, string $to): array
+    public function agenda(string $from, string $to, string $search = '', string $typeFilter = ''): array
     {
         $events = [];
         $fromDate = new DateTimeImmutable($from);
@@ -222,6 +222,73 @@ final class DailyFinanceService
             $cursor = $cursor->modify('+1 month');
         }
 
+        // Filtro de Natureza (Entrada vs Saída)
+        if (in_array($typeFilter, ['income', 'expense'], true)) {
+            $expectedDir = $typeFilter === 'income' ? 'in' : 'out';
+            $events = array_values(array_filter($events, static fn(array $e): bool => $e['direction'] === $expectedDir));
+        }
+
+        // Filtro Avançado por Texto (Busca Preditiva Caractere por Caractere)
+        if ($search !== '') {
+            $searchLower = mb_strtolower(trim($search));
+            $searchTerms = array_filter(explode(' ', $searchLower));
+
+            if (!empty($searchTerms)) {
+                $events = array_values(array_filter($events, static function (array $ev) use ($searchTerms): bool {
+                    $searchableText = [];
+                    $searchableText[] = $ev['title'] ?? '';
+                    $searchableText[] = $ev['subtitle'] ?? '';
+                    $searchableText[] = $ev['date'] ?? '';
+                    if (!empty($ev['date'])) {
+                        $searchableText[] = date('d/m/Y', strtotime($ev['date']));
+                    }
+                    if (isset($ev['amount'])) {
+                        $searchableText[] = (string) $ev['amount'];
+                        $searchableText[] = number_format((float) $ev['amount'], 2, ',', '.');
+                        $searchableText[] = number_format((float) $ev['amount'], 2, '.', '');
+                    }
+
+                    if (!empty($ev['transactions'])) {
+                        foreach ($ev['transactions'] as $tx) {
+                            $searchableText[] = $tx['payee_name'] ?? '';
+                            $searchableText[] = $tx['description'] ?? '';
+                            $searchableText[] = $tx['cat_name'] ?? '';
+                            $searchableText[] = $tx['notes'] ?? '';
+                            if (isset($tx['amount'])) {
+                                $searchableText[] = (string) $tx['amount'];
+                                $searchableText[] = number_format((float) $tx['amount'], 2, ',', '.');
+                            }
+                        }
+                    }
+                    if (!empty($ev['raw_tx'])) {
+                        $tx = $ev['raw_tx'];
+                        $searchableText[] = $tx['payee_name'] ?? '';
+                        $searchableText[] = $tx['description'] ?? '';
+                        $searchableText[] = $tx['cat_name'] ?? '';
+                        $searchableText[] = $tx['notes'] ?? '';
+                        $searchableText[] = $tx['payment_method'] ?? '';
+                    }
+                    if (!empty($ev['raw_commitment'])) {
+                        $com = $ev['raw_commitment'];
+                        $searchableText[] = $com['payee_name'] ?? '';
+                        $searchableText[] = $com['description'] ?? '';
+                        $searchableText[] = $com['cat_name'] ?? '';
+                        $searchableText[] = $com['notes'] ?? '';
+                        $searchableText[] = $com['payment_method'] ?? '';
+                    }
+
+                    $haystack = mb_strtolower(implode(' ', array_filter($searchableText)));
+
+                    foreach ($searchTerms as $term) {
+                        if (!str_contains($haystack, $term)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }));
+            }
+        }
+
         // Ordenar cronologicamente ASC
         usort($events, static fn(array $a, array $b): int => strcmp($a['date'], $b['date']) ?: strcmp($a['title'], $b['title']));
 
@@ -344,18 +411,59 @@ final class DailyFinanceService
     public function cardsList(): array
     {
         $cards = $this->db->fetchAll(
-            "SELECT c.*,
-                (SELECT COALESCE(SUM(inv.total_amount), 0) FROM daily_card_invoices inv WHERE inv.card_id = c.id AND inv.status != 'paid') open_invoices_sum,
-                (SELECT inv.id FROM daily_card_invoices inv WHERE inv.card_id = c.id AND inv.status != 'paid' ORDER BY inv.due_date ASC LIMIT 1) current_open_invoice_id,
-                (SELECT inv.total_amount FROM daily_card_invoices inv WHERE inv.card_id = c.id AND inv.status != 'paid' ORDER BY inv.due_date ASC LIMIT 1) current_open_invoice_amount,
-                (SELECT inv.due_date FROM daily_card_invoices inv WHERE inv.card_id = c.id AND inv.status != 'paid' ORDER BY inv.due_date ASC LIMIT 1) current_open_invoice_due,
-                (SELECT inv.reference_month FROM daily_card_invoices inv WHERE inv.card_id = c.id AND inv.status != 'paid' ORDER BY inv.due_date ASC LIMIT 1) current_open_invoice_month
-             FROM daily_credit_cards c
-             ORDER BY c.active DESC, c.name ASC"
+            "SELECT c.* FROM daily_credit_cards c ORDER BY c.active DESC, c.name ASC"
         );
+        if (!$cards) {
+            return [];
+        }
+
+        $openInvoices = $this->db->fetchAll(
+            "SELECT * FROM daily_card_invoices WHERE status != 'paid' ORDER BY due_date ASC"
+        );
+        $invoicesByCard = [];
+        foreach ($openInvoices as $inv) {
+            $invoicesByCard[(int) $inv['card_id']][] = $inv;
+        }
+
+        $today = date('Y-m-d');
 
         foreach ($cards as &$card) {
-            $card['available_limit'] = max(0, (float) $card['credit_limit'] - (float) $card['open_invoices_sum']);
+            $invoices = $invoicesByCard[(int) $card['id']] ?? [];
+
+            // A fatura do ciclo atual é a próxima a vencer (ainda não atrasada).
+            // Se não houver nenhuma futura em aberto, cai na mais recente já atrasada.
+            $current = null;
+            foreach ($invoices as $inv) {
+                if ($inv['due_date'] >= $today && ($current === null || $inv['due_date'] < $current['due_date'])) {
+                    $current = $inv;
+                }
+            }
+            if ($current === null && $invoices) {
+                foreach ($invoices as $inv) {
+                    if ($current === null || $inv['due_date'] > $current['due_date']) {
+                        $current = $inv;
+                    }
+                }
+            }
+
+            $totalOpenSum = 0.0;
+            $otherOpenSum = 0.0;
+            foreach ($invoices as $inv) {
+                $totalOpenSum += (float) $inv['total_amount'];
+                if (!$current || (int) $inv['id'] !== (int) $current['id']) {
+                    $otherOpenSum += (float) $inv['total_amount'];
+                }
+            }
+
+            $card['current_open_invoice_id'] = $current ? (int) $current['id'] : null;
+            $card['current_open_invoice_amount'] = $current ? (float) $current['total_amount'] : 0.0;
+            $card['current_open_invoice_due'] = $current ? $current['due_date'] : null;
+            $card['current_open_invoice_month'] = $current ? $current['reference_month'] : null;
+            $card['current_open_invoice_overdue'] = $current ? ($current['due_date'] < $today) : false;
+            $card['other_open_invoices_sum'] = $otherOpenSum;
+            // Soma total em aberto (usada para calcular o limite disponível do cartão).
+            $card['open_invoices_sum'] = $totalOpenSum;
+            $card['available_limit'] = max(0, (float) $card['credit_limit'] - $totalOpenSum);
         }
         unset($card);
 
@@ -377,6 +485,33 @@ final class DailyFinanceService
              WHERE t.card_id = ?
              ORDER BY t.transaction_date DESC, t.id DESC",
             [$cardId]
+        );
+    }
+
+    public function invoicesForCard(int $cardId): array
+    {
+        return $this->db->fetchAll(
+            "SELECT inv.*,
+                    (SELECT COUNT(*) FROM daily_transactions t WHERE t.invoice_id = inv.id) tx_count
+             FROM daily_card_invoices inv
+             WHERE inv.card_id = ?
+             ORDER BY inv.due_date ASC",
+            [$cardId]
+        );
+    }
+
+    public function transactionsForInvoice(int $invoiceId): array
+    {
+        return $this->db->fetchAll(
+            "SELECT t.*,
+                    cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
+                    pcat.name parent_cat_name
+             FROM daily_transactions t
+             LEFT JOIN daily_categories cat ON cat.id = t.category_id
+             LEFT JOIN daily_categories pcat ON pcat.id = cat.parent_id
+             WHERE t.invoice_id = ?
+             ORDER BY t.transaction_date ASC, t.id ASC",
+            [$invoiceId]
         );
     }
 

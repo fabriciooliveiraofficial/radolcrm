@@ -469,7 +469,7 @@ final class FinanceService
         ];
     }
 
-    public function financialAgenda(string $from, string $to, ?int $businessUnitId = null, float $usdRate = 5.5): array
+    public function financialAgenda(string $from, string $to, ?int $businessUnitId = null, float $usdRate = 5.5, string $search = ''): array
     {
         $events = [];
         $buWhereSub = $businessUnitId ? ' AND c.business_unit_id = ' . $businessUnitId : '';
@@ -624,6 +624,35 @@ final class FinanceService
                 'bu_color' => $inv['card_color'] ?? '#8b5cf6',
                 'url' => '?page=cards&invoice=' . $inv['id'],
             ];
+        }
+
+        if ($search !== '') {
+            $searchLower = mb_strtolower(trim($search));
+            $searchTerms = array_filter(explode(' ', $searchLower));
+
+            if (!empty($searchTerms)) {
+                $events = array_values(array_filter($events, static function (array $ev) use ($searchTerms): bool {
+                    $searchableText = [
+                        $ev['title'] ?? '',
+                        $ev['subtitle'] ?? '',
+                        $ev['date'] ?? '',
+                        !empty($ev['date']) ? date('d/m/Y', strtotime($ev['date'])) : '',
+                        (string) ($ev['amount'] ?? ''),
+                        (string) ($ev['amount_brl'] ?? ''),
+                        isset($ev['amount_brl']) ? number_format((float) $ev['amount_brl'], 2, ',', '.') : '',
+                        $ev['bu_name'] ?? '',
+                    ];
+
+                    $haystack = mb_strtolower(implode(' ', array_filter($searchableText)));
+
+                    foreach ($searchTerms as $term) {
+                        if (!str_contains($haystack, $term)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }));
+            }
         }
 
         // Sort chronological ASC
