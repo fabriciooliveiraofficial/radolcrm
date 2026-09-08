@@ -58,7 +58,7 @@ if (($_GET['page'] ?? '') === 'categories') {
     redirect('index.php?page=financeiro');
 }
 
-$allowedPages = ['dashboard','businesses','clients','products','subscriptions','service-badges','reminders','agenda','payments','expenses','recurring','cards','cash','reports','settings','financeiro'];
+$allowedPages = ['dashboard','businesses','clients','products','subscriptions','service-badges','reminders','agenda','payments','expenses','recurring','cards','cash','reports','settings','financeiro','saude-financeira'];
 $page = (string) ($_GET['page'] ?? 'financeiro');
 if (!in_array($page, $allowedPages, true)) {
     http_response_code(404);
@@ -89,6 +89,7 @@ if ($buFilter) {
 
 $pageTitles = [
     'financeiro' => ['Gestão Financeira Diária', 'Controle pessoal e familiar inteligente: entradas, saídas, cartões e compromissos fixos.'],
+    'saude-financeira' => ['Saúde Financeira', 'Entradas contra saídas, mês a mês: entenda se o mês foi bom ou ruim e o que esperar do próximo.'],
     'dashboard' => ['Visão geral', 'Acompanhe os números que movem seu negócio.'],
     'businesses' => ['Unidades de negócio', 'Gerencie seus negócios e finanças pessoais de forma separada.'],
     'categories' => ['Categorias de receitas e gastos', 'Organize e defina limitadores de gastos por categoria.'],

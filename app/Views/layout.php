@@ -23,6 +23,10 @@
                 <span class="nav-icon">⚡</span>
                 <span class="nav-label" style="font-weight: 600; color: #10b981;">Gestão Financeira Diária</span>
             </a>
+            <a class="nav-item <?= $page === 'saude-financeira' ? 'active' : '' ?>" href="?page=saude-financeira">
+                <span class="nav-icon">📈</span>
+                <span class="nav-label">Saúde Financeira</span>
+            </a>
             <a class="nav-item <?= $page === 'reports' && !$buFilter ? 'active' : '' ?>" href="?page=reports">
                 <span class="nav-icon">⌁</span>
                 <span class="nav-label">Relatórios</span>
@@ -46,7 +50,7 @@
         <?php foreach ($sidebarBusinesses as $bu): 
             $isGearzone = (stripos($bu['name'], 'gearzone') !== false) || empty($bu['is_personal']);
             $isOpen = ($selectedBusiness && (int)$selectedBusiness['id'] === (int)$bu['id'])
-                || ($isGearzone && (in_array($page, ['dashboard', 'agenda', 'service-badges'], true) || (!$buFilter && !in_array($page, ['financeiro', 'reports', 'reminders', 'businesses', 'settings'], true))));
+                || ($isGearzone && (in_array($page, ['dashboard', 'agenda', 'service-badges'], true) || (!$buFilter && !in_array($page, ['financeiro', 'saude-financeira', 'reports', 'reminders', 'businesses', 'settings'], true))));
         ?>
         <details class="bu-accordion <?= $isOpen ? 'is-active' : '' ?>" <?= $isOpen ? 'open' : '' ?> style="--bu-color: <?= h($bu['color']) ?>;">
             <summary class="bu-accordion-trigger">

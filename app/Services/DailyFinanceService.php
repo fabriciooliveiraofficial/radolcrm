@@ -544,6 +544,131 @@ final class DailyFinanceService
         );
     }
 
+    public function monthlySeries(int $months = 12): array
+    {
+        $start = (new DateTimeImmutable('first day of this month'))->modify('-' . ($months - 1) . ' months');
+
+        $rows = $this->db->fetchAll(
+            "SELECT DATE_FORMAT(COALESCE(inv.payment_date, inv.due_date, t.transaction_date), '%Y-%m') month_key,
+                    SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END) income,
+                    SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END) expense
+             FROM daily_transactions t
+             LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
+             WHERE t.status = 'realized' AND COALESCE(inv.payment_date, inv.due_date, t.transaction_date) >= ?
+             GROUP BY month_key ORDER BY month_key",
+            [$start->format('Y-m-d')]
+        );
+
+        $indexed = [];
+        foreach ($rows as $row) {
+            $indexed[$row['month_key']] = $row;
+        }
+
+        $months_pt = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        $series = [];
+        for ($i = 0; $i < $months; $i++) {
+            $date = $start->modify('+' . $i . ' months');
+            $key = $date->format('Y-m');
+            $income = (float) ($indexed[$key]['income'] ?? 0);
+            $expense = (float) ($indexed[$key]['expense'] ?? 0);
+            $series[] = [
+                'year_month' => $key,
+                'label' => $months_pt[(int) $date->format('n') - 1],
+                'revenue' => $income,
+                'cost' => $expense,
+                'net' => $income - $expense,
+            ];
+        }
+
+        return $series;
+    }
+
+    public function financialHealth(string $from, string $to): array
+    {
+        $totals = $this->db->fetch(
+            "SELECT
+                COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0) income,
+                COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0) expense
+             FROM daily_transactions t
+             LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
+             WHERE t.status = 'realized' AND COALESCE(inv.payment_date, inv.due_date, t.transaction_date) BETWEEN ? AND ?",
+            [$from, $to]
+        );
+
+        $income = (float) ($totals['income'] ?? 0);
+        $expense = (float) ($totals['expense'] ?? 0);
+        $net = $income - $expense;
+        $savingsRate = $income > 0 ? ($net / $income) * 100 : ($net < 0 ? -100.0 : 0.0);
+        $score = (int) round(max(0, min(100, 50 + $savingsRate)));
+
+        if ($income <= 0 && $expense <= 0) {
+            $status = 'empty';
+            $label = 'Sem lançamentos';
+        } elseif ($savingsRate >= 20) {
+            $status = 'good';
+            $label = 'Saudável';
+        } elseif ($savingsRate >= 0) {
+            $status = 'warning';
+            $label = 'Atenção';
+        } else {
+            $status = 'danger';
+            $label = 'Crítico';
+        }
+
+        return [
+            'income' => $income,
+            'expense' => $expense,
+            'net' => $net,
+            'savings_rate' => $savingsRate,
+            'score' => $score,
+            'status' => $status,
+            'label' => $label,
+        ];
+    }
+
+    public function categoryBreakdown(string $from, string $to, string $type = 'expense', int $limit = 6): array
+    {
+        $limit = max(1, min(20, $limit));
+        $type = $type === 'income' ? 'income' : 'expense';
+
+        $rows = $this->db->fetchAll(
+            "SELECT COALESCE(pcat.id, cat.id, 0) group_id,
+                    COALESCE(pcat.name, cat.name, 'Sem categoria') name,
+                    COALESCE(pcat.icon, cat.icon, '📁') icon,
+                    COALESCE(pcat.color, cat.color, '#64748b') color,
+                    SUM(t.amount) total
+             FROM daily_transactions t
+             LEFT JOIN daily_categories cat ON cat.id = t.category_id
+             LEFT JOIN daily_categories pcat ON pcat.id = cat.parent_id
+             LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
+             WHERE t.type = ? AND t.status = 'realized'
+               AND COALESCE(inv.payment_date, inv.due_date, t.transaction_date) BETWEEN ? AND ?
+             GROUP BY group_id, name, icon, color
+             ORDER BY total DESC
+             LIMIT {$limit}",
+            [$type, $from, $to]
+        );
+
+        $total = 0.0;
+        foreach ($rows as $row) {
+            $total += (float) $row['total'];
+        }
+
+        $items = [];
+        foreach ($rows as $row) {
+            $amount = (float) $row['total'];
+            $items[] = [
+                'name' => $row['name'],
+                'icon' => $row['icon'],
+                'color' => $row['color'],
+                'total' => $amount,
+                'pct' => $total > 0 ? round(($amount / $total) * 100, 1) : 0.0,
+            ];
+        }
+
+        return ['items' => $items, 'total' => $total];
+    }
+
     public function commitmentsList(bool $onlyActive = true): array
     {
         $where = $onlyActive ? ' WHERE r.active = 1' : '';
