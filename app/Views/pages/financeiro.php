@@ -38,7 +38,7 @@ if (in_array($typeFilter, ['expense', 'income'], true)) {
     $whereTx .= " AND t.type = ?";
     $paramsTx[] = $typeFilter;
 }
-if (in_array($methodFilter, ['pix', 'credit_card', 'debit_card', 'cash', 'transfer'], true)) {
+if (in_array($methodFilter, ['pix', 'credit_card', 'debit_card', 'cash', 'transfer', 'boleto'], true)) {
     $whereTx .= " AND t.payment_method = ?";
     $paramsTx[] = $methodFilter;
 }
@@ -65,14 +65,24 @@ foreach ($transactions as $tx) {
     if (!isset($transactionsByDate[$d])) {
         $transactionsByDate[$d] = [
             'income' => 0.0,
+            'income_pending' => 0.0,
             'expense' => 0.0,
+            'expense_pending' => 0.0,
             'items' => [],
         ];
     }
-    if ($tx['type'] === 'income' && $tx['status'] === 'realized') {
-        $transactionsByDate[$d]['income'] += (float) $tx['amount'];
-    } elseif ($tx['type'] === 'expense' && $tx['status'] === 'realized') {
-        $transactionsByDate[$d]['expense'] += (float) $tx['amount'];
+    if ($tx['type'] === 'income') {
+        if ($tx['status'] === 'realized') {
+            $transactionsByDate[$d]['income'] += (float) $tx['amount'];
+        } else {
+            $transactionsByDate[$d]['income_pending'] += (float) $tx['amount'];
+        }
+    } elseif ($tx['type'] === 'expense') {
+        if ($tx['status'] === 'realized') {
+            $transactionsByDate[$d]['expense'] += (float) $tx['amount'];
+        } else {
+            $transactionsByDate[$d]['expense_pending'] += (float) $tx['amount'];
+        }
     }
     $transactionsByDate[$d]['items'][] = $tx;
 }
@@ -102,6 +112,9 @@ $recentPayees = $dailyService->recentPayees('', 30);
 
 <div class="daily-finance-wrapper">
     <!-- BARRA MACRO DE LIQUIDEZ E COMPILAÇÃO (MÉTRICAS RÁPIDAS) -->
+    <?php 
+        $projectedBalance = ($summary['total_income'] + $summary['pending_income']) - ($summary['total_expense'] + $summary['pending_expense']);
+    ?>
     <section class="mini-stats daily-kpis">
         <div class="kpi-card <?= $summary['net_balance'] >= 0 ? 'good' : 'danger' ?>">
             <span class="dot <?= $summary['net_balance'] >= 0 ? 'green' : 'red' ?>"></span>
@@ -110,6 +123,9 @@ $recentPayees = $dailyService->recentPayees('', 30);
                 <b class="kpi-val <?= $summary['net_balance'] >= 0 ? 'positive' : 'negative' ?>">
                     R$ <?= number_format($summary['net_balance'], 2, ',', '.') ?>
                 </b>
+                <small style="margin-top: 3px; font-size: 11px; color: var(--muted); display: block;">
+                    Projetado: <strong style="color: <?= $projectedBalance >= 0 ? '#10b981' : '#ef4444' ?>;">R$ <?= number_format($projectedBalance, 2, ',', '.') ?></strong>
+                </small>
             </div>
         </div>
 
@@ -118,6 +134,15 @@ $recentPayees = $dailyService->recentPayees('', 30);
             <div class="kpi-info">
                 <small>Entradas Realizadas</small>
                 <b class="kpi-val positive">R$ <?= number_format($summary['total_income'], 2, ',', '.') ?></b>
+                <?php if (($summary['pending_income'] ?? 0) > 0): ?>
+                    <small style="margin-top: 3px; font-size: 11px; color: #10b981; font-weight: 600; display: block;" title="Entradas com status pendente no período">
+                        + R$ <?= number_format($summary['pending_income'], 2, ',', '.') ?> a receber
+                    </small>
+                <?php else: ?>
+                    <small style="margin-top: 3px; font-size: 11px; color: var(--muted); display: block;">
+                        Nenhuma entrada pendente
+                    </small>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -126,6 +151,15 @@ $recentPayees = $dailyService->recentPayees('', 30);
             <div class="kpi-info">
                 <small>Saídas Realizadas</small>
                 <b class="kpi-val negative">R$ <?= number_format($summary['total_expense'], 2, ',', '.') ?></b>
+                <?php if (($summary['pending_expense'] ?? 0) > 0): ?>
+                    <small style="margin-top: 3px; font-size: 11px; color: #ef4444; font-weight: 600; display: block;" title="Saídas com status pendente no período">
+                        R$ <?= number_format($summary['pending_expense'], 2, ',', '.') ?> a pagar
+                    </small>
+                <?php else: ?>
+                    <small style="margin-top: 3px; font-size: 11px; color: var(--muted); display: block;">
+                        Nenhuma saída pendente
+                    </small>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -200,6 +234,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
                 <option value="debit_card" <?= $methodFilter === 'debit_card' ? 'selected' : '' ?>>Cartão de Débito</option>
                 <option value="cash" <?= $methodFilter === 'cash' ? 'selected' : '' ?>>Dinheiro em Espécie</option>
                 <option value="transfer" <?= $methodFilter === 'transfer' ? 'selected' : '' ?>>Transferência / TED</option>
+                <option value="boleto" <?= $methodFilter === 'boleto' ? 'selected' : '' ?>>Boleto / Carnê</option>
             </select>
             <label>De <input type="date" name="from" value="<?= h($from) ?>"></label>
             <label>Até <input type="date" name="to" value="<?= h($to) ?>"></label>
@@ -207,7 +242,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
         </form>
     </section>
 
-    <div class="daily-timeline-container" style="margin-top: 16px;">
+    <div class="daily-timeline-container" data-live-results style="margin-top: 16px;">
         <?php if (empty($transactionsByDate)): ?>
             <div class="card" style="padding: 40px; text-align: center; color: var(--muted);">
                 <span style="font-size: 40px; display: block; margin-bottom: 12px;">☕</span>
@@ -232,8 +267,14 @@ $recentPayees = $dailyService->recentPayees('', 30);
                             <?php if ($dayGroup['income'] > 0): ?>
                                 <span class="income-tag">+ R$ <?= number_format($dayGroup['income'], 2, ',', '.') ?></span>
                             <?php endif; ?>
+                            <?php if (!empty($dayGroup['income_pending']) && $dayGroup['income_pending'] > 0): ?>
+                                <span class="income-tag" style="opacity: 0.85; border-style: dashed;" title="Entradas pendentes/a receber">+ R$ <?= number_format($dayGroup['income_pending'], 2, ',', '.') ?> (prev.)</span>
+                            <?php endif; ?>
                             <?php if ($dayGroup['expense'] > 0): ?>
                                 <span class="expense-tag">- R$ <?= number_format($dayGroup['expense'], 2, ',', '.') ?></span>
+                            <?php endif; ?>
+                            <?php if (!empty($dayGroup['expense_pending']) && $dayGroup['expense_pending'] > 0): ?>
+                                <span class="expense-tag" style="opacity: 0.85; border-style: dashed;" title="Saídas pendentes/a pagar">- R$ <?= number_format($dayGroup['expense_pending'], 2, ',', '.') ?> (prev.)</span>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -247,6 +288,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                 'debit_card' => '💳 Débito',
                                 'cash' => '💵 Dinheiro',
                                 'transfer' => '🏦 Transferência',
+                                'boleto' => '📄 Boleto / Carnê',
                                 default => $tx['payment_method']
                             };
                         ?>
@@ -272,7 +314,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                         </span>
                                         <span class="method-tag"><?= $methodBadge ?></span>
                                         <?php if ($tx['status'] === 'pending'): ?>
-                                            <span class="badge warning">Agendado</span>
+                                            <span class="badge warning"><?= $isExp ? 'A Pagar' : 'A Receber' ?></span>
                                         <?php endif; ?>
                                         <?php if (!empty($tx['notes'])): ?>
                                             <small class="tx-notes">💬 <?= h($tx['notes']) ?></small>
@@ -797,7 +839,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="save_daily_transaction">
             <input type="hidden" name="id" id="txIdInput" value="">
-            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+            <input type="hidden" name="_return" id="quickTxReturnUrl" value="?page=financeiro&tab=extract">
 
             <!-- TIPO: SAÍDA OU ENTRADA -->
             <div class="full-field type-toggle-buttons">
@@ -946,11 +988,11 @@ $recentPayees = $dailyService->recentPayees('', 30);
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <label class="status-radio-card active-realized" id="statusCardRealized">
                         <input type="radio" name="status" value="realized" checked onchange="handleStatusChange('realized')">
-                        <span>✓ Já Pago / Realizado</span>
+                        <span id="statusLabelRealized">✓ Já Pago / Realizado</span>
                     </label>
                     <label class="status-radio-card" id="statusCardPending">
                         <input type="radio" name="status" value="pending" onchange="handleStatusChange('pending')">
-                        <span>⏳ Pendente / A Pagar</span>
+                        <span id="statusLabelPending">⏳ Pendente / A Pagar</span>
                     </label>
                 </div>
             </div>
@@ -1394,12 +1436,19 @@ function handleTypeChange(type) {
     renderCategoryOptions(type);
     const expLabel = document.getElementById('radioLabelExpense');
     const incLabel = document.getElementById('radioLabelIncome');
+    const statusRealizedText = document.getElementById('statusLabelRealized');
+    const statusPendingText = document.getElementById('statusLabelPending');
+
     if (type === 'expense') {
         if (expLabel) expLabel.className = 'type-radio-btn active-expense';
         if (incLabel) incLabel.className = 'type-radio-btn';
+        if (statusRealizedText) statusRealizedText.textContent = '✓ Já Pago / Realizado';
+        if (statusPendingText) statusPendingText.textContent = '⏳ Pendente / A Pagar';
     } else {
         if (expLabel) expLabel.className = 'type-radio-btn';
         if (incLabel) incLabel.className = 'type-radio-btn active-income';
+        if (statusRealizedText) statusRealizedText.textContent = '✓ Já Recebido / Realizado';
+        if (statusPendingText) statusPendingText.textContent = '⏳ Pendente / A Receber';
     }
 }
 
@@ -1661,9 +1710,13 @@ function openQuickTxModal() {
     document.getElementById('txIdInput').value = '';
     document.getElementById('quickTxModalTitle').textContent = '⚡ Novo Lançamento Diário';
     document.getElementById('txDateInput').value = new Date().toISOString().split('T')[0];
+    const typeExpRadio = document.querySelector('input[name="type"][value="expense"]');
+    if (typeExpRadio) typeExpRadio.checked = true;
     handleTypeChange('expense');
     handlePaymentMethodChange('pix');
     handleStatusChange('realized');
+    const statusRealRadio = document.querySelector('input[name="status"][value="realized"]');
+    if (statusRealRadio) statusRealRadio.checked = true;
     toggleInstallmentsSection(false);
     document.getElementById('enableInstallmentsCheckbox').checked = false;
     document.getElementById('installmentOptionBlock').style.display = 'block';
@@ -1684,6 +1737,8 @@ function openEditTxModal(tx) {
     document.getElementById('txDescriptionInput').value = tx.description || '';
     document.getElementById('txNotesInput').value = tx.notes || '';
 
+    const typeRadio = document.querySelector(`input[name="type"][value="${tx.type}"]`);
+    if (typeRadio) typeRadio.checked = true;
     handleTypeChange(tx.type);
     renderCategoryOptions(tx.type, tx.category_id);
 
