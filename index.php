@@ -59,7 +59,7 @@ if (($_GET['page'] ?? '') === 'categories') {
 }
 
 $allowedPages = ['dashboard','businesses','clients','products','subscriptions','service-badges','reminders','agenda','payments','expenses','recurring','cards','cash','reports','settings','financeiro'];
-$page = (string) ($_GET['page'] ?? 'dashboard');
+$page = (string) ($_GET['page'] ?? 'financeiro');
 if (!in_array($page, $allowedPages, true)) {
     http_response_code(404);
     $page = '404';
