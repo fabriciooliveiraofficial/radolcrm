@@ -637,6 +637,15 @@ final class FinanceService
             if ($ev['direction'] === 'in') {
                 $expectedIn += $ev['amount_brl'];
             } else {
+                $expectedOut += $ev['amount_brl'];
+            }
+            $d = $ev['date'];
+            if (!isset($byDate[$d])) {
+                $byDate[$d] = [];
+            }
+            $byDate[$d][] = $ev;
+        }
+
         return [
             'events' => $events,
             'by_date' => $byDate,
