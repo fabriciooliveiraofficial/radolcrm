@@ -637,15 +637,6 @@ final class FinanceService
             if ($ev['direction'] === 'in') {
                 $expectedIn += $ev['amount_brl'];
             } else {
-                $expectedOut += $ev['amount_brl'];
-            }
-            $d = $ev['date'];
-            if (!isset($byDate[$d])) {
-                $byDate[$d] = [];
-            }
-            $byDate[$d][] = $ev;
-        }
-
         return [
             'events' => $events,
             'by_date' => $byDate,
@@ -653,6 +644,265 @@ final class FinanceService
             'expected_out' => $expectedOut,
             'expected_net' => $expectedIn - $expectedOut,
             'total_count' => count($events),
+        ];
+    }
+
+    public function detailedStatement(
+        string $from,
+        string $to,
+        ?int $businessUnitId = null,
+        string $typeFilter = '',
+        string $search = '',
+        ?int $categoryId = null
+    ): array {
+        $openingBalance = $this->balanceBefore($from, $businessUnitId);
+
+        $buWherePay = $businessUnitId ? ' AND p.business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereExp = $businessUnitId ? ' AND e.business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereCash = $businessUnitId ? ' AND c.business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereDaily = $businessUnitId ? ' AND (cat.business_unit_id = ' . (int) $businessUnitId . ' OR pcat.business_unit_id = ' . (int) $businessUnitId . ')' : '';
+
+        $catWherePay = $categoryId ? ' AND p.category_id = ' . (int) $categoryId : '';
+        $catWhereExp = $categoryId ? ' AND e.category_id = ' . (int) $categoryId : '';
+        $catWhereCash = $categoryId ? ' AND c.category_id = ' . (int) $categoryId : '';
+        $catWhereDaily = $categoryId ? ' AND t.category_id = ' . (int) $categoryId : '';
+
+        $searchFilter = trim($search);
+
+        $allTransactions = [];
+
+        // A. Payments (Recebimentos / Faturamento)
+        if ($typeFilter === '' || $typeFilter === 'in' || $typeFilter === 'income') {
+            $payWhereSearch = '';
+            $payParams = [$from, $to];
+            if ($searchFilter !== '') {
+                $payWhereSearch = ' AND (cl.name LIKE ? OR p.description LIKE ? OR p.external_reference LIKE ?)';
+                $payParams[] = '%' . $searchFilter . '%';
+                $payParams[] = '%' . $searchFilter . '%';
+                $payParams[] = '%' . $searchFilter . '%';
+            }
+            $payments = $this->db->fetchAll(
+                "SELECT p.id,
+                        (CASE WHEN p.currency='USD' THEN COALESCE(p.settlement_date, p.payment_date) ELSE p.payment_date END) effective_date,
+                        p.description, p.amount, p.net_brl, p.currency, p.status, p.payment_method,
+                        cl.name client_name,
+                        cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
+                        bu.name bu_name, bu.icon bu_icon, bu.color bu_color
+                 FROM payments p
+                 JOIN clients cl ON cl.id = p.client_id
+                 LEFT JOIN categories cat ON cat.id = p.category_id
+                 LEFT JOIN business_units bu ON bu.id = p.business_unit_id
+                 WHERE (CASE WHEN p.currency='USD' THEN COALESCE(p.settlement_date, p.payment_date) ELSE p.payment_date END) BETWEEN ? AND ?
+                   {$buWherePay} {$catWherePay} {$payWhereSearch}
+                 ORDER BY effective_date ASC, p.id ASC",
+                $payParams
+            );
+            foreach ($payments as $p) {
+                $allTransactions[] = [
+                    'uid' => 'pay-' . $p['id'],
+                    'source_type' => 'payment',
+                    'source_module' => 'Recebimento (CRM)',
+                    'date' => $p['effective_date'] ?: date('Y-m-d'),
+                    'entity' => $p['client_name'],
+                    'description' => $p['description'] ?: 'Pagamento de cliente',
+                    'category_name' => $p['cat_name'] ?: 'Receitas com Assinaturas',
+                    'category_icon' => $p['cat_icon'] ?: '💎',
+                    'category_color' => $p['cat_color'] ?: '#10b981',
+                    'bu_name' => $p['bu_name'] ?: 'Geral',
+                    'bu_icon' => $p['bu_icon'] ?: '💼',
+                    'bu_color' => $p['bu_color'] ?: '#2b826b',
+                    'payment_method' => strtoupper($p['payment_method'] ?: 'PIX') . ($p['currency'] === 'USD' ? ' ($)' : ''),
+                    'direction' => 'in',
+                    'amount_brl' => (float) $p['net_brl'],
+                    'status' => $p['status'],
+                    'raw_id' => (int) $p['id'],
+                ];
+            }
+        }
+
+        // B. Expenses (Gastos e Investimentos)
+        if ($typeFilter === '' || $typeFilter === 'out' || $typeFilter === 'expense' || $typeFilter === 'investment') {
+            $expTypeWhere = ($typeFilter === 'expense' || $typeFilter === 'investment') ? " AND e.type = '{$typeFilter}'" : "";
+            $expWhereSearch = '';
+            $expParams = [$from, $to];
+            if ($searchFilter !== '') {
+                $expWhereSearch = ' AND (e.description LIKE ? OR e.supplier LIKE ? OR e.notes LIKE ?)';
+                $expParams[] = '%' . $searchFilter . '%';
+                $expParams[] = '%' . $searchFilter . '%';
+                $expParams[] = '%' . $searchFilter . '%';
+            }
+            $expenses = $this->db->fetchAll(
+                "SELECT e.id, e.payment_date effective_date, e.type, e.description, e.supplier, e.amount_brl, e.currency, e.status,
+                        cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
+                        bu.name bu_name, bu.icon bu_icon, bu.color bu_color
+                 FROM expenses e
+                 LEFT JOIN categories cat ON cat.id = e.category_id
+                 LEFT JOIN business_units bu ON bu.id = e.business_unit_id
+                 WHERE e.payment_date BETWEEN ? AND ? {$expTypeWhere} {$buWhereExp} {$catWhereExp} {$expWhereSearch}
+                 ORDER BY effective_date ASC, e.id ASC",
+                $expParams
+            );
+            foreach ($expenses as $e) {
+                $allTransactions[] = [
+                    'uid' => 'exp-' . $e['id'],
+                    'source_type' => 'expense',
+                    'source_module' => $e['type'] === 'investment' ? 'Investimento' : 'Gasto Operacional',
+                    'date' => $e['effective_date'],
+                    'entity' => $e['supplier'] ?: ($e['cat_name'] ?: 'Fornecedor'),
+                    'description' => $e['description'],
+                    'category_name' => $e['cat_name'] ?: 'Despesas Gerais',
+                    'category_icon' => $e['cat_icon'] ?: '💸',
+                    'category_color' => $e['cat_color'] ?: '#ef4444',
+                    'bu_name' => $e['bu_name'] ?: 'Geral',
+                    'bu_icon' => $e['bu_icon'] ?: '💼',
+                    'bu_color' => $e['bu_color'] ?: '#2b826b',
+                    'payment_method' => $e['currency'] === 'USD' ? 'USD ($)' : 'BRL (R$)',
+                    'direction' => 'out',
+                    'amount_brl' => (float) $e['amount_brl'],
+                    'status' => $e['status'],
+                    'raw_id' => (int) $e['id'],
+                ];
+            }
+        }
+
+        // C. Cash Entries (Fluxo de Caixa Avulso)
+        $cashWhereSearch = '';
+        $cashParams = [$from, $to];
+        if ($searchFilter !== '') {
+            $cashWhereSearch = ' AND (c.description LIKE ? OR c.category LIKE ? OR c.notes LIKE ?)';
+            $cashParams[] = '%' . $searchFilter . '%';
+            $cashParams[] = '%' . $searchFilter . '%';
+            $cashParams[] = '%' . $searchFilter . '%';
+        }
+        $dirCashWhere = '';
+        if ($typeFilter === 'in' || $typeFilter === 'income') {
+            $dirCashWhere = " AND c.direction = 'in'";
+        } elseif ($typeFilter === 'out' || $typeFilter === 'expense' || $typeFilter === 'investment') {
+            $dirCashWhere = " AND c.direction = 'out'";
+        }
+        $cashEntries = $this->db->fetchAll(
+            "SELECT c.id, c.entry_date effective_date, c.direction, c.description, c.amount_brl, c.currency,
+                    cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
+                    bu.name bu_name, bu.icon bu_icon, bu.color bu_color
+             FROM cash_entries c
+             LEFT JOIN categories cat ON cat.id = c.category_id
+             LEFT JOIN business_units bu ON bu.id = c.business_unit_id
+             WHERE c.entry_date BETWEEN ? AND ? {$dirCashWhere} {$buWhereCash} {$catWhereCash} {$cashWhereSearch}
+             ORDER BY effective_date ASC, c.id ASC",
+            $cashParams
+        );
+        foreach ($cashEntries as $c) {
+            $allTransactions[] = [
+                'uid' => 'cash-' . $c['id'],
+                'source_type' => 'cash',
+                'source_module' => 'Caixa Avulso',
+                'date' => $c['effective_date'],
+                'entity' => $c['cat_name'] ?: 'Movimentação Manual',
+                'description' => $c['description'],
+                'category_name' => $c['cat_name'] ?: ($c['direction'] === 'in' ? 'Entradas Avulsas' : 'Saídas Avulsas'),
+                'category_icon' => $c['cat_icon'] ?: ($c['direction'] === 'in' ? '💵' : '🧾'),
+                'category_color' => $c['cat_color'] ?: ($c['direction'] === 'in' ? '#10b981' : '#f59e0b'),
+                'bu_name' => $c['bu_name'] ?: 'Geral',
+                'bu_icon' => $c['bu_icon'] ?: '💼',
+                'bu_color' => $c['bu_color'] ?: '#2b826b',
+                'payment_method' => 'Caixa / Transferência',
+                'direction' => $c['direction'],
+                'amount_brl' => (float) $c['amount_brl'],
+                'status' => 'paid',
+                'raw_id' => (int) $c['id'],
+            ];
+        }
+
+        // D. Daily Transactions (Gestão Diária)
+        $dailyWhereSearch = '';
+        $dailyParams = [$from, $to];
+        if ($searchFilter !== '') {
+            $dailyWhereSearch = ' AND (t.payee_name LIKE ? OR t.description LIKE ? OR t.notes LIKE ?)';
+            $dailyParams[] = '%' . $searchFilter . '%';
+            $dailyParams[] = '%' . $searchFilter . '%';
+            $dailyParams[] = '%' . $searchFilter . '%';
+        }
+        $dirDailyWhere = '';
+        if ($typeFilter === 'in' || $typeFilter === 'income') {
+            $dirDailyWhere = " AND t.type = 'income'";
+        } elseif ($typeFilter === 'out' || $typeFilter === 'expense' || $typeFilter === 'investment') {
+            $dirDailyWhere = " AND t.type = 'expense'";
+        }
+        $dailyTxs = $this->db->fetchAll(
+            "SELECT t.id, COALESCE(inv.payment_date, inv.due_date, t.transaction_date) effective_date,
+                    t.type, t.payee_name, t.description, t.amount, t.payment_method, t.status,
+                    cat.name cat_name, cat.icon cat_icon, cat.color cat_color, pcat.name parent_cat_name
+             FROM daily_transactions t
+             LEFT JOIN daily_categories cat ON cat.id = t.category_id
+             LEFT JOIN daily_categories pcat ON pcat.id = cat.parent_id
+             LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
+             WHERE COALESCE(inv.payment_date, inv.due_date, t.transaction_date) BETWEEN ? AND ? {$dirDailyWhere} {$buWhereDaily} {$catWhereDaily} {$dailyWhereSearch}
+             ORDER BY effective_date ASC, t.id ASC",
+            $dailyParams
+        );
+        foreach ($dailyTxs as $dt) {
+            $isExp = $dt['type'] === 'expense';
+            $allTransactions[] = [
+                'uid' => 'daily-' . $dt['id'],
+                'source_type' => 'daily',
+                'source_module' => 'Gestão Diária',
+                'date' => $dt['effective_date'],
+                'entity' => $dt['payee_name'],
+                'description' => $dt['description'],
+                'category_name' => ($dt['parent_cat_name'] ? $dt['parent_cat_name'] . ' › ' : '') . ($dt['cat_name'] ?: 'Geral'),
+                'category_icon' => $dt['cat_icon'] ?: ($isExp ? '💸' : '💰'),
+                'category_color' => $dt['cat_color'] ?: ($isExp ? '#ef4444' : '#10b981'),
+                'bu_name' => 'Pessoal / Gestão',
+                'bu_icon' => '👤',
+                'bu_color' => '#6366f1',
+                'payment_method' => strtoupper($dt['payment_method']),
+                'direction' => $isExp ? 'out' : 'in',
+                'amount_brl' => (float) $dt['amount'],
+                'status' => $dt['status'] === 'realized' ? 'paid' : 'pending',
+                'raw_id' => (int) $dt['id'],
+            ];
+        }
+
+        // Sort all transactions chronologically ASC for running balance calculation
+        usort($allTransactions, static function ($a, $b) {
+            $cmp = strcmp($a['date'], $b['date']);
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            return strcmp($a['uid'], $b['uid']);
+        });
+
+        // Compute running balance & Totals
+        $currentBalance = $openingBalance;
+        $totalIn = 0.0;
+        $totalOut = 0.0;
+
+        foreach ($allTransactions as &$tx) {
+            if ($tx['direction'] === 'in') {
+                $totalIn += $tx['amount_brl'];
+                $currentBalance += $tx['amount_brl'];
+            } else {
+                $totalOut += $tx['amount_brl'];
+                $currentBalance -= $tx['amount_brl'];
+            }
+            $tx['running_balance'] = $currentBalance;
+        }
+        unset($tx);
+
+        $netPeriod = $totalIn - $totalOut;
+        $closingBalance = $currentBalance;
+
+        // Presentation in General Ledger style: chronologically DESC (most recent first)
+        $presentationItems = array_reverse($allTransactions);
+
+        return [
+            'opening_balance' => $openingBalance,
+            'total_in' => $totalIn,
+            'total_out' => $totalOut,
+            'net_period' => $netPeriod,
+            'closing_balance' => $closingBalance,
+            'count' => count($presentationItems),
+            'items' => $presentationItems,
         ];
     }
 }
