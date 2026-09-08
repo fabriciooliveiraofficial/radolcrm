@@ -41,7 +41,16 @@ if ($cardStatementId > 0) {
         }
     }
     if ($cardStatement) {
-        $cardStatementTxs = $dailyService->transactionsForCard($cardStatementId);
+        // Filtros avançados do histórico do cartão (busca livre + período), com nomes de
+        // parâmetro próprios (cq/cfrom/cto) para não colidir com os filtros globais da página (q/from/to).
+        $cardHistorySearch = trim((string) ($_GET['cq'] ?? ''));
+        $cardHistoryFrom = (string) ($_GET['cfrom'] ?? '');
+        $cardHistoryTo = (string) ($_GET['cto'] ?? '');
+        $cardStatementTxs = $dailyService->transactionsForCard($cardStatementId, $cardHistorySearch, $cardHistoryFrom, $cardHistoryTo);
+        $cardHistoryNet = 0.0;
+        foreach ($cardStatementTxs as $htx) {
+            $cardHistoryNet += ($htx['type'] === 'income' ? 1 : -1) * (float) $htx['amount'];
+        }
 
         // Navegador de faturas (fatura atual / anterior / próxima), no espírito de bancos digitais.
         $cardInvoices = $dailyService->invoicesForCard($cardStatementId);
@@ -742,7 +751,30 @@ $recentPayees = $dailyService->recentPayees('', 30);
         </section>
         <?php endif; ?>
 
-        <section class="card" style="margin-top: 16px; padding: 0; overflow: hidden;">
+        <section class="toolbar list-toolbar" style="margin-top: 16px;">
+            <form class="search-filters" method="get" data-live-filter id="card-history-filters">
+                <input type="hidden" name="page" value="financeiro">
+                <input type="hidden" name="tab" value="cards">
+                <input type="hidden" name="card" value="<?= $cardStatementId ?>">
+                <?php if ($buFilter !== null): ?><input type="hidden" name="bu" value="<?= (int)$buFilter ?>"><?php endif; ?>
+                <?php if ($selectedInvoice): ?><input type="hidden" name="invoice" value="<?= (int)$selectedInvoice['id'] ?>"><?php endif; ?>
+                <label class="search-box">
+                    ⌕
+                    <input name="cq" autocomplete="off" placeholder="Descrição, categoria, valor, data, status…" value="<?= h($cardHistorySearch) ?>">
+                </label>
+                <label>De <input type="date" name="cfrom" value="<?= h($cardHistoryFrom) ?>"></label>
+                <label>Até <input type="date" name="cto" value="<?= h($cardHistoryTo) ?>"></label>
+                <span class="live-filter-indicator" data-live-filter-indicator aria-live="polite">Busca automática</span>
+            </form>
+        </section>
+
+        <div data-live-results>
+        <section class="card card-history-totals" style="margin-top: 12px; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <span><b><?= count($cardStatementTxs) ?></b> lançamento(s) no filtro aplicado</span>
+            <span>Saldo do período filtrado: <b class="<?= $cardHistoryNet >= 0 ? 'positive' : 'negative' ?>">R$ <?= number_format($cardHistoryNet, 2, ',', '.') ?></b></span>
+        </section>
+
+        <section class="card" style="margin-top: 12px; padding: 0; overflow: hidden;">
             <header style="padding: 14px 18px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                 <b>Histórico completo do cartão (todas as faturas) · <?= count($cardStatementTxs) ?> lançamento(s)</b>
             </header>
@@ -814,6 +846,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
                 </table>
             </div>
         </section>
+        </div>
     </div>
     <?php elseif ($activeTab === 'cards'): ?>
     <div class="cards-view-container" style="margin-top: 16px;">
@@ -1037,8 +1070,13 @@ $recentPayees = $dailyService->recentPayees('', 30);
                             <b class="negative">R$ <?= number_format($spent, 2, ',', '.') ?></b>
                         </div>
                         <div style="text-align: right;">
-                            <small>Teto Definido</small>
-                            <b><?= $limit ? 'R$ ' . number_format($limit, 2, ',', '.') : '—' ?></b>
+                            <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px;">
+                                <small>Teto Definido</small>
+                                <button type="button" class="btn-edit-teto" title="Alterar teto de <?= h($macro['name']) ?>" onclick="openEditBudgetLimitModal(<?= (int)$macro['id'] ?>, '<?= h(addslashes($macro['name'])) ?>', '<?= $limit ? number_format($limit, 2, ',', '.') : '' ?>')">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                </button>
+                            </div>
+                            <b style="display: block;"><?= $limit ? 'R$ ' . number_format($limit, 2, ',', '.') : '—' ?></b>
                         </div>
                     </div>
 
@@ -1620,6 +1658,39 @@ $recentPayees = $dailyService->recentPayees('', 30);
             <footer class="form-actions full-field" style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px;">
                 <button type="button" class="button ghost" onclick="closeNewCategoryModal()">Cancelar</button>
                 <button type="submit" class="button primary">Salvar Categoria</button>
+            </footer>
+        </form>
+    </section>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: ALTERAR TETO ORÇAMENTÁRIO                                           -->
+<!-- ========================================================================= -->
+<div id="editBudgetLimitModal" class="modal">
+    <div class="modal-backdrop" onclick="closeEditBudgetLimitModal()"></div>
+    <section class="modal-panel" style="max-width: 440px;">
+        <header>
+            <div>
+                <p class="eyebrow">PLANEJAMENTO FINANCEIRO</p>
+                <h2 id="budgetModalCategoryName">🎯 Definir Teto Orçamentário</h2>
+            </div>
+            <button type="button" class="modal-close" onclick="closeEditBudgetLimitModal()">×</button>
+        </header>
+        <form method="post" class="form-grid" style="gap: 14px;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="update_daily_budget_limit">
+            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+            <input type="hidden" name="id" id="budgetId">
+
+            <div class="full-field">
+                <label>Limite Máximo Mensal (R$)</label>
+                <input type="text" name="monthly_budget_limit" id="budgetLimitInput" placeholder="Ex: 3.500,00" autocomplete="off">
+                <small class="muted" style="margin-top: 4px; display: block;">Deixe em branco para remover o teto orçamentário desta categoria.</small>
+            </div>
+
+            <footer class="form-actions full-field" style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="button ghost" onclick="closeEditBudgetLimitModal()">Cancelar</button>
+                <button type="submit" class="button primary">Salvar Teto</button>
             </footer>
         </form>
     </section>
@@ -2258,6 +2329,21 @@ function closeNewCategoryModal() {
     document.getElementById('newCategoryModal').classList.remove('open');
 }
 
+function openEditBudgetLimitModal(id, categoryName, currentLimit) {
+    document.getElementById('budgetId').value = id;
+    document.getElementById('budgetModalCategoryName').textContent = '🎯 ' + categoryName;
+    document.getElementById('budgetLimitInput').value = currentLimit || '';
+    document.getElementById('editBudgetLimitModal').classList.add('open');
+    setTimeout(() => {
+        const inp = document.getElementById('budgetLimitInput');
+        if (inp) inp.focus();
+    }, 100);
+}
+
+function closeEditBudgetLimitModal() {
+    document.getElementById('editBudgetLimitModal').classList.remove('open');
+}
+
 // Inicializar categorias padrão no carregamento
 document.addEventListener('DOMContentLoaded', () => {
     renderCategoryOptions('expense');
@@ -2672,6 +2758,22 @@ document.addEventListener('DOMContentLoaded', () => {
     padding: 16px;
     border: 1px solid var(--line);
     box-shadow: var(--shadow);
+}
+.btn-edit-teto {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+.btn-edit-teto:hover {
+    background: #f1f5f9;
+    color: #0284c7;
 }
 .bc-top {
     display: flex;

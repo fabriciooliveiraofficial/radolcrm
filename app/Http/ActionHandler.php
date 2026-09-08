@@ -92,6 +92,7 @@ final class ActionHandler
                 'delete_daily_commitment' => $this->deleteDailyCommitment(),
                 'save_daily_category' => $this->saveDailyCategory(),
                 'delete_daily_category' => $this->deleteDailyCategory(),
+                'update_daily_budget_limit' => $this->updateDailyBudgetLimit(),
                 default => throw new RuntimeException('Ação desconhecida.'),
             };
 
@@ -2328,6 +2329,32 @@ final class ActionHandler
         $this->db->query("DELETE FROM daily_categories WHERE id = ?", [$id]);
         Flash::add('success', 'Categoria excluída com sucesso.');
         return $this->returnUrl('?page=financeiro&tab=categories');
+    }
+
+    private function updateDailyBudgetLimit(): string
+    {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            throw new RuntimeException('Categoria inválida.');
+        }
+
+        $rawLimit = trim((string)($_POST['monthly_budget_limit'] ?? ''));
+        $monthlyBudgetLimit = null;
+        if ($rawLimit !== '') {
+            $cleaned = str_replace(['.', ','], ['', '.'], $rawLimit);
+            $monthlyBudgetLimit = (float)$cleaned;
+            if ($monthlyBudgetLimit <= 0) {
+                $monthlyBudgetLimit = null;
+            }
+        }
+
+        $this->db->query(
+            "UPDATE daily_categories SET monthly_budget_limit = ? WHERE id = ?",
+            [$monthlyBudgetLimit, $id]
+        );
+
+        Flash::add('success', 'Teto orçamentário atualizado com sucesso.');
+        return $this->returnUrl('?page=financeiro&tab=budgets');
     }
 }
 

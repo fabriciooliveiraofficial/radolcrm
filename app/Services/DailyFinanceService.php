@@ -470,8 +470,37 @@ final class DailyFinanceService
         return $cards;
     }
 
-    public function transactionsForCard(int $cardId): array
+    public function transactionsForCard(int $cardId, string $search = '', string $from = '', string $to = ''): array
     {
+        $conditions = ['t.card_id = ?'];
+        $params = [$cardId];
+
+        if ($search !== '') {
+            $conditions[] = "(t.payee_name LIKE ?
+                OR t.description LIKE ?
+                OR t.notes LIKE ?
+                OR cat.name LIKE ?
+                OR pcat.name LIKE ?
+                OR t.amount LIKE ?
+                OR REPLACE(t.amount, '.', ',') LIKE ?
+                OR DATE_FORMAT(t.transaction_date, '%d/%m/%Y') LIKE ?
+                OR DATE_FORMAT(inv.due_date, '%d/%m/%Y') LIKE ?
+                OR inv.reference_month LIKE ?
+                OR CASE t.status WHEN 'realized' THEN 'realizado pago' WHEN 'pending' THEN 'pendente a pagar' END LIKE ?
+                OR CASE inv.status WHEN 'paid' THEN 'paga quitada' ELSE 'aberta em aberto' END LIKE ?)";
+            for ($i = 0; $i < 12; $i++) {
+                $params[] = '%' . $search . '%';
+            }
+        }
+        if ($from !== '') {
+            $conditions[] = 't.transaction_date >= ?';
+            $params[] = $from;
+        }
+        if ($to !== '') {
+            $conditions[] = 't.transaction_date <= ?';
+            $params[] = $to;
+        }
+
         return $this->db->fetchAll(
             "SELECT t.*,
                     cat.name cat_name, cat.icon cat_icon, cat.color cat_color,
@@ -482,9 +511,9 @@ final class DailyFinanceService
              LEFT JOIN daily_categories cat ON cat.id = t.category_id
              LEFT JOIN daily_categories pcat ON pcat.id = cat.parent_id
              LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
-             WHERE t.card_id = ?
+             WHERE " . implode(' AND ', $conditions) . "
              ORDER BY t.transaction_date DESC, t.id DESC",
-            [$cardId]
+            $params
         );
     }
 
