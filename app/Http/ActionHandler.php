@@ -51,6 +51,7 @@ final class ActionHandler
                 'delete_category' => $this->deleteCategory(),
                 'save_client' => $this->saveClient(),
                 'delete_client' => $this->deleteClient(),
+                'get_client_entries' => $this->getClientEntries(),
                 'save_product' => $this->saveProduct(),
                 'delete_product' => $this->deleteProduct(),
                 'save_service_badge' => $this->saveServiceBadge(),
@@ -632,17 +633,182 @@ final class ActionHandler
         return $this->returnUrl('?page=clients');
     }
 
+    private function getClientEntries(): never
+    {
+        header('Content-Type: application/json; charset=UTF-8');
+        $id = (int) ($_POST['client_id'] ?? $_GET['client_id'] ?? 0);
+        $client = $this->db->fetch('SELECT id, name, company, email, phone, status FROM clients WHERE id = ?', [$id]);
+        if (!$client) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'message' => 'Cliente não encontrado.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $payments = $this->db->fetchAll(
+            'SELECT p.id, p.description, p.amount, p.amount_brl, p.currency, p.status, p.payment_date, p.due_date, p.settlement_date, p.created_at
+             FROM payments p
+             WHERE p.client_id = ?
+             ORDER BY COALESCE(CASE WHEN p.currency = "USD" THEN COALESCE(p.settlement_date, p.payment_date) ELSE p.payment_date END, p.due_date, DATE(p.created_at)) DESC, p.id DESC',
+            [$id]
+        );
+
+        $subscriptions = $this->db->fetchAll(
+            'SELECT s.id, s.status, s.unit_price, s.quantity, s.discount, s.currency, s.start_date, s.next_billing_date, p.name AS product_name
+             FROM subscriptions s
+             JOIN products p ON p.id = s.product_id
+             WHERE s.client_id = ?
+             ORDER BY s.id DESC',
+            [$id]
+        );
+
+        $formattedPayments = array_map(static function (array $p): array {
+            $date = $p['payment_date'] ?: $p['due_date'] ?: substr((string) $p['created_at'], 0, 10);
+            return [
+                'id' => (int) $p['id'],
+                'description' => $p['description'] ?: 'Recebimento avulso',
+                'amount' => (float) $p['amount'],
+                'amount_brl' => (float) $p['amount_brl'],
+                'currency' => $p['currency'],
+                'status' => $p['status'],
+                'status_label' => status_label($p['status']),
+                'status_class' => status_class($p['status']),
+                'date' => date_br($date),
+                'amount_formatted' => money((float) $p['amount'], $p['currency']),
+            ];
+        }, $payments);
+
+        $formattedSubs = array_map(static function (array $s): array {
+            $val = max(0, ((float) $s['unit_price'] * (int) $s['quantity']) - (float) $s['discount']);
+            return [
+                'id' => (int) $s['id'],
+                'product_name' => $s['product_name'],
+                'status' => $s['status'],
+                'status_label' => status_label($s['status']),
+                'status_class' => status_class($s['status']),
+                'value_formatted' => money($val, $s['currency']),
+                'next_billing' => date_br($s['next_billing_date']),
+            ];
+        }, $subscriptions);
+
+        echo json_encode([
+            'ok' => true,
+            'client' => $client,
+            'payments' => $formattedPayments,
+            'subscriptions' => $formattedSubs,
+            'counts' => [
+                'payments' => count($formattedPayments),
+                'subscriptions' => count($formattedSubs),
+                'total' => count($formattedPayments) + count($formattedSubs),
+            ],
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     private function deleteClient(): string
     {
         $id = $this->id(true);
-        $links = (int) $this->db->value('SELECT (SELECT COUNT(*) FROM subscriptions WHERE client_id=?) + (SELECT COUNT(*) FROM payments WHERE client_id=?)', [$id, $id]);
-        if ($links > 0) {
-            throw new RuntimeException('Este cliente possui assinaturas ou pagamentos. Marque-o como inativo em vez de excluir.');
+        $client = $this->db->fetch('SELECT * FROM clients WHERE id = ?', [$id]);
+        if (!$client) {
+            throw new RuntimeException('Cliente não encontrado.');
         }
-        $this->db->query('DELETE FROM clients WHERE id=?', [$id]);
-        audit($this->db, 'delete', 'client', $id);
-        Flash::add('success', 'Cliente excluído.');
-        return $this->returnUrl('?page=clients');
+
+        $paymentsCount = (int) $this->db->value('SELECT COUNT(*) FROM payments WHERE client_id = ?', [$id]);
+        $subsCount = (int) $this->db->value('SELECT COUNT(*) FROM subscriptions WHERE client_id = ?', [$id]);
+        $totalEntries = $paymentsCount + $subsCount;
+
+        $deleteMode = trim((string) ($_POST['delete_mode'] ?? ''));
+
+        // Se o cliente não possuir lançamentos vinculados
+        if ($totalEntries === 0) {
+            $this->db->query('DELETE FROM whatsapp_reminder_logs WHERE client_id = ?', [$id]);
+            $this->db->query('DELETE FROM clients WHERE id = ?', [$id]);
+            audit($this->db, 'delete', 'client', $id, ['info' => 'Cliente sem lançamentos excluído com sucesso.']);
+            Flash::add('success', 'Cliente excluído com sucesso.');
+            return $this->returnUrl('?page=clients');
+        }
+
+        // Se o cliente possui lançamentos vinculados:
+        if ($deleteMode === 'all') {
+            // Excluir cliente e TODOS os lançamentos em massa
+            $this->db->query('DELETE FROM subscriptions WHERE client_id = ?', [$id]);
+            $this->db->query('DELETE FROM payments WHERE client_id = ?', [$id]);
+            $this->db->query('DELETE FROM whatsapp_reminder_logs WHERE client_id = ?', [$id]);
+            $this->db->query('DELETE FROM clients WHERE id = ?', [$id]);
+
+            audit($this->db, 'delete_client_all', 'client', $id, [
+                'mode' => 'all',
+                'deleted_payments' => $paymentsCount,
+                'deleted_subscriptions' => $subsCount,
+            ]);
+            Flash::add('success', "Cliente e todos os seus lançamentos ({$paymentsCount} pagamento(s), {$subsCount} assinatura(s)) foram excluídos com sucesso.");
+            return $this->returnUrl('?page=clients');
+
+        } elseif ($deleteMode === 'selected') {
+            // Excluir apenas os lançamentos selecionados (individualmente ou em massa)
+            $selectedPaymentIds = array_filter(array_map('intval', (array) ($_POST['selected_payments'] ?? [])));
+            $selectedSubIds = array_filter(array_map('intval', (array) ($_POST['selected_subscriptions'] ?? [])));
+
+            $deletedPayments = 0;
+            if (!empty($selectedPaymentIds)) {
+                $placeholders = implode(',', array_fill(0, count($selectedPaymentIds), '?'));
+                $params = array_merge($selectedPaymentIds, [$id]);
+                $this->db->query("DELETE FROM payments WHERE id IN ({$placeholders}) AND client_id = ?", $params);
+                $deletedPayments = count($selectedPaymentIds);
+            }
+
+            $deletedSubs = 0;
+            if (!empty($selectedSubIds)) {
+                $placeholders = implode(',', array_fill(0, count($selectedSubIds), '?'));
+                $params = array_merge($selectedSubIds, [$id]);
+                $this->db->query("DELETE FROM subscriptions WHERE id IN ({$placeholders}) AND client_id = ?", $params);
+                $deletedSubs = count($selectedSubIds);
+            }
+
+            $remainingPayments = (int) $this->db->value('SELECT COUNT(*) FROM payments WHERE client_id = ?', [$id]);
+            $remainingSubs = (int) $this->db->value('SELECT COUNT(*) FROM subscriptions WHERE client_id = ?', [$id]);
+
+            if ($remainingPayments === 0 && $remainingSubs === 0) {
+                // Se todos os lançamentos foram selecionados para exclusão
+                $this->db->query('DELETE FROM whatsapp_reminder_logs WHERE client_id = ?', [$id]);
+                $this->db->query('DELETE FROM clients WHERE id = ?', [$id]);
+                audit($this->db, 'delete_client_all_selected', 'client', $id, [
+                    'mode' => 'selected_all',
+                    'deleted_payments' => $deletedPayments,
+                    'deleted_subscriptions' => $deletedSubs,
+                ]);
+                Flash::add('success', 'Cliente e todos os lançamentos selecionados foram excluídos da plataforma.');
+            } else {
+                // Manter lançamentos restantes e soft-delete no cliente
+                $this->db->query("UPDATE subscriptions SET status = 'canceled', canceled_at = COALESCE(canceled_at, CURDATE()) WHERE client_id = ? AND status != 'canceled'", [$id]);
+                $this->db->query("UPDATE clients SET deleted_at = NOW(), status = 'inactive' WHERE id = ?", [$id]);
+                audit($this->db, 'delete_client_keep_some', 'client', $id, [
+                    'mode' => 'selected',
+                    'deleted_payments' => $deletedPayments,
+                    'deleted_subscriptions' => $deletedSubs,
+                    'remaining_payments' => $remainingPayments,
+                    'remaining_subscriptions' => $remainingSubs,
+                ]);
+                Flash::add('success', "Cliente excluído da carteira. {$deletedPayments} pagamento(s) e {$deletedSubs} assinatura(s) foram excluídos; os lançamentos restantes foram mantidos.");
+            }
+
+            return $this->returnUrl('?page=clients');
+
+        } elseif ($deleteMode === 'keep') {
+            // Manter todos os lançamentos intactos, apenas excluir o cliente da carteira
+            $this->db->query("UPDATE subscriptions SET status = 'canceled', canceled_at = COALESCE(canceled_at, CURDATE()) WHERE client_id = ? AND status != 'canceled'", [$id]);
+            $this->db->query("UPDATE clients SET deleted_at = NOW(), status = 'inactive' WHERE id = ?", [$id]);
+
+            audit($this->db, 'delete_client_keep_all', 'client', $id, [
+                'mode' => 'keep',
+                'preserved_payments' => $paymentsCount,
+                'preserved_subscriptions' => $subsCount,
+            ]);
+            Flash::add('success', "Cliente removido da carteira. Todos os lançamentos passados foram preservados no histórico contábil.");
+            return $this->returnUrl('?page=clients');
+
+        } else {
+            throw new RuntimeException('Selecione uma opção válida para a exclusão do cliente.');
+        }
     }
 
     private function saveProduct(): string

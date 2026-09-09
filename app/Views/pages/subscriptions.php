@@ -103,7 +103,7 @@ if ($badgeFilter > 0) {
 }
 $where = ' WHERE 1=1' . ($conditions ? ' AND ' . implode(' AND ', $conditions) : '');
 $countSql = 'SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id' . $where;
-$dataSql = "SELECT s.*,c.name client,c.country,p.name product,p.billing_cycle,((s.unit_price*s.quantity)-s.discount) recurring_value,DATEDIFF(s.next_billing_date,CURDATE()) due_in_days FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id{$where} ORDER BY {$orderBy}";
+$dataSql = "SELECT s.*,c.name client,c.deleted_at client_deleted_at,c.country,p.name product,p.billing_cycle,((s.unit_price*s.quantity)-s.discount) recurring_value,DATEDIFF(s.next_billing_date,CURDATE()) due_in_days FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id{$where} ORDER BY {$orderBy}";
 $pagination = pagination($db, $countSql, $dataSql, $params, $perPage);
 $displayedFrom = $pagination['total'] > 0 ? (($pagination['page'] - 1) * $perPage) + 1 : 0;
 $displayedTo = $pagination['total'] > 0 ? $displayedFrom + count($pagination['rows']) - 1 : 0;
@@ -176,8 +176,8 @@ $productRate = null;
 if ($showForm || $showRenewals) {
     $productRate = (float) $rates->current()['bid'];
 }
-$clientsQuery = "SELECT id,name,country,preferred_currency FROM clients WHERE (status!='inactive' OR id=?)";
-$clientsParams = [(int) ($edit['client_id'] ?? 0)];
+$clientsQuery = "SELECT id,name,country,preferred_currency FROM clients WHERE (status!='inactive' OR id=?) AND (deleted_at IS NULL OR id=?)";
+$clientsParams = [(int) ($edit['client_id'] ?? 0), (int) ($edit['client_id'] ?? 0)];
 if ($buFilter !== null) {
     $clientsQuery .= " AND (business_unit_id=? OR (business_unit_id IS NULL AND ? = 1))";
     $clientsParams[] = $buFilter;
@@ -414,7 +414,7 @@ if ($historyId > 0) {
         <?php else: ?><div class="entity"><?php endif; ?>
             <span class="avatar-sm"><?= h(mb_strtoupper(mb_substr($item['client'], 0, 1))) ?></span>
             <span>
-                <b><?= h($item['client']) ?></b>
+                <b><?= h($item['client']) ?></b><?php if (!empty($item['client_deleted_at'])): ?><span class="badge muted" style="font-size: 9.5px; font-weight: 700; padding: 1px 6px; margin-left: 5px; vertical-align: middle; border: 1px solid rgba(105, 117, 114, 0.25); color: #52605d; background: #eef2f1;" title="Cliente excluído da carteira de clientes">Excluído da carteira</span><?php endif; ?>
                 <small class="entity-country"><?= h($item['product']) ?> · <?= country_flag_icon($item['country']) ?></small>
                 <?php if ($itemServiceBadges): ?>
                     <span class="service-badge-list">

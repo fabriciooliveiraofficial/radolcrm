@@ -603,6 +603,7 @@ final class WhatsAppReminderService
              JOIN products p ON p.id=s.product_id
              WHERE s.status IN ('active','trial','past_due')
                AND c.status='active'
+               AND c.deleted_at IS NULL
                AND c.whatsapp_reminders_enabled=1
                AND s.next_billing_date=?
                AND NOT EXISTS (
@@ -622,6 +623,7 @@ final class WhatsAppReminderService
              JOIN clients c ON c.id=s.client_id
              WHERE s.status IN ('active','trial','past_due')
                AND c.status='active'
+               AND c.deleted_at IS NULL
                AND c.whatsapp_reminders_enabled=1
                AND s.next_billing_date=?
                AND NOT EXISTS (

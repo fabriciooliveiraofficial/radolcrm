@@ -19,7 +19,7 @@ $statLabel = ($from !== '' || $to !== '' || $period !== 'month') ? $periodLabel 
 
 $businesses = $db->fetchAll(
     'SELECT bu.*,
-        (SELECT COUNT(*) FROM clients c WHERE c.business_unit_id = bu.id) total_clients,
+        (SELECT COUNT(*) FROM clients c WHERE c.business_unit_id = bu.id AND c.deleted_at IS NULL) total_clients,
         (SELECT COUNT(*) FROM products p WHERE p.business_unit_id = bu.id) total_products,
         (SELECT COALESCE(SUM(pa.net_brl), 0) FROM payments pa WHERE pa.business_unit_id = bu.id AND pa.status = "paid" AND (CASE WHEN pa.currency="USD" THEN COALESCE(pa.settlement_date, pa.payment_date) ELSE pa.payment_date END) BETWEEN ? AND ?) month_revenue,
         (SELECT COALESCE(SUM(ex.amount_brl), 0) FROM expenses ex WHERE ex.business_unit_id = bu.id AND ex.status = "paid" AND ex.payment_date BETWEEN ? AND ?) month_expenses

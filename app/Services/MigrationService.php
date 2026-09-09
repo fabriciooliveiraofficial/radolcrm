@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 19;
+    private const VERSION = 20;
 
     public function __construct(private readonly Database $db)
     {
@@ -1246,6 +1246,14 @@ final class MigrationService
         }
         if ($version < 19) {
             $this->optionalDdl("ALTER TABLE daily_transactions MODIFY COLUMN payment_method ENUM('pix','credit_card','debit_card','cash','transfer','boleto') NOT NULL DEFAULT 'pix'");
+        }
+        if ($version < 20) {
+            if (!$this->columnExists('clients', 'deleted_at')) {
+                $this->optionalDdl("ALTER TABLE clients ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL AFTER updated_at");
+            }
+            if (!$this->indexExists('clients', 'idx_clients_deleted')) {
+                $this->optionalDdl("ALTER TABLE clients ADD INDEX idx_clients_deleted (deleted_at)");
+            }
         }
         $this->db->query(
             "INSERT INTO settings (setting_key,setting_value) VALUES ('schema_version',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",

@@ -46,14 +46,14 @@ final class FinanceService
         );
 
         $activeClients = (int) $this->db->value(
-            "SELECT COUNT(DISTINCT s.client_id) FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE s.status IN ('active','trial','past_due'){$buWhereSub}"
+            "SELECT COUNT(DISTINCT s.client_id) FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE s.status IN ('active','trial','past_due') AND c.deleted_at IS NULL{$buWhereSub}"
         );
         $activeSubscriptions = (int) $this->db->value(
-            "SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE s.status = 'active'{$buWhereSub}"
+            "SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE s.status = 'active' AND c.deleted_at IS NULL{$buWhereSub}"
         );
         $mrrRows = $this->db->fetchAll(
             "SELECT s.currency, s.quantity, s.unit_price, s.discount, p.billing_cycle
-             FROM subscriptions s JOIN clients c ON c.id = s.client_id JOIN products p ON p.id = s.product_id WHERE s.status = 'active'{$buWhereSub}"
+             FROM subscriptions s JOIN clients c ON c.id = s.client_id JOIN products p ON p.id = s.product_id WHERE s.status = 'active' AND c.deleted_at IS NULL{$buWhereSub}"
         );
         $mrr = 0.0;
         foreach ($mrrRows as $row) {
@@ -82,7 +82,7 @@ final class FinanceService
     public function businessIntelligence(float $usdRate, ?int $businessUnitId = null): array
     {
         $rate = $usdRate > 0 ? $usdRate : 1.0;
-        $buWhereClient = $businessUnitId ? ' WHERE business_unit_id = ' . (int) $businessUnitId : '';
+        $buWhereClient = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
         $buWhereSub = $businessUnitId ? ' AND c.business_unit_id = ' . (int) $businessUnitId : '';
         $buWherePay = $businessUnitId ? ' AND p.business_unit_id = ' . (int) $businessUnitId : '';
         $buWhereProd = $businessUnitId ? ' AND p.business_unit_id = ' . (int) $businessUnitId : '';
@@ -94,7 +94,7 @@ final class FinanceService
                     COALESCE(SUM(CASE WHEN status='lead' THEN 1 ELSE 0 END),0) leads,
                     COALESCE(SUM(CASE WHEN country='BR' THEN 1 ELSE 0 END),0) brazil,
                     COALESCE(SUM(CASE WHEN country='US' THEN 1 ELSE 0 END),0) usa
-             FROM clients{$buWhereClient}"
+             FROM clients WHERE deleted_at IS NULL{$buWhereClient}"
         ) ?? [];
         $subscriptions = $this->db->fetch(
             "SELECT COUNT(*) total,
@@ -105,7 +105,7 @@ final class FinanceService
                     COALESCE(SUM(CASE WHEN s.status='canceled' THEN 1 ELSE 0 END),0) canceled,
                     COUNT(DISTINCT CASE WHEN s.status IN ('active','trial','past_due') THEN s.client_id END) recurring_clients,
                     COUNT(DISTINCT CASE WHEN s.status='past_due' OR (s.status IN ('active','trial') AND s.next_billing_date < CURDATE()) THEN s.client_id END) overdue_clients
-             FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE 1=1{$buWhereSub}"
+             FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE c.deleted_at IS NULL{$buWhereSub}"
         ) ?? [];
         $renewals = $this->db->fetch(
             "SELECT COALESCE(SUM(CASE WHEN s.next_billing_date < CURDATE() THEN 1 ELSE 0 END),0) overdue_count,
@@ -114,7 +114,7 @@ final class FinanceService
                     COALESCE(SUM(CASE WHEN s.next_billing_date BETWEEN DATE_ADD(CURDATE(),INTERVAL 1 DAY) AND DATE_ADD(CURDATE(),INTERVAL 30 DAY) THEN 1 ELSE 0 END),0) next_30,
                     COALESCE(SUM(CASE WHEN s.next_billing_date < CURDATE() THEN GREATEST(0,(s.unit_price * s.quantity)-s.discount) * CASE WHEN s.currency='USD' THEN ? ELSE 1 END ELSE 0 END),0) overdue_value,
                     COALESCE(SUM(CASE WHEN s.next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 30 DAY) THEN GREATEST(0,(s.unit_price * s.quantity)-s.discount) * CASE WHEN s.currency='USD' THEN ? ELSE 1 END ELSE 0 END),0) next_30_value
-             FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE s.status IN ('active','trial','past_due') AND s.next_billing_date IS NOT NULL{$buWhereSub}",
+             FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE s.status IN ('active','trial','past_due') AND c.deleted_at IS NULL AND s.next_billing_date IS NOT NULL{$buWhereSub}",
             [$rate, $rate]
         ) ?? [];
         $collections = $this->db->fetch(

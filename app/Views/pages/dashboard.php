@@ -83,7 +83,7 @@ if ($renewals['overdueCount'] > 0) {
 $upcoming = $db->fetchAll(
     "SELECT s.id,s.next_billing_date,s.currency,s.unit_price,s.quantity,s.discount,c.name client,p.name product
      FROM subscriptions s JOIN clients c ON c.id=s.client_id JOIN products p ON p.id=s.product_id
-     WHERE s.status IN ('active','trial','past_due')
+     WHERE s.status IN ('active','trial','past_due') AND c.deleted_at IS NULL
        AND s.next_billing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 30 DAY){$buWhereClient}
      ORDER BY s.next_billing_date LIMIT 6"
 );
@@ -102,7 +102,7 @@ $activePointUnits = (int) $db->value(
      FROM subscriptions s
      JOIN clients c ON c.id=s.client_id
      JOIN products p ON p.id=s.product_id
-     WHERE s.status='active'
+     WHERE s.status='active' AND c.deleted_at IS NULL
        AND s.next_billing_date>=?{$buWhereClient}",
     [$todayDate]
 );
@@ -110,7 +110,7 @@ $tomorrowSubscriptions = $db->fetchAll(
     "SELECT s.id,s.next_billing_date,c.name client,c.country
      FROM subscriptions s
      JOIN clients c ON c.id=s.client_id
-     WHERE s.status IN ('active','trial','past_due')
+     WHERE s.status IN ('active','trial','past_due') AND c.deleted_at IS NULL
        AND s.next_billing_date=?{$buWhereClient}
      ORDER BY c.name",
     [$tomorrowDate]
