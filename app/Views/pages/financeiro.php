@@ -278,7 +278,7 @@ $recentPayees = $dailyService->recentPayees('', 30);
             <button type="button" class="button primary quick-launch-btn" onclick="openQuickTxModal('expense')">
                 ⚡ Lançamento Rápido
             </button>
-            <button type="button" class="button quick-launch-btn btn-provision-cta" onclick="openFutureIncomeModal()" style="background: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; font-weight: 600;" title="Provisionamento de Receitas Futuras em BRL e USD (Semanais, Quinzenais, Mensais)">
+            <button type="button" class="button quick-launch-btn btn-provision-cta" onclick="openFutureIncomeModal()" style="background: #ffffff !important; color: #000000 !important; border: 1.5px solid #10b981 !important; font-weight: 700;" title="Provisionamento de Receitas Futuras em BRL e USD (Semanais, Quinzenais, Mensais)">
                 📈 Provisionar Receitas Futuras
             </button>
         </div>
@@ -3036,6 +3036,20 @@ document.addEventListener('DOMContentLoaded', () => {
     font-weight: 700 !important;
     padding: 10px 20px !important;
     box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+}
+.btn-provision-cta {
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1.5px solid #10b981 !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15) !important;
+    transition: all 0.2s ease;
+}
+.btn-provision-cta:hover {
+    background: #f0fdf4 !important;
+    border-color: #059669 !important;
+    color: #000000 !important;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25) !important;
 }
 
 /* Extrato Diário em Linha do Tempo */
