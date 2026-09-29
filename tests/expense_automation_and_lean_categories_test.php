@@ -8,7 +8,7 @@ echo "Iniciando verificação de contratos e inteligência de Plano de Contas En
 
 // 1. Validar Contratos do MigrationService (v16)
 $migrationFile = (string) file_get_contents($root . '/app/Services/MigrationService.php');
-assert(str_contains($migrationFile, 'VERSION = 16;'), 'MigrationService deve estar na versão 16');
+assert(preg_match('/VERSION = (\d+);/', $migrationFile, $vm) && (int)$vm[1] >= 16, 'MigrationService deve estar na versão 16 ou superior');
 assert(str_contains($migrationFile, 'recurring_templates ADD COLUMN auto_pay'), 'Migração deve adicionar coluna auto_pay');
 assert(str_contains($migrationFile, 'Softwares, Cloud & Ferramentas (SaaS)'), 'Migração deve garantir categoria de Softwares/SaaS');
 assert(str_contains($migrationFile, 'Operação, Sede & Infraestrutura'), 'Migração deve garantir categoria de Operação');
@@ -20,7 +20,7 @@ echo "✓ 1. Contratos da Migração v16 validados.\n";
 // 2. Validar Contratos do schema.sql
 $schemaFile = (string) file_get_contents($root . '/database/schema.sql');
 assert(str_contains($schemaFile, 'auto_pay TINYINT(1) NOT NULL DEFAULT 0'), 'schema.sql deve incluir coluna auto_pay em recurring_templates');
-assert(str_contains($schemaFile, "('schema_version', '16')"), 'schema.sql deve ter schema_version = 16');
+assert(preg_match('/\'schema_version\', \'(\d+)\'/', $schemaFile, $sm) && (int)$sm[1] >= 16, 'schema.sql deve ter schema_version >= 16');
 echo "✓ 2. Contratos do schema.sql validados.\n";
 
 // 3. Validar Contratos do ActionHandler

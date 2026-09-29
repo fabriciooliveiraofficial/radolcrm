@@ -8,7 +8,7 @@ echo "Iniciando verificação detalhada da Consolidação e Exclusão Total de D
 
 // 1. Validar Contratos de Código no MigrationService
 $migrationFile = (string) file_get_contents($root . '/app/Services/MigrationService.php');
-assert(str_contains($migrationFile, 'private const VERSION = 16;'), 'MigrationService deve estar na versão 16');
+assert(preg_match('/private const VERSION = (\d+);/', $migrationFile, $vm) && (int)$vm[1] >= 16, 'MigrationService deve estar na versão 16 ou superior');
 assert(str_contains($migrationFile, 'if ($version < 16)'), 'MigrationService deve conter bloco $version < 16');
 assert(str_contains($migrationFile, 'DELETE FROM categories WHERE id NOT IN'), 'MigrationService deve excluir categorias não canônicas');
 assert(str_contains($migrationFile, "UPDATE categories SET parent_id = NULL"), 'MigrationService deve zerar parent_id para eliminar árvores');

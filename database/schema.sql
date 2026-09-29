@@ -496,7 +496,7 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('whatsapp_support_phone', ''),
 ('whatsapp_test_phone', ''),
 ('whatsapp_test_country', 'BR'),
-('schema_version', '20')
+('schema_version', '21')
 ON DUPLICATE KEY UPDATE setting_key = VALUES(setting_key);
 
 INSERT INTO whatsapp_automation_steps
@@ -581,6 +581,9 @@ CREATE TABLE IF NOT EXISTS daily_transactions (
     payee_name VARCHAR(160) NOT NULL,
     description VARCHAR(255) NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
+    currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
+    original_amount DECIMAL(15,2) NULL DEFAULT NULL,
+    exchange_rate DECIMAL(10,4) NULL DEFAULT NULL,
     payment_method ENUM('pix','credit_card','debit_card','cash','transfer','boleto') NOT NULL DEFAULT 'pix',
     card_id BIGINT UNSIGNED NULL,
     invoice_id BIGINT UNSIGNED NULL,
@@ -608,6 +611,9 @@ CREATE TABLE IF NOT EXISTS daily_recurring_commitments (
     payee_name VARCHAR(160) NOT NULL,
     description VARCHAR(255) NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
+    currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL',
+    original_amount DECIMAL(15,2) NULL DEFAULT NULL,
+    exchange_rate DECIMAL(10,4) NULL DEFAULT NULL,
     recurrence ENUM('monthly','weekly','biweekly','quarterly','annual') NOT NULL DEFAULT 'monthly',
     total_installments SMALLINT UNSIGNED NULL,
     current_installment SMALLINT UNSIGNED NOT NULL DEFAULT 1,

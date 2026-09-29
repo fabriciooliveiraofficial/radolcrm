@@ -31,13 +31,13 @@ $dailyTables = [
 foreach ($dailyTables as $table) {
     assert(str_contains($schemaContent, "CREATE TABLE IF NOT EXISTS {$table}"), "Tabela {$table} deve estar definida no schema.sql");
 }
-assert(str_contains($schemaContent, "('schema_version', '19')"), "Versão 19 de schema deve estar no schema.sql");
+assert(preg_match('/\'schema_version\', \'(\d+)\'/', $schemaContent, $sm) && (int)$sm[1] >= 19, "Versão de schema deve ser 19 ou superior no schema.sql");
 assert(str_contains($schemaContent, "'boleto'"), "Método de pagamento 'boleto' deve estar presente no schema.sql");
-echo "✓ 3. Tabelas isoladas daily_* e versão 19 presentes no schema.sql.\n";
+echo "✓ 3. Tabelas isoladas daily_* e versão 19+ presentes no schema.sql.\n";
 
 // 4. Verificar MigrationService.php
 $migrationContent = file_get_contents($root . '/app/Services/MigrationService.php');
-assert(str_contains($migrationContent, "const VERSION = 19;"), "MigrationService deve estar na versão 19");
+assert(preg_match('/VERSION = (\d+);/', $migrationContent, $vm) && (int)$vm[1] >= 19, "MigrationService deve estar na versão 19 ou superior");
 assert(str_contains($migrationContent, "\$version < 19"), "MigrationService deve conter o bloco de migração 19");
 assert(str_contains($migrationContent, "canonicalGearzoneId"), "MigrationService deve conter a lógica de unificação canônica");
 assert(str_contains($migrationContent, "Gearzone"), "MigrationService deve garantir a preservação da Gearzone");
@@ -79,6 +79,7 @@ echo "✓ 5. DailyFinanceService analisado e métodos de contrato validados (inc
 $actionHandlerContent = file_get_contents($root . '/app/Http/ActionHandler.php');
 $dailyActions = [
     'save_daily_transaction',
+    'save_daily_future_income',
     'delete_daily_transaction',
     'save_daily_card',
     'save_daily_card_ajax',
@@ -92,7 +93,8 @@ $dailyActions = [
 ];
 foreach ($dailyActions as $act) {
     assert(str_contains($actionHandlerContent, "'{$act}'"), "ActionHandler deve mapear ação {$act}");
-    assert(str_contains($actionHandlerContent, "function {$act}"), "ActionHandler deve conter o método {$act}");
+    $camel = lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $act))));
+    assert(str_contains($actionHandlerContent, "function {$camel}"), "ActionHandler deve conter o método {$camel}");
 }
 echo "✓ 6. Todas as ações do ActionHandler implementadas e mapeadas (incluindo AJAX de cartões).\n";
 

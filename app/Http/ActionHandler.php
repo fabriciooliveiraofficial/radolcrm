@@ -81,6 +81,7 @@ final class ActionHandler
                 'run_financial_automation' => $this->runFinancialAutomation(),
                 // Daily Finance System (Isolado)
                 'save_daily_transaction' => $this->saveDailyTransaction(),
+                'save_daily_future_income' => $this->saveDailyFutureIncome(),
                 'delete_daily_transaction' => $this->deleteDailyTransaction(),
                 'mark_daily_transaction_paid' => $this->markDailyTransactionPaid(),
                 'save_daily_card' => $this->saveDailyCard(),
@@ -2107,6 +2108,22 @@ final class ActionHandler
             );
         }
 
+        $currency = strtoupper(trim((string)($_POST['currency'] ?? 'BRL')));
+        if (!in_array($currency, ['BRL', 'USD'], true)) {
+            $currency = 'BRL';
+        }
+        $originalAmount = null;
+        $exchangeRate = null;
+        if ($currency === 'USD') {
+            $originalAmount = $amount;
+            $exchangeRate = (float) str_replace(',', '.', (string)($_POST['exchange_rate'] ?? 0));
+            if ($exchangeRate <= 0) {
+                $latestRate = $this->rates->current(false, 'USD', 'BRL');
+                $exchangeRate = (float)($latestRate['usd_to_brl'] ?? $latestRate['bid'] ?? 5.50);
+            }
+            $amount = round($originalAmount * $exchangeRate, 2);
+        }
+
         // 1. Edição de transação individual existente
         if ($id) {
             $oldTx = $this->db->fetch("SELECT * FROM daily_transactions WHERE id = ?", [$id]);
@@ -2120,8 +2137,8 @@ final class ActionHandler
             }
 
             $this->db->query(
-                "UPDATE daily_transactions SET type = ?, category_id = ?, payee_id = ?, payee_name = ?, description = ?, amount = ?, payment_method = ?, card_id = ?, invoice_id = ?, transaction_date = ?, status = ?, notes = ? WHERE id = ?",
-                [$type, $categoryId, $payeeId, $payeeName, $description, $amount, $paymentMethod, $cardId, $invId, $transactionDate, $status, $notes, $id]
+                "UPDATE daily_transactions SET type = ?, category_id = ?, payee_id = ?, payee_name = ?, description = ?, amount = ?, currency = ?, original_amount = ?, exchange_rate = ?, payment_method = ?, card_id = ?, invoice_id = ?, transaction_date = ?, status = ?, notes = ? WHERE id = ?",
+                [$type, $categoryId, $payeeId, $payeeName, $description, $amount, $currency, $originalAmount, $exchangeRate, $paymentMethod, $cardId, $invId, $transactionDate, $status, $notes, $id]
             );
 
             if (!empty($oldTx['invoice_id'])) {
@@ -2188,8 +2205,8 @@ final class ActionHandler
                     $instDesc = $description . " ({$inst['number']}/{$totalInstallments})";
 
                     $this->db->insert(
-                        "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        [$type, $categoryId, $payeeId, $payeeName, $instDesc, $inst['amount'], 'credit_card', $cardId, $invId, $inst['number'], $totalInstallments, $transactionDate, 'realized', $notes]
+                        "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, currency, original_amount, exchange_rate, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'credit_card', ?, ?, ?, ?, ?, 'realized', ?)",
+                        [$type, $categoryId, $payeeId, $payeeName, $instDesc, $inst['amount'], $currency, $originalAmount ? round($originalAmount / $totalInstallments, 2) : null, $exchangeRate, $cardId, $invId, $inst['number'], $totalInstallments, $transactionDate, $notes]
                     );
                 }
 
@@ -2211,8 +2228,8 @@ final class ActionHandler
 
                 $instDesc = $description . " ({$inst['number']}/{$totalInstallments})";
                 $this->db->insert(
-                    "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [$type, $categoryId, $payeeId, $payeeName, $instDesc, $inst['amount'], $paymentMethod, null, null, $inst['number'], $totalInstallments, $inst['date'], $instStatus, $notes]
+                    "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, currency, original_amount, exchange_rate, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null, null, ?, ?, ?, ?, ?)",
+                    [$type, $categoryId, $payeeId, $payeeName, $instDesc, $inst['amount'], $currency, $originalAmount ? round($originalAmount / $totalInstallments, 2) : null, $exchangeRate, $paymentMethod, $inst['number'], $totalInstallments, $inst['date'], $instStatus, $notes]
                 );
             }
 
@@ -2227,14 +2244,208 @@ final class ActionHandler
         }
 
         $this->db->insert(
-            "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [$type, $categoryId, $payeeId, $payeeName, $description, $amount, $paymentMethod, $cardId, $invoiceId, 1, 1, $transactionDate, $status, $notes]
+            "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, currency, original_amount, exchange_rate, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)",
+            [$type, $categoryId, $payeeId, $payeeName, $description, $amount, $currency, $originalAmount, $exchangeRate, $paymentMethod, $cardId, $invoiceId, $transactionDate, $status, $notes]
         );
         if ($invoiceId) {
             $dailyService->recalculateInvoiceTotal($invoiceId);
         }
         Flash::add('success', 'Lançamento registrado com sucesso!');
         return $this->returnUrl('?page=financeiro');
+    }
+
+    private function saveDailyFutureIncome(): string
+    {
+        $currency = strtoupper(trim((string)($_POST['currency'] ?? 'BRL')));
+        if (!in_array($currency, ['BRL', 'USD'], true)) {
+            $currency = 'BRL';
+        }
+
+        $exchangeRate = 1.0;
+        if ($currency === 'USD') {
+            $exchangeRate = (float) str_replace(',', '.', (string)($_POST['exchange_rate'] ?? 0));
+            if ($exchangeRate <= 0) {
+                $latestRate = $this->rates->current(false, 'USD', 'BRL');
+                $exchangeRate = (float)($latestRate['usd_to_brl'] ?? $latestRate['bid'] ?? 5.50);
+            }
+        }
+
+        $amount = normalize_decimal($_POST['amount'] ?? 0);
+        if ($amount <= 0) {
+            throw new RuntimeException('Informe um valor de receita válido.');
+        }
+
+        $payeeName = $this->required('payee_name', 'Informe a fonte pagadora ou cliente.');
+        $frequency = $this->choice('frequency', ['weekly', 'biweekly', 'monthly']);
+        $startDate = $this->required('start_date', 'Informe a data de início da receita.');
+        $categoryId = isset($_POST['category_id']) && (int)$_POST['category_id'] > 0 ? (int)$_POST['category_id'] : null;
+        $paymentMethod = $this->choice('payment_method', ['pix', 'credit_card', 'debit_card', 'cash', 'transfer', 'boleto']);
+        $description = trim((string)($_POST['description'] ?? ''));
+        if ($description === '') {
+            $description = $payeeName;
+        }
+        $notes = $this->nullable('notes');
+        $saveAsCommitment = !empty($_POST['save_as_commitment']);
+        $weekendRule = trim((string)($_POST['weekend_rule'] ?? 'exact'));
+
+        $postedInstallments = is_array($_POST['installments'] ?? null) ? $_POST['installments'] : [];
+        $totalOccurrences = max(1, (int)($_POST['total_occurrences'] ?? (count($postedInstallments) ?: 1)));
+
+        $installmentsData = [];
+        if (!empty($postedInstallments)) {
+            $idx = 1;
+            foreach ($postedInstallments as $pInst) {
+                $pDate = trim((string)($pInst['date'] ?? ''));
+                if ($pDate === '') {
+                    $pDate = $startDate;
+                }
+                $origVal = normalize_decimal($pInst['original_amount'] ?? $amount);
+                if ($origVal <= 0) {
+                    $origVal = $amount;
+                }
+                $rate = $currency === 'USD' ? normalize_decimal($pInst['exchange_rate'] ?? $exchangeRate) : 1.0;
+                if ($rate <= 0) {
+                    $rate = $exchangeRate;
+                }
+                $valBrl = $currency === 'USD' ? round($origVal * $rate, 2) : $origVal;
+
+                $installmentsData[] = [
+                    'number' => $idx,
+                    'date' => $pDate,
+                    'original_amount' => $origVal,
+                    'exchange_rate' => $rate,
+                    'amount_brl' => $valBrl,
+                ];
+                $idx++;
+            }
+            $totalOccurrences = count($installmentsData);
+        } else {
+            $baseDt = new \DateTimeImmutable($startDate);
+            for ($i = 1; $i <= $totalOccurrences; $i++) {
+                $step = $i - 1;
+                $curDt = match($frequency) {
+                    'weekly' => $baseDt->modify("+{$step} weeks"),
+                    'biweekly' => $baseDt->modify('+' . ($step * 14) . ' days'),
+                    'monthly' => $baseDt->modify("+{$step} months"),
+                };
+
+                if ($weekendRule === 'prior_friday') {
+                    $dayOfWeek = (int) $curDt->format('N');
+                    if ($dayOfWeek === 6) {
+                        $curDt = $curDt->modify('-1 day');
+                    } elseif ($dayOfWeek === 7) {
+                        $curDt = $curDt->modify('-2 days');
+                    }
+                } elseif ($weekendRule === 'next_monday') {
+                    $dayOfWeek = (int) $curDt->format('N');
+                    if ($dayOfWeek === 6) {
+                        $curDt = $curDt->modify('+2 days');
+                    } elseif ($dayOfWeek === 7) {
+                        $curDt = $curDt->modify('+1 day');
+                    }
+                }
+
+                $pDate = $curDt->format('Y-m-d');
+                $valBrl = $currency === 'USD' ? round($amount * $exchangeRate, 2) : $amount;
+
+                $installmentsData[] = [
+                    'number' => $i,
+                    'date' => $pDate,
+                    'original_amount' => $amount,
+                    'exchange_rate' => $exchangeRate,
+                    'amount_brl' => $valBrl,
+                ];
+            }
+        }
+
+        $existingPayee = $this->db->fetch("SELECT id, usage_count FROM daily_payees WHERE name = ?", [$payeeName]);
+        $payeeId = null;
+        if ($existingPayee) {
+            $payeeId = (int)$existingPayee['id'];
+            $this->db->query(
+                "UPDATE daily_payees SET usage_count = usage_count + 1, last_used_at = NOW(), default_category_id = COALESCE(?, default_category_id), default_payment_method = ? WHERE id = ?",
+                [$categoryId, $paymentMethod, $payeeId]
+            );
+        } else {
+            $payeeId = (int)$this->db->insert(
+                "INSERT INTO daily_payees (name, default_category_id, default_payment_method, usage_count, last_used_at) VALUES (?, ?, ?, 1, NOW())",
+                [$payeeName, $categoryId, $paymentMethod]
+            );
+        }
+
+        $sumBrl = 0.0;
+        $sumOrig = 0.0;
+        $freqLabel = match($frequency) {
+            'weekly' => 'semanal',
+            'biweekly' => 'quinzenal',
+            'monthly' => 'mensal',
+        };
+
+        foreach ($installmentsData as $inst) {
+            $sumBrl += (float) $inst['amount_brl'];
+            $sumOrig += (float) $inst['original_amount'];
+
+            $instDesc = $description;
+            if ($totalOccurrences > 1) {
+                $instDesc .= " ({$inst['number']}/{$totalOccurrences})";
+            }
+
+            $txNotes = $notes;
+            if ($currency === 'USD') {
+                $extraNote = "Provisão em USD: US$ " . number_format($inst['original_amount'], 2, ',', '.') . " · Câmbio estimado R$ " . number_format($inst['exchange_rate'], 4, ',', '.');
+                $txNotes = $txNotes ? ($txNotes . " | " . $extraNote) : $extraNote;
+            }
+
+            $this->db->insert(
+                "INSERT INTO daily_transactions (type, category_id, payee_id, payee_name, description, amount, currency, original_amount, exchange_rate, payment_method, card_id, invoice_id, installment_number, total_installments, transaction_date, status, notes) VALUES ('income', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'pending', ?)",
+                [
+                    $categoryId,
+                    $payeeId,
+                    $payeeName,
+                    $instDesc,
+                    $inst['amount_brl'],
+                    $currency,
+                    $inst['original_amount'],
+                    $inst['exchange_rate'],
+                    $paymentMethod,
+                    $inst['number'],
+                    $totalOccurrences,
+                    $inst['date'],
+                    $txNotes
+                ]
+            );
+        }
+
+        if ($saveAsCommitment) {
+            $lastDate = end($installmentsData)['date'] ?? null;
+            $dueDay = (int) date('d', strtotime($startDate));
+            $this->db->insert(
+                "INSERT INTO daily_recurring_commitments (type, category_id, payee_name, description, amount, currency, original_amount, exchange_rate, recurrence, total_installments, current_installment, due_day, start_date, end_date, payment_method, active, notes) VALUES ('income', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 1, ?)",
+                [
+                    $categoryId,
+                    $payeeName,
+                    $description . " (Recorrente {$freqLabel})",
+                    $installmentsData[0]['amount_brl'] ?? $amount,
+                    $currency,
+                    $amount,
+                    $exchangeRate,
+                    $frequency,
+                    $totalOccurrences > 1 ? $totalOccurrences : null,
+                    $dueDay,
+                    $startDate,
+                    $lastDate,
+                    $paymentMethod,
+                    $notes
+                ]
+            );
+        }
+
+        $currencyFmt = $currency === 'USD'
+            ? ("US$ " . number_format($sumOrig, 2, ',', '.') . " (~ R$ " . number_format($sumBrl, 2, ',', '.') . ")")
+            : ("R$ " . number_format($sumBrl, 2, ',', '.'));
+
+        Flash::add('success', "⚡ {$totalOccurrences} receita(s) futura(s) ({$freqLabel}) provisionada(s) com sucesso! Total: {$currencyFmt}. Visíveis na Agenda Preditiva.");
+        return $this->returnUrl('?page=financeiro&tab=agenda');
     }
 
     private function saveDailyCardAjax(): string

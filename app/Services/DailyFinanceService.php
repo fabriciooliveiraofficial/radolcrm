@@ -141,14 +141,26 @@ final class DailyFinanceService
         );
 
         foreach ($pendingTxs as $pt) {
+            $currency = $pt['currency'] ?? 'BRL';
+            $origAmount = !empty($pt['original_amount']) ? (float)$pt['original_amount'] : null;
+            $rate = !empty($pt['exchange_rate']) ? (float)$pt['exchange_rate'] : null;
+
+            $subtitle = ($pt['cat_name'] ? $pt['cat_name'] . ' · ' : '') . $pt['description'];
+            if ($currency === 'USD' && $origAmount > 0) {
+                $subtitle .= ' · US$ ' . number_format($origAmount, 2, ',', '.') . ' (~ R$ ' . number_format((float)$pt['amount'], 2, ',', '.') . ')';
+            }
+
             $events[] = [
                 'id' => 'tx-pending-' . $pt['id'],
                 'type' => 'pending_tx',
                 'direction' => $pt['type'] === 'income' ? 'in' : 'out',
                 'date' => $pt['transaction_date'],
                 'title' => $pt['payee_name'] ?: $pt['description'],
-                'subtitle' => ($pt['cat_name'] ? $pt['cat_name'] . ' · ' : '') . $pt['description'],
+                'subtitle' => $subtitle,
                 'amount' => (float) $pt['amount'],
+                'currency' => $currency,
+                'original_amount' => $origAmount,
+                'exchange_rate' => $rate,
                 'color' => $pt['type'] === 'income' ? '#10b981' : '#ef4444',
                 'icon' => $pt['cat_icon'] ?: ($pt['type'] === 'income' ? '💰' : '💸'),
                 'status' => 'pending',
@@ -157,7 +169,7 @@ final class DailyFinanceService
             ];
         }
 
-        // 3. Compromissos recorrentes ativos (mensalidades, escola, cursos, internet, fixos)
+        // 3. Compromissos recorrentes ativos (mensalidades, escola, cursos, internet, fixos, receitas recorrentes)
         $commitments = $this->db->fetchAll(
             "SELECT r.*, cat.name cat_name, cat.icon cat_icon, cat.color cat_color
              FROM daily_recurring_commitments r
@@ -166,60 +178,96 @@ final class DailyFinanceService
             [$to, $from]
         );
 
-        // Iterar pelos meses abrangidos pelo intervalo [from, to]
-        $cursor = $fromDate->modify('first day of this month');
-        $endCursor = $toDate->modify('last day of this month');
+        foreach ($commitments as $com) {
+            $recurrence = $com['recurrence'] ?? 'monthly';
+            $comCurrency = $com['currency'] ?? 'BRL';
+            $comOrigAmount = !empty($com['original_amount']) ? (float)$com['original_amount'] : null;
 
-        while ($cursor <= $endCursor) {
-            $yearMonth = $cursor->format('Y-m');
-            $daysInMonth = (int) $cursor->format('t');
+            $instLabel = !empty($com['total_installments'])
+                ? "Parcela {$com['current_installment']}/{$com['total_installments']}"
+                : ($com['type'] === 'income' ? 'Receita Recorrente' : 'Despesa Fixa / Mensalidade');
 
-            foreach ($commitments as $com) {
-                $dueDay = min((int) $com['due_day'], $daysInMonth);
-                $eventDateStr = sprintf('%s-%02d', $yearMonth, $dueDay);
-
-                if ($eventDateStr < $from || $eventDateStr > $to) {
-                    continue;
-                }
-                if ($eventDateStr < $com['start_date']) {
-                    continue;
-                }
-                if (!empty($com['end_date']) && $eventDateStr > $com['end_date']) {
-                    continue;
-                }
-
-                // Checar se já houve transação realizada com o mesmo favorecido na mesma data aproximada (ou vinculada)
-                $alreadyPosted = (int) $this->db->value(
-                    "SELECT COUNT(*) FROM daily_transactions 
-                     WHERE payee_name = ? AND type = ? AND transaction_date BETWEEN DATE_SUB(?, INTERVAL 4 DAY) AND DATE_ADD(?, INTERVAL 4 DAY) AND status = 'realized'",
-                    [$com['payee_name'], $com['type'], $eventDateStr, $eventDateStr]
-                );
-
-                if ($alreadyPosted > 0) {
-                    continue; // já foi pago no mês
-                }
-
-                $instLabel = !empty($com['total_installments'])
-                    ? "Parcela {$com['current_installment']}/{$com['total_installments']}"
-                    : 'Mensalidade / Despesa Fixa';
-
-                $events[] = [
-                    'id' => 'com-' . $com['id'] . '-' . $yearMonth,
-                    'type' => 'recurring_commitment',
-                    'direction' => $com['type'] === 'income' ? 'in' : 'out',
-                    'date' => $eventDateStr,
-                    'title' => $com['payee_name'],
-                    'subtitle' => ($com['cat_name'] ? $com['cat_name'] . ' · ' : '') . $com['description'] . " ({$instLabel})",
-                    'amount' => (float) $com['amount'],
-                    'color' => $com['cat_color'] ?: '#3b82f6',
-                    'icon' => $com['cat_icon'] ?: '🎓',
-                    'status' => 'pending',
-                    'commitment_id' => (int) $com['id'],
-                    'raw_commitment' => $com,
-                ];
+            $subtitle = ($com['cat_name'] ? $com['cat_name'] . ' · ' : '') . $com['description'] . " ({$instLabel})";
+            if ($comCurrency === 'USD' && $comOrigAmount > 0) {
+                $subtitle .= ' · US$ ' . number_format($comOrigAmount, 2, ',', '.') . ' (~ R$ ' . number_format((float)$com['amount'], 2, ',', '.') . ')';
             }
 
-            $cursor = $cursor->modify('+1 month');
+            if ($recurrence === 'weekly' || $recurrence === 'biweekly') {
+                $stepDays = $recurrence === 'weekly' ? 7 : 14;
+                $cur = new DateTimeImmutable($com['start_date']);
+                $maxDate = $toDate;
+                if (!empty($com['end_date'])) {
+                    $endDt = new DateTimeImmutable($com['end_date']);
+                    if ($endDt < $maxDate) {
+                        $maxDate = $endDt;
+                    }
+                }
+
+                while ($cur <= $maxDate) {
+                    $eventDateStr = $cur->format('Y-m-d');
+                    if ($eventDateStr >= $from && $eventDateStr <= $to) {
+                        $events[] = [
+                            'id' => 'com-' . $com['id'] . '-' . $eventDateStr,
+                            'type' => 'recurring_commitment',
+                            'direction' => $com['type'] === 'income' ? 'in' : 'out',
+                            'date' => $eventDateStr,
+                            'title' => $com['payee_name'],
+                            'subtitle' => $subtitle,
+                            'amount' => (float) $com['amount'],
+                            'currency' => $comCurrency,
+                            'original_amount' => $comOrigAmount,
+                            'exchange_rate' => !empty($com['exchange_rate']) ? (float)$com['exchange_rate'] : null,
+                            'color' => $com['type'] === 'income' ? '#10b981' : ($com['cat_color'] ?: '#3b82f6'),
+                            'icon' => $com['cat_icon'] ?: ($com['type'] === 'income' ? '💰' : '🎓'),
+                            'status' => 'pending',
+                            'commitment_id' => (int) $com['id'],
+                            'raw_commitment' => $com,
+                        ];
+                    }
+                    $cur = $cur->modify("+{$stepDays} days");
+                }
+            } else {
+                // Mensal (padrão)
+                $cursor = $fromDate->modify('first day of this month');
+                $endCursor = $toDate->modify('last day of this month');
+
+                while ($cursor <= $endCursor) {
+                    $yearMonth = $cursor->format('Y-m');
+                    $daysInMonth = (int) $cursor->format('t');
+                    $dueDay = min((int) $com['due_day'], $daysInMonth);
+                    $eventDateStr = sprintf('%s-%02d', $yearMonth, $dueDay);
+
+                    if ($eventDateStr >= $from && $eventDateStr <= $to && $eventDateStr >= $com['start_date'] && (empty($com['end_date']) || $eventDateStr <= $com['end_date'])) {
+                        // Checar se já houve transação realizada correspondente
+                        $alreadyPosted = (int) $this->db->value(
+                            "SELECT COUNT(*) FROM daily_transactions 
+                             WHERE payee_name = ? AND type = ? AND transaction_date BETWEEN DATE_SUB(?, INTERVAL 4 DAY) AND DATE_ADD(?, INTERVAL 4 DAY) AND status = 'realized'",
+                            [$com['payee_name'], $com['type'], $eventDateStr, $eventDateStr]
+                        );
+
+                        if ($alreadyPosted === 0) {
+                            $events[] = [
+                                'id' => 'com-' . $com['id'] . '-' . $yearMonth,
+                                'type' => 'recurring_commitment',
+                                'direction' => $com['type'] === 'income' ? 'in' : 'out',
+                                'date' => $eventDateStr,
+                                'title' => $com['payee_name'],
+                                'subtitle' => $subtitle,
+                                'amount' => (float) $com['amount'],
+                                'currency' => $comCurrency,
+                                'original_amount' => $comOrigAmount,
+                                'exchange_rate' => !empty($com['exchange_rate']) ? (float)$com['exchange_rate'] : null,
+                                'color' => $com['type'] === 'income' ? '#10b981' : ($com['cat_color'] ?: '#3b82f6'),
+                                'icon' => $com['cat_icon'] ?: ($com['type'] === 'income' ? '💰' : '🎓'),
+                                'status' => 'pending',
+                                'commitment_id' => (int) $com['id'],
+                                'raw_commitment' => $com,
+                            ];
+                        }
+                    }
+                    $cursor = $cursor->modify('+1 month');
+                }
+            }
         }
 
         // Filtro de Natureza (Entrada vs Saída)

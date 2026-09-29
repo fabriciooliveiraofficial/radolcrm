@@ -8,7 +8,7 @@ use App\Core\Database;
 
 final class MigrationService
 {
-    private const VERSION = 20;
+    private const VERSION = 21;
 
     public function __construct(private readonly Database $db)
     {
@@ -1253,6 +1253,26 @@ final class MigrationService
             }
             if (!$this->indexExists('clients', 'idx_clients_deleted')) {
                 $this->optionalDdl("ALTER TABLE clients ADD INDEX idx_clients_deleted (deleted_at)");
+            }
+        }
+        if ($version < 21) {
+            if (!$this->columnExists('daily_transactions', 'currency')) {
+                $this->optionalDdl("ALTER TABLE daily_transactions ADD COLUMN currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL' AFTER amount");
+            }
+            if (!$this->columnExists('daily_transactions', 'original_amount')) {
+                $this->optionalDdl("ALTER TABLE daily_transactions ADD COLUMN original_amount DECIMAL(15,2) NULL DEFAULT NULL AFTER currency");
+            }
+            if (!$this->columnExists('daily_transactions', 'exchange_rate')) {
+                $this->optionalDdl("ALTER TABLE daily_transactions ADD COLUMN exchange_rate DECIMAL(10,4) NULL DEFAULT NULL AFTER original_amount");
+            }
+            if (!$this->columnExists('daily_recurring_commitments', 'currency')) {
+                $this->optionalDdl("ALTER TABLE daily_recurring_commitments ADD COLUMN currency ENUM('BRL','USD') NOT NULL DEFAULT 'BRL' AFTER amount");
+            }
+            if (!$this->columnExists('daily_recurring_commitments', 'original_amount')) {
+                $this->optionalDdl("ALTER TABLE daily_recurring_commitments ADD COLUMN original_amount DECIMAL(15,2) NULL DEFAULT NULL AFTER currency");
+            }
+            if (!$this->columnExists('daily_recurring_commitments', 'exchange_rate')) {
+                $this->optionalDdl("ALTER TABLE daily_recurring_commitments ADD COLUMN exchange_rate DECIMAL(10,4) NULL DEFAULT NULL AFTER original_amount");
             }
         }
         $this->db->query(

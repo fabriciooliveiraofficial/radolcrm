@@ -3,8 +3,16 @@
 declare(strict_types=1);
 
 use App\Services\DailyFinanceService;
+use App\Services\ExchangeRateService;
 
 $dailyService = new DailyFinanceService($db);
+$exchangeRateService = new ExchangeRateService($db);
+try {
+    $usdQuote = $exchangeRateService->current();
+    $currentUsdRate = (float) ($usdQuote['usd_to_brl'] ?? $usdQuote['bid'] ?? 5.50);
+} catch (\Throwable $e) {
+    $currentUsdRate = 5.50;
+}
 
 // Parâmetros de Navegação e Filtros
 $activeTab = (string) ($_GET['tab'] ?? 'extract');
@@ -266,9 +274,12 @@ $recentPayees = $dailyService->recentPayees('', 30);
             </a>
         </nav>
 
-        <div class="daily-quick-cta">
-            <button type="button" class="button primary quick-launch-btn" onclick="openQuickTxModal()">
+        <div class="daily-quick-cta" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button type="button" class="button primary quick-launch-btn" onclick="openQuickTxModal('expense')">
                 ⚡ Lançamento Rápido
+            </button>
+            <button type="button" class="button quick-launch-btn btn-provision-cta" onclick="openFutureIncomeModal()" style="background: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; font-weight: 600;" title="Provisionamento de Receitas Futuras em BRL e USD (Semanais, Quinzenais, Mensais)">
+                📈 Provisionar Receitas Futuras
             </button>
         </div>
     </div>
@@ -385,6 +396,9 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                         <?php if ($tx['status'] === 'pending'): ?>
                                             <span class="badge warning"><?= $isExp ? 'A Pagar' : 'A Receber' ?></span>
                                         <?php endif; ?>
+                                        <?php if (($tx['currency'] ?? 'BRL') === 'USD'): ?>
+                                            <span class="badge" style="background: #e0f2fe; color: #0369a1; font-weight: 600;" title="Receita/Despesa originada em Dólar Americano (USD)">🇺🇸 USD</span>
+                                        <?php endif; ?>
                                         <?php if (!empty($tx['notes'])): ?>
                                             <small class="tx-notes">💬 <?= h($tx['notes']) ?></small>
                                         <?php endif; ?>
@@ -394,6 +408,11 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                     <b class="tx-amount <?= $isExp ? 'negative' : 'positive' ?>">
                                         <?= $isExp ? '-' : '+' ?> R$ <?= number_format((float)$tx['amount'], 2, ',', '.') ?>
                                     </b>
+                                    <?php if (($tx['currency'] ?? 'BRL') === 'USD' && !empty($tx['original_amount'])): ?>
+                                        <small style="display: block; font-size: 11px; color: #0284c7; font-weight: 700; text-align: right;">
+                                            US$ <?= number_format((float)$tx['original_amount'], 2, ',', '.') ?>
+                                        </small>
+                                    <?php endif; ?>
                                     <div class="tx-actions" style="display: flex; gap: 6px; align-items: center;">
                                         <button type="button" class="btn-icon-action edit" title="Editar lançamento" onclick='openEditTxModal(<?= json_encode($tx, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'>✏️</button>
                                         <form method="post" data-confirm="Excluir este lançamento de R$ <?= number_format((float)$tx['amount'], 2, ',', '.') ?>?" style="display:inline; margin: 0;">
@@ -505,20 +524,32 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                     <?php if ($ev['type'] === 'card_invoice'): ?>
                                         <span class="badge" style="background: #e0e7ff; color: #3730a3;">Fatura Cartão de Crédito</span>
                                     <?php elseif ($ev['type'] === 'recurring_commitment'): ?>
-                                        <span class="badge" style="background: #fef3c7; color: #92400e;">Despesa Fixa / Escola / Mensalidade</span>
+                                        <span class="badge" style="background: <?= $ev['direction'] === 'in' ? '#dcfce7' : '#fef3c7' ?>; color: <?= $ev['direction'] === 'in' ? '#166534' : '#92400e' ?>;">
+                                            <?= $ev['direction'] === 'in' ? 'Receita Recorrente / Contrato' : 'Despesa Fixa / Escola / Mensalidade' ?>
+                                        </span>
                                     <?php else: ?>
-                                        <span class="badge" style="background: #f1f5f9; color: #475569;">Transação Programada</span>
+                                        <span class="badge" style="background: #f1f5f9; color: #475569;">
+                                            <?= $ev['direction'] === 'in' ? 'Receita Provisionada' : 'Transação Programada' ?>
+                                        </span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
                                     <span class="badge <?= $ev['direction'] === 'in' ? 'good' : 'warning' ?>">
                                         <?= $ev['direction'] === 'in' ? 'Recebimento' : 'Pagamento' ?>
                                     </span>
+                                    <?php if (($ev['currency'] ?? 'BRL') === 'USD'): ?>
+                                        <span class="badge" style="background: #e0f2fe; color: #0369a1; font-weight: 600; margin-left: 4px;">🇺🇸 USD</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <b class="<?= $ev['direction'] === 'in' ? 'positive' : 'negative' ?>">
                                         <?= $ev['direction'] === 'in' ? '+' : '-' ?> R$ <?= number_format($ev['amount'], 2, ',', '.') ?>
                                     </b>
+                                    <?php if (($ev['currency'] ?? 'BRL') === 'USD' && !empty($ev['original_amount'])): ?>
+                                        <small style="display: block; font-size: 11px; color: #0284c7; font-weight: 700;">
+                                            US$ <?= number_format((float)$ev['original_amount'], 2, ',', '.') ?>
+                                        </small>
+                                    <?php endif; ?>
                                 </td>
                                 <td style="text-align: right;">
                                     <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
@@ -581,12 +612,12 @@ $recentPayees = $dailyService->recentPayees('', 30);
                                         $rawTx = $ev['raw_tx'] ?? null;
                                     ?>
                                         <?php if ($rawTx): ?>
-                                            <form method="post" data-confirm="Efetivar este lançamento de R$ <?= number_format($ev['amount'], 2, ',', '.') ?> como realizado?" style="display:inline; margin: 0;">
+                                            <form method="post" data-confirm="<?= $ev['direction'] === 'in' ? ('Confirmar o recebimento de R$ ' . number_format($ev['amount'], 2, ',', '.') . ' como realizado no caixa?') : ('Efetivar este lançamento de R$ ' . number_format($ev['amount'], 2, ',', '.') . ' como realizado?') ?>" style="display:inline; margin: 0;">
                                                 <?= csrf_field() ?>
                                                 <input type="hidden" name="action" value="mark_daily_transaction_paid">
                                                 <input type="hidden" name="id" value="<?= (int)$rawTx['id'] ?>">
                                                 <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
-                                                <button type="submit" class="btn-icon-action pay" title="Marcar como Pago">✓</button>
+                                                <button type="submit" class="btn-icon-action pay" title="<?= $ev['direction'] === 'in' ? 'Marcar como Recebido' : 'Marcar como Pago' ?>" style="<?= $ev['direction'] === 'in' ? 'background: #dcfce7; color: #15803d;' : '' ?>">✓</button>
                                             </form>
                                             <button type="button" class="btn-icon-action edit" title="Editar lançamento" onclick='openEditTxModal(<?= json_encode($rawTx, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)'>
                                                 ✏️
@@ -1169,6 +1200,16 @@ $recentPayees = $dailyService->recentPayees('', 30);
             <button type="button" class="modal-close" onclick="closeQuickTxModal()">×</button>
         </header>
 
+        <!-- SELETOR DE MODO DO MODAL: DIÁRIO vs PROVISIONAMENTO DE RECEITAS FUTURAS -->
+        <div class="quick-modal-mode-tabs" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; background: #f1f5f9; padding: 4px; border-radius: 8px;">
+            <button type="button" id="tabBtnDailyTx" class="quick-tab-btn active" onclick="switchQuickModalTab('daily')">
+                ⚡ Lançamento Diário (Gasto / Receita)
+            </button>
+            <button type="button" id="tabBtnFutureIncome" class="quick-tab-btn" onclick="switchQuickModalTab('future')">
+                📈 Provisionar Receitas Futuras (BRL / USD)
+            </button>
+        </div>
+
         <form method="post" id="quickTxForm" class="form-grid" style="gap: 14px;">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="save_daily_transaction">
@@ -1185,6 +1226,14 @@ $recentPayees = $dailyService->recentPayees('', 30);
                     <input type="radio" name="type" value="income" onchange="handleTypeChange('income')">
                     <span>💰 Entrada / Receita</span>
                 </label>
+            </div>
+
+            <!-- AVISO DE ATALHO PARA PROVISIONAMENTO FUTURO QUANDO ENTRADA SELECIONADA -->
+            <div id="futureIncomeNotice" class="full-field" style="display: none; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; font-size: 13px; color: #065f46; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <span>💡 <strong>Planejando recebimentos futuros?</strong> Provisione receitas semanais, quinzenais ou mensais em Reais (BRL) e Dólares (USD).</span>
+                <button type="button" onclick="switchQuickModalTab('future')" style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 12px;">
+                    Abrir Provisionador ↗
+                </button>
             </div>
 
             <!-- VALOR E DATA -->
@@ -1345,6 +1394,231 @@ $recentPayees = $dailyService->recentPayees('', 30);
             <footer class="form-actions full-field" style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px;">
                 <button type="button" class="button ghost" onclick="closeQuickTxModal()">Cancelar</button>
                 <button type="submit" class="button primary" id="quickTxSubmitBtn">✓ Salvar Lançamento</button>
+            </footer>
+        </form>
+
+        <!-- FORMULÁRIO 2: PROVISIONAMENTO AVANÇADO DE RECEITAS FUTURAS (BRL / USD) -->
+        <form method="post" id="futureIncomeForm" class="form-grid" style="gap: 14px; display: none;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="save_daily_future_income">
+            <input type="hidden" name="_return" value="?page=financeiro&tab=agenda">
+
+            <!-- 1. SELETOR DE MOEDA: BRL OU USD -->
+            <div class="full-field">
+                <label style="font-weight: 700; margin-bottom: 6px; display: block;">Moeda do Recebimento *</label>
+                <div class="currency-toggle-cards" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <label class="currency-radio-card active-currency" id="currencyCardBrl">
+                        <input type="radio" name="currency" value="BRL" checked onchange="handleFutureCurrencyChange('BRL')">
+                        <div class="currency-card-content">
+                            <span class="flag-icon">🇧🇷</span>
+                            <div>
+                                <b>Real Brasileiro (BRL)</b>
+                                <small>Moeda Local · R$</small>
+                            </div>
+                        </div>
+                    </label>
+                    <label class="currency-radio-card" id="currencyCardUsd">
+                        <input type="radio" name="currency" value="USD" onchange="handleFutureCurrencyChange('USD')">
+                        <div class="currency-card-content">
+                            <span class="flag-icon">🇺🇸</span>
+                            <div>
+                                <b>Dólar Americano (USD)</b>
+                                <small>Moeda Estrangeira · US$</small>
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- BLOCO CONDICIONAL: CÂMBIO USD / BRL -->
+            <div id="futureUsdExchangeBlock" class="full-field" style="display: none; background: #f0f9ff; border: 1px solid #bae6fd; padding: 12px 16px; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div>
+                        <b style="color: #0369a1; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                            💱 Cotação Dólar Comercial (USD ➔ BRL)
+                        </b>
+                        <small style="color: #0284c7; font-size: 11px;">Entradas registradas em US$ e convertidas para R$ para projeção de liquidez.</small>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 13px; font-weight: 700; color: #0369a1;">1 US$ = R$</span>
+                        <input type="text" name="exchange_rate" id="futureExchangeRateInput" value="<?= number_format($currentUsdRate, 4, ',', '.') ?>" style="width: 105px; min-height: 36px; padding: 4px 8px; font-weight: 700; text-align: right; background: #fff;" oninput="updateFutureSchedule()">
+                        <button type="button" class="button ghost small" onclick="resetDefaultExchangeRate(<?= $currentUsdRate ?>)" title="Restaurar cotação oficial do dia" style="font-size: 11px; padding: 4px 8px;">↺ Oficial</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. VALOR POR RECEBIMENTO E DATA DE INÍCIO -->
+            <div>
+                <label id="futureAmountLabel">Valor Previsto por Entrada (R$) *</label>
+                <input type="text" name="amount" id="futureAmountInput" required placeholder="0,00" class="input-lg" autocomplete="off" oninput="updateFutureSchedule()">
+                <small id="futureConvertedPreview" style="display: none; color: #0284c7; font-weight: 600; margin-top: 4px;">≈ R$ 0,00 por entrada</small>
+            </div>
+            <div>
+                <label>Data da 1ª Entrada (Início) *</label>
+                <input type="date" name="start_date" id="futureStartDateInput" required value="<?= date('Y-m-d') ?>" onchange="updateFutureSchedule()">
+            </div>
+
+            <!-- 3. PERIODICIDADE / FREQUÊNCIA AVANÇADA (SEMANAL, QUINZENAL, MENSAL) -->
+            <div class="full-field">
+                <label style="font-weight: 700; margin-bottom: 6px; display: block;">Periodicidade do Provisionamento *</label>
+                <div class="frequency-toggle-cards" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                    <label class="frequency-radio-card" id="freqCardWeekly">
+                        <input type="radio" name="frequency" value="weekly" onchange="handleFutureFrequencyChange('weekly')">
+                        <div class="freq-card-content">
+                            <span style="font-size: 18px;">📅</span>
+                            <div>
+                                <b>Semanal</b>
+                                <small>A cada 7 dias</small>
+                            </div>
+                        </div>
+                    </label>
+                    <label class="frequency-radio-card" id="freqCardBiweekly">
+                        <input type="radio" name="frequency" value="biweekly" onchange="handleFutureFrequencyChange('biweekly')">
+                        <div class="freq-card-content">
+                            <span style="font-size: 18px;">🗓️</span>
+                            <div>
+                                <b>Quinzenal</b>
+                                <small>A cada 15 dias</small>
+                            </div>
+                        </div>
+                    </label>
+                    <label class="frequency-radio-card active-frequency" id="freqCardMonthly">
+                        <input type="radio" name="frequency" value="monthly" checked onchange="handleFutureFrequencyChange('monthly')">
+                        <div class="freq-card-content">
+                            <span style="font-size: 18px;">📆</span>
+                            <div>
+                                <b>Mensal</b>
+                                <small>Todo mês (fixo)</small>
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 4. QUANTIDADE DE RECEBIMENTOS E REGRA DE DIAS ÚTEIS -->
+            <div>
+                <label style="display: flex; justify-content: space-between; align-items: center;">
+                    <span id="futureOccurrencesLabel">Quantidade de Recebimentos *</span>
+                    <span id="futurePresetBadges" style="display: flex; gap: 4px;">
+                        <!-- Presets rápidos preenchidos via JS -->
+                    </span>
+                </label>
+                <input type="number" name="total_occurrences" id="futureOccurrencesInput" min="1" max="104" value="6" required style="font-weight: 700;" oninput="updateFutureSchedule()">
+            </div>
+            <div>
+                <label>Ajuste para Dias Úteis (Fins de Semana)</label>
+                <select name="weekend_rule" id="futureWeekendRuleSelect" onchange="updateFutureSchedule()">
+                    <option value="exact">Manter dia exato da data</option>
+                    <option value="prior_friday">Se cair no sábado/domingo, antecipar para sexta-feira</option>
+                    <option value="next_monday">Se cair no sábado/domingo, adiar para segunda-feira</option>
+                </select>
+            </div>
+
+            <!-- 5. CLIENTE / FONTE PAGADORA E CATEGORIA OFICIAL -->
+            <div class="full-field">
+                <label>Cliente / Fonte Pagadora (Favorecido) *</label>
+                <input list="payeesList" name="payee_name" id="futurePayeeInput" required placeholder="Ex: Cliente Internacional XYZ, Upwork, Hotmart, Contrato Mensal..." autocomplete="off">
+            </div>
+
+            <div>
+                <label>Categoria Oficial de Receita *</label>
+                <select name="category_id" id="futureCategorySelect" required>
+                    <option value="">Selecione a categoria de receita...</option>
+                    <?php if (!empty($categoryTree['income'])): ?>
+                        <?php foreach ($categoryTree['income'] as $cat): ?>
+                            <?php if (!empty($cat['children'])): ?>
+                                <optgroup label="<?= h($cat['name']) ?>">
+                                    <option value="<?= (int)$cat['id'] ?>"><?= h($cat['name']) ?> (Geral)</option>
+                                    <?php foreach ($cat['children'] as $child): ?>
+                                        <option value="<?= (int)$child['id'] ?>">› <?= h($child['name']) ?></option>
+                                    <?php endforeach; ?>
+                                </optgroup>
+                            <?php else: ?>
+                                <option value="<?= (int)$cat['id'] ?>"><?= h($cat['name']) ?></option>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </select>
+            </div>
+
+            <div>
+                <label>Forma Prevista de Recebimento *</label>
+                <select name="payment_method" id="futurePaymentMethodSelect">
+                    <option value="pix">⚡ PIX</option>
+                    <option value="transfer">🏦 Transferência Bancária / TED</option>
+                    <option value="boleto">📄 Boleto Bancário / Faturamento</option>
+                    <option value="cash">💵 Dinheiro em Espécie</option>
+                    <option value="credit_card">💳 Cartão / Gateway</option>
+                </select>
+            </div>
+
+            <div class="full-field">
+                <label>Descrição ou Identificador do Contrato (Opcional)</label>
+                <input type="text" name="description" id="futureDescriptionInput" placeholder="Ex: Contrato Anual de Suporte, Faturamento Consultoria, Repasse Quinzenal...">
+            </div>
+
+            <!-- 6. CRONOGRAMA PREDITIVO COM AJUSTE FINO DE DATAS E VALORES -->
+            <div class="full-field" style="background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                    <div>
+                        <b style="color: var(--ink); font-size: 14px; display: flex; align-items: center; gap: 6px;">
+                            📅 Cronograma das Receitas Previstas (Ajuste Fino)
+                        </b>
+                        <small class="muted" style="font-size: 11px;">Entradas calculadas com base na frequência. Você pode ajustar a data e o valor de qualquer parcela individualmente.</small>
+                    </div>
+                    <button type="button" class="button ghost small" onclick="updateFutureSchedule(true)" title="Restaurar distribuição padrão de valores" style="font-size: 12px; padding: 6px 12px;">
+                        ↺ Restaurar Padrão
+                    </button>
+                </div>
+
+                <div class="installments-scroll-wrap" style="max-height: 240px; overflow-y: auto;">
+                    <table class="installments-table">
+                        <thead>
+                            <tr>
+                                <th style="text-align: center; width: 80px;">Entrada</th>
+                                <th style="text-align: left; min-width: 170px;">Data Prevista</th>
+                                <th style="text-align: right; width: 170px;" id="futureTableAmountHeader">Valor (R$)</th>
+                                <th style="text-align: right; width: 160px; display: none;" id="futureTableBrlHeader">Estimado (R$)</th>
+                                <th style="text-align: center; width: 110px;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="futureScheduleTableBody">
+                            <!-- Gerado dinamicamente via JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Barra de Resumo e Balanço em Tempo Real -->
+                <div style="margin-top: 12px; padding: 10px 14px; border-radius: 6px; background: #ecfdf5; border: 1px solid #a7f3d0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 13px;">
+                    <div>
+                        <span>Total Provisionado: <strong id="futureSumOriginalText" style="color: #047857;">R$ 0,00</strong></span>
+                        <span id="futureSumConvertedWrap" style="display: none; margin-left: 10px;">
+                            <span style="color: #cbd5e1; margin-right: 10px;">|</span>
+                            <span>Equivalente Total: <strong id="futureSumConvertedText" style="color: #0369a1;">R$ 0,00</strong></span>
+                        </span>
+                    </div>
+                    <span id="futureOccurrencesCountBadge" class="badge good" style="font-weight: 700;">0 recebimentos</span>
+                </div>
+            </div>
+
+            <!-- 7. OPÇÃO DE SALVAR COMO COMPROMISSO RECORRENTE -->
+            <div class="full-field" style="background: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <label style="display: inline-flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; margin: 0; font-size: 13px; color: var(--ink);">
+                    <input type="checkbox" name="save_as_commitment" value="1">
+                    <span>📌 Registrar também como regra de compromisso ativo na aba <em>"Despesas Fixas & Filhos / Compromissos"</em></span>
+                </label>
+            </div>
+
+            <div class="full-field">
+                <label>Observações / Instruções de Recebimento (Opcional)</label>
+                <input type="text" name="notes" id="futureNotesInput" placeholder="Ex: Dados de conta internacional, banco intermediário, número do contrato...">
+            </div>
+
+            <footer class="form-actions full-field" style="margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" class="button ghost" onclick="closeQuickTxModal()">Cancelar</button>
+                <button type="submit" class="button primary" id="futureIncomeSubmitBtn" style="background: #059669; border-color: #059669;">
+                    ✓ Confirmar e Provisionar Receitas
+                </button>
             </footer>
         </form>
     </section>
@@ -1805,17 +2079,20 @@ function handleTypeChange(type) {
     const incLabel = document.getElementById('radioLabelIncome');
     const statusRealizedText = document.getElementById('statusLabelRealized');
     const statusPendingText = document.getElementById('statusLabelPending');
+    const futureNotice = document.getElementById('futureIncomeNotice');
 
     if (type === 'expense') {
         if (expLabel) expLabel.className = 'type-radio-btn active-expense';
         if (incLabel) incLabel.className = 'type-radio-btn';
         if (statusRealizedText) statusRealizedText.textContent = '✓ Já Pago / Realizado';
         if (statusPendingText) statusPendingText.textContent = '⏳ Pendente / A Pagar';
+        if (futureNotice) futureNotice.style.display = 'none';
     } else {
         if (expLabel) expLabel.className = 'type-radio-btn';
         if (incLabel) incLabel.className = 'type-radio-btn active-income';
         if (statusRealizedText) statusRealizedText.textContent = '✓ Já Recebido / Realizado';
         if (statusPendingText) statusPendingText.textContent = '⏳ Pendente / A Receber';
+        if (futureNotice) futureNotice.style.display = 'flex';
     }
 }
 
@@ -2070,12 +2347,323 @@ function handlePayeeSelect(val) {
     }
 }
 
+// Alternar Abas no Modal de Lançamento Rápido
+function switchQuickModalTab(tab) {
+    const dailyForm = document.getElementById('quickTxForm');
+    const futureForm = document.getElementById('futureIncomeForm');
+    const tabDaily = document.getElementById('tabBtnDailyTx');
+    const tabFuture = document.getElementById('tabBtnFutureIncome');
+    const title = document.getElementById('quickTxModalTitle');
+
+    if (tab === 'future') {
+        if (tabDaily) tabDaily.classList.remove('active');
+        if (tabFuture) tabFuture.classList.add('active');
+        if (dailyForm) dailyForm.style.display = 'none';
+        if (futureForm) futureForm.style.display = 'grid';
+        if (title) title.textContent = '📈 Provisionamento de Receitas Futuras';
+        updateFutureSchedule();
+    } else {
+        if (tabFuture) tabFuture.classList.remove('active');
+        if (tabDaily) tabDaily.classList.add('active');
+        if (futureForm) futureForm.style.display = 'none';
+        if (dailyForm) dailyForm.style.display = 'grid';
+        if (title) title.textContent = '⚡ Novo Lançamento Diário';
+    }
+}
+
+// Atalho Direto para o Provisionador
+function openFutureIncomeModal() {
+    openQuickTxModal('future');
+}
+
+// Moeda no Provisionador de Receitas Futuras
+function handleFutureCurrencyChange(currency) {
+    const cardBrl = document.getElementById('currencyCardBrl');
+    const cardUsd = document.getElementById('currencyCardUsd');
+    const usdBlock = document.getElementById('futureUsdExchangeBlock');
+    const amountLabel = document.getElementById('futureAmountLabel');
+    const thAmount = document.getElementById('futureTableAmountHeader');
+    const thBrl = document.getElementById('futureTableBrlHeader');
+    const preview = document.getElementById('futureConvertedPreview');
+    const wrap = document.getElementById('futureSumConvertedWrap');
+
+    if (currency === 'USD') {
+        if (cardBrl) cardBrl.className = 'currency-radio-card';
+        if (cardUsd) cardUsd.className = 'currency-radio-card active-currency';
+        if (usdBlock) usdBlock.style.display = 'block';
+        if (amountLabel) amountLabel.textContent = 'Valor Previsto por Entrada (US$) *';
+        if (thAmount) thAmount.textContent = 'Valor (US$)';
+        if (thBrl) thBrl.style.display = 'table-cell';
+        if (preview) preview.style.display = 'block';
+        if (wrap) wrap.style.display = 'inline';
+    } else {
+        if (cardBrl) cardBrl.className = 'currency-radio-card active-currency';
+        if (cardUsd) cardUsd.className = 'currency-radio-card';
+        if (usdBlock) usdBlock.style.display = 'none';
+        if (amountLabel) amountLabel.textContent = 'Valor Previsto por Entrada (R$) *';
+        if (thAmount) thAmount.textContent = 'Valor (R$)';
+        if (thBrl) thBrl.style.display = 'none';
+        if (preview) preview.style.display = 'none';
+        if (wrap) wrap.style.display = 'none';
+    }
+
+    updateFutureSchedule(true);
+}
+
+// Frequência no Provisionador (Semanal, Quinzenal, Mensal)
+function handleFutureFrequencyChange(freq) {
+    const cardW = document.getElementById('freqCardWeekly');
+    const cardB = document.getElementById('freqCardBiweekly');
+    const cardM = document.getElementById('freqCardMonthly');
+    const occLabel = document.getElementById('futureOccurrencesLabel');
+    const occInput = document.getElementById('futureOccurrencesInput');
+    const presetsContainer = document.getElementById('futurePresetBadges');
+
+    if (cardW) cardW.className = 'frequency-radio-card' + (freq === 'weekly' ? ' active-frequency' : '');
+    if (cardB) cardB.className = 'frequency-radio-card' + (freq === 'biweekly' ? ' active-frequency' : '');
+    if (cardM) cardM.className = 'frequency-radio-card' + (freq === 'monthly' ? ' active-frequency' : '');
+
+    let presets = [];
+    if (freq === 'weekly') {
+        if (occLabel) occLabel.textContent = 'Quantidade de Semanas *';
+        if (occInput && (!occInput.value || occInput.value === '6' || occInput.value === '12')) occInput.value = '4';
+        presets = [4, 8, 12, 26, 52];
+    } else if (freq === 'biweekly') {
+        if (occLabel) occLabel.textContent = 'Quantidade de Quinzenas *';
+        if (occInput && (!occInput.value || occInput.value === '4' || occInput.value === '12')) occInput.value = '6';
+        presets = [2, 4, 6, 12, 24];
+    } else {
+        if (occLabel) occLabel.textContent = 'Quantidade de Meses *';
+        if (occInput && (!occInput.value || occInput.value === '4')) occInput.value = '6';
+        presets = [3, 6, 12, 24, 36];
+    }
+
+    if (presetsContainer) {
+        presetsContainer.innerHTML = '';
+        presets.forEach(p => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'future-preset-pill';
+            btn.textContent = p + 'x';
+            btn.onclick = () => {
+                if (occInput) {
+                    occInput.value = p;
+                    updateFutureSchedule(true);
+                }
+            };
+            presetsContainer.appendChild(btn);
+        });
+    }
+
+    updateFutureSchedule(true);
+}
+
+function resetDefaultExchangeRate(officialRate) {
+    const input = document.getElementById('futureExchangeRateInput');
+    if (input) {
+        input.value = officialRate.toFixed(4).replace('.', ',');
+    }
+    updateFutureSchedule(true);
+}
+
+function calculateFutureDate(startDateStr, index, frequency, weekendRule) {
+    if (!startDateStr) return '';
+    const parts = startDateStr.split('-').map(Number);
+    if (parts.length < 3) return startDateStr;
+    const year = parts[0];
+    const month = parts[1];
+    const day = parts[2];
+    const dt = new Date(year, month - 1, day);
+
+    if (frequency === 'weekly') {
+        dt.setDate(dt.getDate() + (index * 7));
+    } else if (frequency === 'biweekly') {
+        dt.setDate(dt.getDate() + (index * 14));
+    } else if (frequency === 'monthly') {
+        const targetMonth = (month - 1) + index;
+        const targetYear = year + Math.floor(targetMonth / 12);
+        const remMonth = targetMonth % 12;
+        const daysInTargetMonth = new Date(targetYear, remMonth + 1, 0).getDate();
+        const targetDay = Math.min(day, daysInTargetMonth);
+        dt.setFullYear(targetYear, remMonth, targetDay);
+    }
+
+    const dayOfWeek = dt.getDay(); // 0: Dom, 6: Sáb
+    if (weekendRule === 'prior_friday') {
+        if (dayOfWeek === 6) dt.setDate(dt.getDate() - 1);
+        else if (dayOfWeek === 0) dt.setDate(dt.getDate() - 2);
+    } else if (weekendRule === 'next_monday') {
+        if (dayOfWeek === 6) dt.setDate(dt.getDate() + 2);
+        else if (dayOfWeek === 0) dt.setDate(dt.getDate() + 1);
+    }
+
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function updateFutureSchedule(rebuildAll = false) {
+    const currRadio = document.querySelector('input[name="currency"]:checked');
+    const currency = currRadio ? currRadio.value : 'BRL';
+
+    const freqRadio = document.querySelector('input[name="frequency"]:checked');
+    const frequency = freqRadio ? freqRadio.value : 'monthly';
+
+    const amountInput = document.getElementById('futureAmountInput');
+    const rawAmount = amountInput ? parseMonetary(amountInput.value) : 0;
+
+    const rateInput = document.getElementById('futureExchangeRateInput');
+    const exchangeRate = (currency === 'USD' && rateInput) ? (parseMonetary(rateInput.value) || 1.0) : 1.0;
+
+    const startDateInput = document.getElementById('futureStartDateInput');
+    const startDate = (startDateInput && startDateInput.value) ? startDateInput.value : new Date().toISOString().split('T')[0];
+
+    const occInput = document.getElementById('futureOccurrencesInput');
+    let totalOccurrences = occInput ? parseInt(occInput.value, 10) : 6;
+    if (isNaN(totalOccurrences) || totalOccurrences < 1) totalOccurrences = 1;
+    if (totalOccurrences > 104) totalOccurrences = 104;
+
+    const weekendRuleSelect = document.getElementById('futureWeekendRuleSelect');
+    const weekendRule = weekendRuleSelect ? weekendRuleSelect.value : 'exact';
+
+    const preview = document.getElementById('futureConvertedPreview');
+    if (preview) {
+        if (currency === 'USD' && rawAmount > 0) {
+            const converted = rawAmount * exchangeRate;
+            preview.textContent = `≈ R$ ${formatMonetary(converted)} por entrada`;
+            preview.style.display = 'block';
+        } else {
+            preview.style.display = 'none';
+        }
+    }
+
+    const tbody = document.getElementById('futureScheduleTableBody');
+    if (!tbody) return;
+
+    const existingRows = tbody.querySelectorAll('tr');
+    if (rebuildAll || existingRows.length !== totalOccurrences) {
+        tbody.innerHTML = '';
+        for (let i = 0; i < totalOccurrences; i++) {
+            const dateVal = calculateFutureDate(startDate, i, frequency, weekendRule);
+            const num = i + 1;
+            const cycleName = frequency === 'weekly' ? `Semana ${num}` : (frequency === 'biweekly' ? `Quinzena ${num}` : `Mês ${num}`);
+            const convertedRowVal = currency === 'USD' ? (rawAmount * exchangeRate) : rawAmount;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="text-align: center; font-weight: 700; color: #475569; font-size: 12px;">
+                    ${cycleName}
+                    <input type="hidden" name="installments[${i}][number]" value="${num}">
+                </td>
+                <td>
+                    <input type="date" name="installments[${i}][date]" class="future-row-date" value="${dateVal}" style="width: 100%; min-height: 32px; padding: 2px 6px; font-size: 13px;" onchange="handleFutureRowDateChange(this)">
+                </td>
+                <td style="text-align: right;">
+                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+                        <span style="font-size: 12px; color: var(--muted); font-weight: 600;">${currency === 'USD' ? 'US$' : 'R$'}</span>
+                        <input type="text" name="installments[${i}][original_amount]" class="future-row-amount" value="${formatMonetary(rawAmount)}" style="width: 110px; min-height: 32px; padding: 2px 6px; text-align: right; font-weight: 700; font-size: 13px;" oninput="handleFutureRowAmountChange(${i})">
+                        <input type="hidden" name="installments[${i}][exchange_rate]" class="future-row-rate" value="${exchangeRate.toFixed(4)}">
+                    </div>
+                </td>
+                <td style="text-align: right; ${currency === 'USD' ? '' : 'display: none;'}" class="future-col-converted">
+                    <b class="future-row-converted-text" style="color: #0369a1; font-size: 13px;">R$ ${formatMonetary(convertedRowVal)}</b>
+                </td>
+                <td style="text-align: center;">
+                    <span class="badge warning" style="font-size: 11px;">⏳ A Receber</span>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        }
+    } else {
+        existingRows.forEach((tr, i) => {
+            const amountInp = tr.querySelector('.future-row-amount');
+            const rowVal = amountInp ? parseMonetary(amountInp.value) : rawAmount;
+            const convertedText = tr.querySelector('.future-row-converted-text');
+            const convertedCol = tr.querySelector('.future-col-converted');
+            const rateHidden = tr.querySelector('.future-row-rate');
+
+            if (convertedCol) {
+                convertedCol.style.display = (currency === 'USD') ? 'table-cell' : 'none';
+            }
+            if (rateHidden) {
+                rateHidden.value = exchangeRate.toFixed(4);
+            }
+            if (convertedText) {
+                convertedText.textContent = `R$ ${formatMonetary(rowVal * exchangeRate)}`;
+            }
+        });
+    }
+
+    recalcFutureTotals();
+}
+
+function handleFutureRowAmountChange(rowIndex) {
+    const tbody = document.getElementById('futureScheduleTableBody');
+    if (!tbody) return;
+    const row = tbody.children[rowIndex];
+    if (!row) return;
+
+    const currRadio = document.querySelector('input[name="currency"]:checked');
+    const currency = currRadio ? currRadio.value : 'BRL';
+
+    const rateInput = document.getElementById('futureExchangeRateInput');
+    const exchangeRate = (currency === 'USD' && rateInput) ? (parseMonetary(rateInput.value) || 1.0) : 1.0;
+
+    const amountInp = row.querySelector('.future-row-amount');
+    const rowVal = amountInp ? parseMonetary(amountInp.value) : 0;
+    const convertedText = row.querySelector('.future-row-converted-text');
+    if (convertedText) {
+        convertedText.textContent = `R$ ${formatMonetary(rowVal * exchangeRate)}`;
+    }
+
+    recalcFutureTotals();
+}
+
+function handleFutureRowDateChange(input) {
+    // Validação reativa da data
+}
+
+function recalcFutureTotals() {
+    const tbody = document.getElementById('futureScheduleTableBody');
+    if (!tbody) return;
+
+    const currRadio = document.querySelector('input[name="currency"]:checked');
+    const currency = currRadio ? currRadio.value : 'BRL';
+
+    const rateInput = document.getElementById('futureExchangeRateInput');
+    const exchangeRate = (currency === 'USD' && rateInput) ? (parseMonetary(rateInput.value) || 1.0) : 1.0;
+
+    let sumOriginal = 0;
+    let count = 0;
+    const amountInputs = tbody.querySelectorAll('.future-row-amount');
+    amountInputs.forEach(inp => {
+        sumOriginal += parseMonetary(inp.value);
+        count++;
+    });
+
+    const sumConverted = sumOriginal * exchangeRate;
+
+    const origText = document.getElementById('futureSumOriginalText');
+    const convText = document.getElementById('futureSumConvertedText');
+    const badge = document.getElementById('futureOccurrencesCountBadge');
+
+    if (origText) {
+        origText.textContent = (currency === 'USD' ? 'US$ ' : 'R$ ') + formatMonetary(sumOriginal);
+    }
+    if (convText) {
+        convText.textContent = 'R$ ' + formatMonetary(sumConverted);
+    }
+    if (badge) {
+        badge.textContent = `${count} recebimento(s)`;
+    }
+}
+
 // Modal Quick Launch
-function openQuickTxModal() {
+function openQuickTxModal(initialMode = 'daily') {
     const form = document.getElementById('quickTxForm');
     if (form) form.reset();
     document.getElementById('txIdInput').value = '';
-    document.getElementById('quickTxModalTitle').textContent = '⚡ Novo Lançamento Diário';
     document.getElementById('txDateInput').value = new Date().toISOString().split('T')[0];
     const typeExpRadio = document.querySelector('input[name="type"][value="expense"]');
     if (typeExpRadio) typeExpRadio.checked = true;
@@ -2087,6 +2675,15 @@ function openQuickTxModal() {
     toggleInstallmentsSection(false);
     document.getElementById('enableInstallmentsCheckbox').checked = false;
     document.getElementById('installmentOptionBlock').style.display = 'block';
+
+    const futForm = document.getElementById('futureIncomeForm');
+    if (futForm) futForm.reset();
+    const currBrlRadio = document.querySelector('input[name="currency"][value="BRL"]');
+    if (currBrlRadio) currBrlRadio.checked = true;
+    handleFutureCurrencyChange('BRL');
+    handleFutureFrequencyChange('monthly');
+
+    switchQuickModalTab(initialMode === 'future' ? 'future' : 'daily');
     document.getElementById('quickTxModal').classList.add('open');
 }
 
@@ -2096,6 +2693,7 @@ function closeQuickTxModal() {
 
 // Modal Editar Lançamento
 function openEditTxModal(tx) {
+    switchQuickModalTab('daily');
     document.getElementById('txIdInput').value = tx.id;
     document.getElementById('quickTxModalTitle').textContent = '✎ Editar Lançamento';
     document.getElementById('txAmountInput').value = formatMonetary(tx.amount);
@@ -3013,5 +3611,148 @@ document.addEventListener('DOMContentLoaded', () => {
     background: #f1f5f9 !important;
     border-color: #94a3b8 !important;
     color: #0f172a !important;
+}
+
+/* Modos e Abas do Modal de Lançamento */
+.quick-modal-mode-tabs {
+    border: 1px solid var(--line);
+}
+.quick-tab-btn {
+    background: transparent;
+    border: none;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.quick-tab-btn:hover {
+    color: var(--ink);
+}
+.quick-tab-btn.active {
+    background: #fff;
+    color: var(--ink);
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* Cards de Seleção de Moeda (BRL / USD) */
+.currency-radio-card {
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    background: #fff;
+    transition: all 0.2s ease;
+}
+.currency-radio-card input[type="radio"] {
+    accent-color: #059669;
+}
+.currency-radio-card.active-currency {
+    border-color: #059669 !important;
+    background: #ecfdf5 !important;
+    box-shadow: 0 0 0 1px #059669;
+}
+.currency-card-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.currency-card-content .flag-icon {
+    font-size: 22px;
+    line-height: 1;
+}
+.currency-card-content b {
+    display: block;
+    font-size: 13px;
+    color: var(--ink);
+}
+.currency-card-content small {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+/* Cards de Periodicidade / Frequência (Semanal, Quinzenal, Mensal) */
+.frequency-radio-card {
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    background: #fff;
+    transition: all 0.2s ease;
+}
+.frequency-radio-card input[type="radio"] {
+    accent-color: #0284c7;
+}
+.frequency-radio-card.active-frequency {
+    border-color: #0284c7 !important;
+    background: #f0f9ff !important;
+    box-shadow: 0 0 0 1px #0284c7;
+}
+.freq-card-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.freq-card-content b {
+    display: block;
+    font-size: 13px;
+    color: var(--ink);
+}
+.freq-card-content small {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+/* Pills de Presets de Quantidade */
+.future-preset-pill {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.future-preset-pill:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+    border-color: #94a3b8;
+}
+
+/* Badges de Moeda para Extrato e Agenda */
+.badge-currency-usd {
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+    font-weight: 700;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+.badge-currency-brl {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+    font-weight: 700;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
 }
 </style>
