@@ -69,6 +69,7 @@ final class ActionHandler
                 'save_cash' => $this->saveCash(),
                 'delete_cash' => $this->deleteCash(),
                 'refresh_rate' => $this->refreshRate(),
+                'reset_dashboard_card' => $this->resetDashboardCard(),
                 'save_settings' => $this->saveSettings(),
                 'save_whatsapp_reminders' => $this->saveWhatsAppReminders(),
                 'test_whatsapp_connection' => $this->testWhatsAppConnection(),
@@ -1542,6 +1543,70 @@ final class ActionHandler
         audit($this->db, 'update', 'settings');
         Flash::add('success', 'Configurações salvas.');
         return '?page=settings';
+    }
+
+    private function resetDashboardCard(): string
+    {
+        $card = trim((string)($_POST['card'] ?? 'all'));
+        $validCards = ['revenue', 'profit', 'mrr', 'cash', 'all'];
+        if (!in_array($card, $validCards, true)) {
+            $card = 'all';
+        }
+
+        $businessUnitId = isset($_POST['bu']) && $_POST['bu'] !== '' ? (int)$_POST['bu'] : null;
+        $clear = !empty($_POST['clear']);
+        $applyToAll = !empty($_POST['apply_to_all']) || $card === 'all';
+        $finance = new \App\Services\FinanceService($this->db);
+
+        $cardLabels = [
+            'revenue' => 'Faturamento Bruto',
+            'profit' => 'Lucro Líquido',
+            'mrr' => 'Receita Recorrente (MRR)',
+            'cash' => 'Saldo de Caixa Atual',
+        ];
+
+        if ($clear) {
+            if ($applyToAll) {
+                foreach (array_keys($cardLabels) as $cKey) {
+                    $finance->clearCardReset($cKey, $businessUnitId);
+                }
+                Flash::add('success', 'Histórico completo restaurado para todos os cards do dashboard.');
+            } else {
+                $finance->clearCardReset($card, $businessUnitId);
+                Flash::add('success', 'Histórico completo restaurado para ' . ($cardLabels[$card] ?? 'o card') . '.');
+            }
+            audit($this->db, 'reset_clear', 'dashboard_card', 0, ['card' => $card, 'business_unit_id' => $businessUnitId]);
+            return $this->returnUrl('?page=dashboard');
+        }
+
+        $resetDate = $this->required('reset_date', 'Informe a data de início do marco zero.');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $resetDate)) {
+            throw new \RuntimeException('Data de marco zero inválida.');
+        }
+
+        $initialAmount = normalize_decimal($_POST['initial_amount'] ?? 0.0);
+
+        if ($applyToAll) {
+            foreach (array_keys($cardLabels) as $cKey) {
+                $init = ($cKey === 'cash') ? $initialAmount : 0.0;
+                $finance->setCardReset($cKey, $resetDate, $init, $businessUnitId);
+            }
+            Flash::add('success', 'Marco zero aplicado a todos os cards a partir de ' . date_br($resetDate) . '.');
+        } else {
+            $init = ($card === 'cash') ? $initialAmount : 0.0;
+            $finance->setCardReset($card, $resetDate, $init, $businessUnitId);
+            Flash::add('success', 'Marco zero aplicado para ' . ($cardLabels[$card] ?? 'o card') . ' a partir de ' . date_br($resetDate) . '.');
+        }
+
+        audit($this->db, 'reset_set', 'dashboard_card', 0, [
+            'card' => $card,
+            'date' => $resetDate,
+            'initial_amount' => $initialAmount,
+            'business_unit_id' => $businessUnitId,
+            'apply_to_all' => $applyToAll
+        ]);
+
+        return $this->returnUrl('?page=dashboard');
     }
 
     private function saveWhatsAppReminders(): string

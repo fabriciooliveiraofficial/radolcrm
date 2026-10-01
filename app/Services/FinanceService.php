@@ -13,6 +13,62 @@ final class FinanceService
     {
     }
 
+    public function getCardReset(string $cardKey, ?int $businessUnitId = null): ?array
+    {
+        $key = 'dashboard_reset_' . $cardKey;
+        if ($businessUnitId) {
+            $buVal = $this->db->value("SELECT setting_value FROM settings WHERE setting_key = ?", [$key . '_bu_' . $businessUnitId]);
+            if ($buVal) {
+                $decoded = json_decode((string)$buVal, true);
+                if (is_array($decoded) && !empty($decoded['date'])) {
+                    return $decoded;
+                }
+            }
+        }
+        $val = $this->db->value("SELECT setting_value FROM settings WHERE setting_key = ?", [$key]);
+        if ($val) {
+            $decoded = json_decode((string)$val, true);
+            if (is_array($decoded) && !empty($decoded['date'])) {
+                return $decoded;
+            }
+        }
+        return null;
+    }
+
+    public function setCardReset(string $cardKey, string $date, float $initialAmount = 0.0, ?int $businessUnitId = null): void
+    {
+        $key = 'dashboard_reset_' . $cardKey . ($businessUnitId ? '_bu_' . $businessUnitId : '');
+        $data = json_encode([
+            'date' => $date,
+            'initial_amount' => $initialAmount,
+            'set_at' => date('Y-m-d H:i:s'),
+        ], JSON_UNESCAPED_UNICODE);
+
+        $this->db->query(
+            "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)",
+            [$key, $data]
+        );
+    }
+
+    public function clearCardReset(string $cardKey, ?int $businessUnitId = null): void
+    {
+        $key = 'dashboard_reset_' . $cardKey;
+        if ($businessUnitId) {
+            $this->db->query("DELETE FROM settings WHERE setting_key = ?", [$key . '_bu_' . $businessUnitId]);
+        }
+        $this->db->query("DELETE FROM settings WHERE setting_key = ?", [$key]);
+    }
+
+    public function allCardResets(?int $businessUnitId = null): array
+    {
+        return [
+            'revenue' => $this->getCardReset('revenue', $businessUnitId),
+            'profit' => $this->getCardReset('profit', $businessUnitId),
+            'mrr' => $this->getCardReset('mrr', $businessUnitId),
+            'cash' => $this->getCardReset('cash', $businessUnitId),
+        ];
+    }
+
     public function dashboard(string $from, string $to, float $usdRate, ?int $businessUnitId = null): array
     {
         $buWherePay = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
@@ -20,24 +76,95 @@ final class FinanceService
         $buWhereCash = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
         $buWhereSub = $businessUnitId ? ' AND c.business_unit_id = ' . (int) $businessUnitId : '';
 
-        $payments = $this->db->fetch(
-            "SELECT COALESCE(SUM(amount_brl),0) gross, COALESCE(SUM(fee_brl),0) fees, COALESCE(SUM(net_brl),0) net,
-                    COALESCE(SUM(CASE WHEN currency='USD' THEN amount ELSE 0 END),0) usd,
-                    COALESCE(SUM(CASE WHEN currency='BRL' THEN amount ELSE 0 END),0) brl,
-                    COUNT(*) payment_count
-             FROM payments WHERE status = 'paid'{$buWherePay}
-             AND (
-                 (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) BETWEEN ? AND ?
-                 OR DATE(created_at) BETWEEN ? AND ?
-             )",
-            [$from, $to, $from, $to]
-        );
-        $costs = $this->db->fetch(
-            "SELECT COALESCE(SUM(CASE WHEN type='expense' THEN amount_brl ELSE 0 END),0) expenses,
-                    COALESCE(SUM(CASE WHEN type='investment' THEN amount_brl ELSE 0 END),0) investments
-             FROM expenses WHERE status = 'paid'{$buWhereExp} AND payment_date BETWEEN ? AND ?",
-            [$from, $to]
-        );
+        $resets = $this->allCardResets($businessUnitId);
+        $revReset = $resets['revenue'];
+        $profitReset = $resets['profit'];
+        $mrrReset = $resets['mrr'];
+
+        // Faturamento Bruto (Revenue)
+        $payments = [
+            'gross' => 0.0,
+            'fees' => 0.0,
+            'net' => 0.0,
+            'usd' => 0.0,
+            'brl' => 0.0,
+            'payment_count' => 0,
+        ];
+        $effRevFrom = $from;
+        $hasRev = true;
+        $revDateCondition = '';
+        if ($revReset && !empty($revReset['date'])) {
+            $rDate = $revReset['date'];
+            if ($to < $rDate) {
+                $hasRev = false;
+            } else {
+                $effRevFrom = max($from, $rDate);
+                $revDateCondition = " AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) >= '{$rDate}' AND DATE(created_at) >= '{$rDate}'";
+            }
+        }
+
+        if ($hasRev) {
+            $fetchedPay = $this->db->fetch(
+                "SELECT COALESCE(SUM(amount_brl),0) gross, COALESCE(SUM(fee_brl),0) fees, COALESCE(SUM(net_brl),0) net,
+                        COALESCE(SUM(CASE WHEN currency='USD' THEN amount ELSE 0 END),0) usd,
+                        COALESCE(SUM(CASE WHEN currency='BRL' THEN amount ELSE 0 END),0) brl,
+                        COUNT(*) payment_count
+                 FROM payments WHERE status = 'paid'{$buWherePay}{$revDateCondition}
+                 AND (
+                     (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) BETWEEN ? AND ?
+                     OR DATE(created_at) BETWEEN ? AND ?
+                 )",
+                [$effRevFrom, $to, $effRevFrom, $to]
+            );
+            if ($fetchedPay) {
+                $payments = $fetchedPay;
+            }
+        }
+
+        // Custos e Lucro Líquido (Profit)
+        $effProfitFrom = $from;
+        $hasProfit = true;
+        $profitDateCondition = '';
+        if ($profitReset && !empty($profitReset['date'])) {
+            $pDate = $profitReset['date'];
+            if ($to < $pDate) {
+                $hasProfit = false;
+            } else {
+                $effProfitFrom = max($from, $pDate);
+                $profitDateCondition = " AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) >= '{$pDate}' AND DATE(created_at) >= '{$pDate}'";
+            }
+        }
+
+        $expenses = 0.0;
+        $investments = 0.0;
+        $profitNet = 0.0;
+        if ($hasProfit) {
+            $costs = $this->db->fetch(
+                "SELECT COALESCE(SUM(CASE WHEN type='expense' THEN amount_brl ELSE 0 END),0) expenses,
+                        COALESCE(SUM(CASE WHEN type='investment' THEN amount_brl ELSE 0 END),0) investments
+                 FROM expenses WHERE status = 'paid'{$buWhereExp} AND payment_date BETWEEN ? AND ?",
+                [$effProfitFrom, $to]
+            );
+            if ($costs) {
+                $expenses = (float) $costs['expenses'];
+                $investments = (float) $costs['investments'];
+            }
+
+            if ($effProfitFrom === $effRevFrom && $hasRev) {
+                $profitNet = (float) $payments['net'];
+            } else {
+                $profitNet = (float) $this->db->value(
+                    "SELECT COALESCE(SUM(net_brl),0)
+                     FROM payments WHERE status = 'paid'{$buWherePay}{$profitDateCondition}
+                     AND (
+                         (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) BETWEEN ? AND ?
+                         OR DATE(created_at) BETWEEN ? AND ?
+                     )",
+                    [$effProfitFrom, $to, $effProfitFrom, $to]
+                );
+            }
+        }
+
         $cash = $this->db->fetch(
             "SELECT COALESCE(SUM(CASE WHEN direction='in' THEN amount_brl ELSE 0 END),0) cash_in,
                     COALESCE(SUM(CASE WHEN direction='out' THEN amount_brl ELSE 0 END),0) cash_out
@@ -45,15 +172,22 @@ final class FinanceService
             [$from, $to]
         );
 
+        // Assinaturas e MRR
+        $mrrWhereReset = '';
+        if ($mrrReset && !empty($mrrReset['date'])) {
+            $mrrDate = $mrrReset['date'];
+            $mrrWhereReset = " AND (s.start_date >= '{$mrrDate}' OR DATE(s.created_at) >= '{$mrrDate}')";
+        }
+
         $activeClients = (int) $this->db->value(
             "SELECT COUNT(DISTINCT s.client_id) FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE s.status IN ('active','trial','past_due') AND c.deleted_at IS NULL{$buWhereSub}"
         );
         $activeSubscriptions = (int) $this->db->value(
-            "SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE s.status = 'active' AND c.deleted_at IS NULL{$buWhereSub}"
+            "SELECT COUNT(*) FROM subscriptions s JOIN clients c ON c.id = s.client_id WHERE s.status = 'active' AND c.deleted_at IS NULL{$buWhereSub}{$mrrWhereReset}"
         );
         $mrrRows = $this->db->fetchAll(
             "SELECT s.currency, s.quantity, s.unit_price, s.discount, p.billing_cycle
-             FROM subscriptions s JOIN clients c ON c.id = s.client_id JOIN products p ON p.id = s.product_id WHERE s.status = 'active' AND c.deleted_at IS NULL{$buWhereSub}"
+             FROM subscriptions s JOIN clients c ON c.id = s.client_id JOIN products p ON p.id = s.product_id WHERE s.status = 'active' AND c.deleted_at IS NULL{$buWhereSub}{$mrrWhereReset}"
         );
         $mrr = 0.0;
         foreach ($mrrRows as $row) {
@@ -65,11 +199,9 @@ final class FinanceService
         $gross = (float) $payments['gross'];
         $fees = (float) $payments['fees'];
         $net = (float) $payments['net'];
-        $expenses = (float) $costs['expenses'];
-        $investments = (float) $costs['investments'];
-        $cashIn = (float) $cash['cash_in'];
-        $cashOut = (float) $cash['cash_out'];
-        $profit = $net - $expenses - $investments;
+        $cashIn = (float) ($cash['cash_in'] ?? 0);
+        $cashOut = (float) ($cash['cash_out'] ?? 0);
+        $profit = $profitNet - $expenses - $investments;
         $margin = $gross > 0 ? ($profit / $gross) * 100 : 0;
 
         return compact('gross', 'fees', 'net', 'expenses', 'investments', 'cashIn', 'cashOut', 'profit', 'margin', 'mrr', 'activeClients', 'activeSubscriptions') + [
@@ -255,11 +387,36 @@ final class FinanceService
 
     public function cashBalance(?int $businessUnitId = null): float
     {
-        $initial = $businessUnitId ? 0 : (float) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='initial_balance_brl'") ?: 0);
+        $cashReset = $this->getCardReset('cash', $businessUnitId);
         $buWherePay = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
         $buWhereExp = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
         $buWhereCash = $businessUnitId ? ' AND business_unit_id = ' . (int) $businessUnitId : '';
 
+        if ($cashReset && !empty($cashReset['date'])) {
+            $resetDate = $cashReset['date'];
+            $initial = (float) ($cashReset['initial_amount'] ?? 0.0);
+
+            $payments = (float) $this->db->value(
+                "SELECT COALESCE(SUM(net_brl),0) FROM payments WHERE status='paid'{$buWherePay} AND (CASE WHEN currency='USD' THEN COALESCE(settlement_date,payment_date) ELSE payment_date END) >= ?",
+                [$resetDate]
+            );
+            $expenses = (float) $this->db->value(
+                "SELECT COALESCE(SUM(amount_brl),0) FROM expenses WHERE status='paid'{$buWhereExp} AND payment_date >= ?",
+                [$resetDate]
+            );
+            $cashIn = (float) $this->db->value(
+                "SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='in'{$buWhereCash} AND entry_date >= ?",
+                [$resetDate]
+            );
+            $cashOut = (float) $this->db->value(
+                "SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='out'{$buWhereCash} AND entry_date >= ?",
+                [$resetDate]
+            );
+
+            return $initial + $payments + $cashIn - $expenses - $cashOut;
+        }
+
+        $initial = $businessUnitId ? 0 : (float) ($this->db->value("SELECT setting_value FROM settings WHERE setting_key='initial_balance_brl'") ?: 0);
         $payments = (float) $this->db->value("SELECT COALESCE(SUM(net_brl),0) FROM payments WHERE status='paid'{$buWherePay}");
         $expenses = (float) $this->db->value("SELECT COALESCE(SUM(amount_brl),0) FROM expenses WHERE status='paid'{$buWhereExp}");
         $cashIn = (float) $this->db->value("SELECT COALESCE(SUM(amount_brl),0) FROM cash_entries WHERE direction='in'{$buWhereCash}");

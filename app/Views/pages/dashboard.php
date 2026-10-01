@@ -25,6 +25,8 @@ $intelligence = $finance->businessIntelligence((float) $rate['bid'], $buFilter);
 $series = $finance->monthlySeries(6, $buFilter);
 $balance = $finance->cashBalance($buFilter);
 $participation = $finance->revenueParticipation($from, $to);
+$cardResets = $finance->allCardResets($buFilter);
+$hasAnyReset = !empty($cardResets['revenue']['date']) || !empty($cardResets['profit']['date']) || !empty($cardResets['mrr']['date']) || !empty($cardResets['cash']['date']);
 
 try {
     $fromDate = new DateTimeImmutable($from);
@@ -216,12 +218,102 @@ $recent = $db->fetchAll(
 </section>
 <?php endif; ?>
 
+<?php if ($hasAnyReset): ?>
+<div style="margin-bottom: 1.25rem; padding: 0.75rem 1.1rem; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; font-size: 13px; color: #065f46; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+    <div>
+        <strong>📍 Marco Zero Ativo:</strong> Indicadores do dashboard estão calculando do zero a partir de pontos históricos definidos.
+    </div>
+    <form method="post" style="margin: 0;" onsubmit="return confirm('Deseja realmente remover todos os marcos zero e restaurar o cálculo com o histórico completo?')">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="reset_dashboard_card">
+        <input type="hidden" name="card" value="all">
+        <input type="hidden" name="clear" value="1">
+        <input type="hidden" name="bu" value="<?= h($buFilter ?? '') ?>">
+        <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+        <button type="submit" style="background: #ffffff; border: 1px solid #059669; color: #065f46; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s ease;">
+            ↺ Restaurar Histórico Completo de Todos
+        </button>
+    </form>
+</div>
+<?php endif; ?>
+
 <section class="metric-grid executive-metrics">
-    <article class="metric-card"><div class="metric-icon green">↗</div><div><span>Faturamento bruto</span><strong><?= money($metrics['gross']) ?></strong><small class="metric-trend <?= $revenueGrowth < 0 ? 'down' : 'up' ?>"><?= $revenueGrowth < 0 ? '↓' : '↑' ?> <?= h($growthLabel) ?></small></div></article>
-    <article class="metric-card"><div class="metric-icon gold">◎</div><div><span>Lucro líquido</span><strong class="<?= $metrics['profit'] < 0 ? 'negative' : 'positive' ?>"><?= money($metrics['profit']) ?></strong><small class="<?= $metrics['margin'] < 0 ? 'negative' : 'positive' ?>"><?= number_format($metrics['margin'], 1, ',', '.') ?>% de margem líquida</small></div></article>
-    <article class="metric-card"><div class="metric-icon blue">↻</div><div><span>Receita recorrente (MRR)</span><strong><?= money($metrics['mrr']) ?></strong><small><?= (int) $metrics['activeSubscriptions'] ?> assinaturas ativas · ARR <?= money($arr) ?></small></div></article>
-    <article class="metric-card"><div class="metric-icon green">✓</div><div><span>Pontos ativos</span><strong><?= $activePointUnits ?></strong><small>unidades pagas e ainda não vencidas</small></div></article>
-    <article class="metric-card"><div class="metric-icon purple">▤</div><div><span>Saldo de caixa atual</span><strong class="<?= $balance < 0 ? 'negative' : 'positive' ?>"><?= money($balance) ?></strong><small><?= (int) $metrics['paymentCount'] ?> pagamento(s) em <?= h(mb_strtolower($periodLabel)) ?></small></div></article>
+    <article class="metric-card has-card-reset <?= !empty($cardResets['revenue']['date']) ? 'is-card-reset' : '' ?>">
+        <button type="button" class="card-reset-btn <?= !empty($cardResets['revenue']['date']) ? 'active' : '' ?>" onclick="openCardResetModal('revenue', 'Faturamento Bruto', '<?= h($cardResets['revenue']['date'] ?? '') ?>', 0)" title="Definir marco zero / Resetar Faturamento Bruto">
+            <span class="card-reset-icon">↺</span>
+        </button>
+        <div class="metric-icon green">↗</div>
+        <div>
+            <span>Faturamento bruto</span>
+            <strong><?= money($metrics['gross']) ?></strong>
+            <?php if (!empty($cardResets['revenue']['date'])): ?>
+                <div class="card-reset-pill" title="Calculando a partir do marco zero em <?= date_br($cardResets['revenue']['date']) ?>">
+                    <span>📍 Desde <?= date_br($cardResets['revenue']['date']) ?></span>
+                </div>
+            <?php endif; ?>
+            <small class="metric-trend <?= $revenueGrowth < 0 ? 'down' : 'up' ?>"><?= $revenueGrowth < 0 ? '↓' : '↑' ?> <?= h($growthLabel) ?></small>
+        </div>
+    </article>
+
+    <article class="metric-card has-card-reset <?= !empty($cardResets['profit']['date']) ? 'is-card-reset' : '' ?>">
+        <button type="button" class="card-reset-btn <?= !empty($cardResets['profit']['date']) ? 'active' : '' ?>" onclick="openCardResetModal('profit', 'Lucro Líquido', '<?= h($cardResets['profit']['date'] ?? '') ?>', 0)" title="Definir marco zero / Resetar Lucro Líquido">
+            <span class="card-reset-icon">↺</span>
+        </button>
+        <div class="metric-icon gold">◎</div>
+        <div>
+            <span>Lucro líquido</span>
+            <strong class="<?= $metrics['profit'] < 0 ? 'negative' : 'positive' ?>"><?= money($metrics['profit']) ?></strong>
+            <?php if (!empty($cardResets['profit']['date'])): ?>
+                <div class="card-reset-pill" title="Calculando a partir do marco zero em <?= date_br($cardResets['profit']['date']) ?>">
+                    <span>📍 Desde <?= date_br($cardResets['profit']['date']) ?></span>
+                </div>
+            <?php endif; ?>
+            <small class="<?= $metrics['margin'] < 0 ? 'negative' : 'positive' ?>"><?= number_format($metrics['margin'], 1, ',', '.') ?>% de margem líquida</small>
+        </div>
+    </article>
+
+    <article class="metric-card has-card-reset <?= !empty($cardResets['mrr']['date']) ? 'is-card-reset' : '' ?>">
+        <button type="button" class="card-reset-btn <?= !empty($cardResets['mrr']['date']) ? 'active' : '' ?>" onclick="openCardResetModal('mrr', 'Receita Recorrente (MRR)', '<?= h($cardResets['mrr']['date'] ?? '') ?>', 0)" title="Definir marco zero / Resetar Receita Recorrente">
+            <span class="card-reset-icon">↺</span>
+        </button>
+        <div class="metric-icon blue">↻</div>
+        <div>
+            <span>Receita recorrente (MRR)</span>
+            <strong><?= money($metrics['mrr']) ?></strong>
+            <?php if (!empty($cardResets['mrr']['date'])): ?>
+                <div class="card-reset-pill" title="Calculando a partir do marco zero em <?= date_br($cardResets['mrr']['date']) ?>">
+                    <span>📍 Desde <?= date_br($cardResets['mrr']['date']) ?></span>
+                </div>
+            <?php endif; ?>
+            <small><?= (int) $metrics['activeSubscriptions'] ?> assinaturas ativas · ARR <?= money($arr) ?></small>
+        </div>
+    </article>
+
+    <article class="metric-card">
+        <div class="metric-icon green">✓</div>
+        <div>
+            <span>Pontos ativos</span>
+            <strong><?= $activePointUnits ?></strong>
+            <small>unidades pagas e ainda não vencidas</small>
+        </div>
+    </article>
+
+    <article class="metric-card has-card-reset <?= !empty($cardResets['cash']['date']) ? 'is-card-reset' : '' ?>">
+        <button type="button" class="card-reset-btn <?= !empty($cardResets['cash']['date']) ? 'active' : '' ?>" onclick="openCardResetModal('cash', 'Saldo de Caixa Atual', '<?= h($cardResets['cash']['date'] ?? '') ?>', <?= (float)($cardResets['cash']['initial_amount'] ?? 0) ?>)" title="Definir marco zero / Resetar Saldo de Caixa">
+            <span class="card-reset-icon">↺</span>
+        </button>
+        <div class="metric-icon purple">▤</div>
+        <div>
+            <span>Saldo de caixa atual</span>
+            <strong class="<?= $balance < 0 ? 'negative' : 'positive' ?>"><?= money($balance) ?></strong>
+            <?php if (!empty($cardResets['cash']['date'])): ?>
+                <div class="card-reset-pill" title="Calculando a partir do marco zero em <?= date_br($cardResets['cash']['date']) ?><?= !empty($cardResets['cash']['initial_amount']) ? ' (Base: ' . money($cardResets['cash']['initial_amount']) . ')' : '' ?>">
+                    <span>📍 Desde <?= date_br($cardResets['cash']['date']) ?><?= !empty($cardResets['cash']['initial_amount']) ? ' (' . money($cardResets['cash']['initial_amount']) . ')' : '' ?></span>
+                </div>
+            <?php endif; ?>
+            <small><?= (int) $metrics['paymentCount'] ?> pagamento(s) em <?= h(mb_strtolower($periodLabel)) ?></small>
+        </div>
+    </article>
 </section>
 
 <section class="customer-command card">
@@ -354,3 +446,185 @@ $recent = $db->fetchAll(
         </div>
     </article>
 </section>
+
+<!-- ========================================================================= -->
+<!-- MODAL DE MARCO ZERO / RESET DE INDICADORES DO DASHBOARD                   -->
+<!-- ========================================================================= -->
+<div id="cardResetModal" class="modal">
+    <div class="modal-backdrop" onclick="closeCardResetModal()"></div>
+    <section class="modal-panel" style="max-width: 520px; width: 95%;">
+        <header>
+            <div>
+                <p class="eyebrow">MARCO ZERO / PONTO HISTÓRICO</p>
+                <h2 id="cardResetModalTitle">↺ Resetar Informações</h2>
+            </div>
+            <button type="button" class="modal-close" onclick="closeCardResetModal()">×</button>
+        </header>
+
+        <!-- Status atual de reset -->
+        <div id="cardResetCurrentStatus" style="margin-bottom: 16px; padding: 12px 14px; border-radius: 8px; font-size: 13px; display: none;"></div>
+
+        <form method="post" id="cardResetForm" class="form-grid" style="gap: 14px;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="reset_dashboard_card">
+            <input type="hidden" name="card" id="cardResetKeyInput" value="">
+            <input type="hidden" name="bu" value="<?= h($buFilter ?? '') ?>">
+            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+
+            <div class="full-field" style="font-size: 13px; color: var(--muted); line-height: 1.4;">
+                <p style="margin: 0;">
+                    Ao definir um marco zero, o histórico anterior permanece preservado no banco para fins contábeis e de auditoria, mas este card começará a ser calculado <strong>do zero</strong> a partir da data de corte escolhida.
+                </p>
+            </div>
+
+            <div class="full-field">
+                <label style="font-weight: 600;">Data de Início do Marco Zero *</label>
+                <input type="date" name="reset_date" id="cardResetDateInput" required value="<?= date('Y-m-d') ?>" style="width: 100%; min-height: 38px;">
+                <small class="muted">Apenas lançamentos com data igual ou superior serão computados.</small>
+            </div>
+
+            <!-- Bloco específico de Saldo Inicial Base de Caixa -->
+            <div id="cardResetCashInitialBlock" class="full-field" style="display: none; background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 14px; border-radius: 8px;">
+                <label style="font-weight: 600;">Saldo Inicial Base na Data de Corte (R$)</label>
+                <input type="text" name="initial_amount" id="cardResetInitialAmountInput" placeholder="0,00" value="0,00" style="font-weight: 700; text-align: right; width: 100%; min-height: 38px;">
+                <small class="muted">Deixe 0,00 para começar do zero absoluto, ou informe o saldo base que você possuía nesta data.</small>
+            </div>
+
+            <div class="full-field" style="background: #f1f5f9; padding: 10px 14px; border-radius: 8px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0; font-size: 13px; font-weight: 600; color: var(--ink);">
+                    <input type="checkbox" name="apply_to_all" id="cardResetApplyAllCheckbox" value="1">
+                    <span>Aplicar esta mesma data a todos os 4 cards (Faturamento, Lucro, MRR e Caixa)</span>
+                </label>
+            </div>
+
+            <footer class="form-actions full-field" style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                <button type="button" class="button ghost" onclick="closeCardResetModal()">Cancelar</button>
+                <button type="submit" class="button primary" id="cardResetSubmitBtn" style="background: #059669; border-color: #059669;">
+                    ✓ Aplicar Marco Zero
+                </button>
+            </footer>
+        </form>
+
+        <!-- Formulário separado para remoção do reset (Restaurar Histórico) -->
+        <form method="post" id="cardResetClearForm" style="display: none; margin-top: 12px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="reset_dashboard_card">
+            <input type="hidden" name="card" id="cardResetClearKeyInput" value="">
+            <input type="hidden" name="clear" value="1">
+            <input type="hidden" name="bu" value="<?= h($buFilter ?? '') ?>">
+            <input type="hidden" name="_return" value="<?= h($_SERVER['REQUEST_URI']) ?>">
+            <button type="submit" class="button ghost" style="width: 100%; border: 1px solid #fecaca; color: #dc2626; font-weight: 600;" onclick="return confirm('Deseja realmente remover o marco zero deste card e restaurar o cálculo com todo o histórico completo?')">
+                ↺ Remover Marco Zero (Restaurar Histórico Completo)
+            </button>
+        </form>
+    </section>
+</div>
+
+<script>
+function formatMonetary(v) {
+    return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function openCardResetModal(cardKey, cardName, currentDate, currentInitial) {
+    document.getElementById('cardResetKeyInput').value = cardKey;
+    document.getElementById('cardResetClearKeyInput').value = cardKey;
+    document.getElementById('cardResetModalTitle').textContent = '↺ Marco Zero: ' + cardName;
+
+    const dateInp = document.getElementById('cardResetDateInput');
+    const cashBlock = document.getElementById('cardResetCashInitialBlock');
+    const initInp = document.getElementById('cardResetInitialAmountInput');
+    const statusBox = document.getElementById('cardResetCurrentStatus');
+    const clearForm = document.getElementById('cardResetClearForm');
+    const applyAllCb = document.getElementById('cardResetApplyAllCheckbox');
+
+    if (applyAllCb) applyAllCb.checked = false;
+
+    if (cardKey === 'cash') {
+        cashBlock.style.display = 'block';
+        initInp.value = currentInitial ? formatMonetary(currentInitial) : '0,00';
+    } else {
+        cashBlock.style.display = 'none';
+    }
+
+    if (currentDate) {
+        dateInp.value = currentDate;
+        const [y, m, d] = currentDate.split('-');
+        const dateBr = `${d}/${m}/${y}`;
+        statusBox.style.display = 'block';
+        statusBox.style.background = '#ecfdf5';
+        statusBox.style.border = '1px solid #a7f3d0';
+        statusBox.style.color = '#065f46';
+        statusBox.innerHTML = `<strong>📍 Marco Zero Ativo:</strong> Este card está calculando a partir de <strong>${dateBr}</strong>.${cardKey === 'cash' && currentInitial > 0 ? ` (Saldo inicial: R$ ${formatMonetary(currentInitial)})` : ''}`;
+        clearForm.style.display = 'block';
+    } else {
+        dateInp.value = new Date().toISOString().split('T')[0];
+        statusBox.style.display = 'block';
+        statusBox.style.background = '#f8fafc';
+        statusBox.style.border = '1px solid #e2e8f0';
+        statusBox.style.color = '#475569';
+        statusBox.innerHTML = '<strong>ℹ️ Histórico Completo:</strong> Nenhum marco zero ativo. O cálculo está considerando todo o histórico cadastrado.';
+        clearForm.style.display = 'none';
+    }
+
+    document.getElementById('cardResetModal').classList.add('open');
+}
+
+function closeCardResetModal() {
+    document.getElementById('cardResetModal').classList.remove('open');
+}
+</script>
+
+<style>
+.metric-card {
+    position: relative;
+}
+.card-reset-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #64748b;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    transition: all 0.2s ease;
+    padding: 0;
+    z-index: 2;
+}
+.card-reset-btn:hover {
+    background: #ecfdf5;
+    border-color: #10b981;
+    color: #059669;
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2);
+    transform: rotate(-45deg);
+}
+.metric-card.is-card-reset {
+    border-color: #a7f3d0;
+}
+.metric-card.is-card-reset .card-reset-btn {
+    background: #ecfdf5;
+    border-color: #10b981;
+    color: #059669;
+}
+.card-reset-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 10px;
+    margin-bottom: 6px;
+    line-height: 1.3;
+}
+</style>
