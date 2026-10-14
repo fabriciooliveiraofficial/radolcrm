@@ -4,10 +4,18 @@ DirectoryIndex index.php
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteRule ^favicon\.ico$ assets/images/favicon.svg [L,NC]
-    RewriteRule ^(?:app|config|database|storage|tests)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?:app|config|database|storage|tests|scripts)(?:/|$) - [F,L,NC]
 </IfModule>
 
 <FilesMatch "^(?:\.env|composer\.(?:json|lock)|phpunit\.xml|README\.md)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^(?:temp_query|temp_[A-Za-z0-9_-]*|debug_[A-Za-z0-9_-]*|test_[A-Za-z0-9_-]*|dump_[A-Za-z0-9_-]*)\.php$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(?:sql|sql\.gz|bak|backup|old)$">
     Require all denied
 </FilesMatch>
 
