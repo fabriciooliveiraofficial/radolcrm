@@ -1,0 +1,12 @@
+.git
+.github
+.agents
+.idea
+.vscode
+tests
+scripts
+*.zip
+temp_*
+Dockerfile
+.dockerignore
+config/config.php
