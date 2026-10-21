@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 define('BASE_PATH', __DIR__);
 $configFile = BASE_PATH . '/config/config.php';
-if (is_file($configFile)) {
+if (is_file($configFile) || (string) getenv('NEXO_DB_HOST') !== '') {
     header('Location: index.php');
     exit;
 }

@@ -11,7 +11,28 @@ if (!defined('BASE_PATH')) {
 }
 
 $configFile = BASE_PATH . '/config/config.php';
-if (!is_file($configFile)) {
+if (is_file($configFile)) {
+    $config = require $configFile;
+} elseif ((string) getenv('NEXO_DB_HOST') !== '') {
+    $config = [
+        'app' => [
+            'name' => getenv('NEXO_APP_NAME') ?: 'Nexo Gestão',
+            'url' => (string) getenv('NEXO_APP_URL'),
+            'timezone' => getenv('NEXO_TIMEZONE') ?: 'America/Sao_Paulo',
+            'session_name' => getenv('NEXO_SESSION_NAME') ?: 'nexo_session',
+            'cron_secret' => (string) getenv('NEXO_CRON_SECRET'),
+            'debug' => filter_var(getenv('NEXO_DEBUG'), FILTER_VALIDATE_BOOLEAN),
+        ],
+        'db' => [
+            'host' => (string) getenv('NEXO_DB_HOST'),
+            'port' => (int) (getenv('NEXO_DB_PORT') ?: 3306),
+            'database' => (string) getenv('NEXO_DB_NAME'),
+            'username' => (string) getenv('NEXO_DB_USER'),
+            'password' => (string) getenv('NEXO_DB_PASSWORD'),
+            'charset' => 'utf8mb4',
+        ],
+    ];
+} else {
     if (PHP_SAPI === 'cli') {
         fwrite(STDERR, "Aplicação não instalada. Acesse /install.php primeiro.\n");
         exit(1);
@@ -19,8 +40,6 @@ if (!is_file($configFile)) {
     header('Location: install.php');
     exit;
 }
-
-$config = require $configFile;
 $GLOBALS['config'] = $config;
 
 date_default_timezone_set($config['app']['timezone'] ?? 'America/Sao_Paulo');
