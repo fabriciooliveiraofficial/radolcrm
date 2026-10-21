@@ -184,18 +184,19 @@ $recentPayees = $dailyService->recentPayees('', 30);
 <div class="daily-finance-wrapper">
     <!-- BARRA MACRO DE LIQUIDEZ E COMPILAÇÃO (MÉTRICAS RÁPIDAS) -->
     <?php 
-        $projectedBalance = ($summary['total_income'] + $summary['pending_income']) - ($summary['total_expense'] + $summary['pending_expense']);
+        $currentAccountBalance = (float) ($summary['current_balance'] ?? $summary['net_balance'] ?? 0);
+        $projectedAccountBalance = (float) ($summary['projected_balance'] ?? $currentAccountBalance);
     ?>
     <section class="mini-stats daily-kpis" data-live-results>
-        <div class="kpi-card <?= $summary['net_balance'] >= 0 ? 'good' : 'danger' ?>">
-            <span class="dot <?= $summary['net_balance'] >= 0 ? 'green' : 'red' ?>"></span>
+        <div class="kpi-card <?= $currentAccountBalance >= 0 ? 'good' : 'danger' ?>">
+            <span class="dot <?= $currentAccountBalance >= 0 ? 'green' : 'red' ?>"></span>
             <div class="kpi-info">
-                <small>Saldo Líquido Realizado</small>
-                <b class="kpi-val <?= $summary['net_balance'] >= 0 ? 'positive' : 'negative' ?>">
-                    R$ <?= number_format($summary['net_balance'], 2, ',', '.') ?>
+                <small title="Saldo atual em conta bancária (saldo real disponível hoje, independente dos filtros da tela)">Saldo Atual da Conta</small>
+                <b class="kpi-val <?= $currentAccountBalance >= 0 ? 'positive' : 'negative' ?>">
+                    R$ <?= number_format($currentAccountBalance, 2, ',', '.') ?>
                 </b>
-                <small style="margin-top: 3px; font-size: 11px; color: var(--muted); display: block;">
-                    Projetado: <strong style="color: <?= $projectedBalance >= 0 ? '#10b981' : '#ef4444' ?>;">R$ <?= number_format($projectedBalance, 2, ',', '.') ?></strong>
+                <small style="margin-top: 3px; font-size: 11px; color: var(--muted); display: block;" title="Saldo projetado geral considerando todas as receitas e despesas futuras">
+                    Projetado: <strong style="color: <?= $projectedAccountBalance >= 0 ? '#10b981' : '#ef4444' ?>;">R$ <?= number_format($projectedAccountBalance, 2, ',', '.') ?></strong>
                 </small>
             </div>
         </div>

@@ -71,6 +71,9 @@ final class DailyFinanceService
             $upcomingObligationsTotal = $agendaData['expected_out'];
         }
 
+        // Saldo atual em conta bancária (sempre global/independente de filtros aplicados na tela)
+        $accountBalance = $this->currentAccountBalance();
+
         return [
             'total_income' => $totalIncome,
             'total_expense' => $totalExpense,
@@ -80,6 +83,63 @@ final class DailyFinanceService
             'tx_count' => (int) ($totals['tx_count'] ?? 0),
             'cards_open_total' => $cardsOpenTotal,
             'upcoming_obligations_total' => $upcomingObligationsTotal,
+            'current_balance' => $accountBalance['current_balance'],
+            'current_income' => $accountBalance['current_income'],
+            'current_expense' => $accountBalance['current_expense'],
+            'projected_balance' => $accountBalance['projected_balance'],
+            'projected_income' => $accountBalance['projected_income'],
+            'projected_expense' => $accountBalance['projected_expense'],
+        ];
+    }
+
+    /**
+     * Retorna o saldo atual real da conta bancária (acumulado de todas as transações
+     * realizadas até a data presente, imune a quaisquer filtros de data, tipo ou busca)
+     * e o saldo projetado geral considerando compromissos futuros.
+     */
+    public function currentAccountBalance(): array
+    {
+        $today = date('Y-m-d');
+
+        // Saldo Atual em Conta:
+        // Todas as receitas realizadas acumuladas até hoje menos todas as despesas realizadas até hoje.
+        // Lançamentos no cartão de crédito impactam o saldo na data de quitação da fatura ou,
+        // se ainda em aberto, na data de vencimento da fatura.
+        $realizedTotals = $this->db->fetch(
+            "SELECT
+                COALESCE(SUM(CASE WHEN t.type = 'income' AND t.status = 'realized' THEN t.amount ELSE 0 END), 0) total_income,
+                COALESCE(SUM(CASE WHEN t.type = 'expense' AND t.status = 'realized' THEN t.amount ELSE 0 END), 0) total_expense
+             FROM daily_transactions t
+             LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id
+             WHERE COALESCE(inv.payment_date, inv.due_date, t.transaction_date) <= ?",
+            [$today]
+        );
+
+        $currentIncome = (float) ($realizedTotals['total_income'] ?? 0);
+        $currentExpense = (float) ($realizedTotals['total_expense'] ?? 0);
+        $currentBalance = $currentIncome - $currentExpense;
+
+        // Saldo Projetado Geral (sem filtros):
+        // Total geral de receitas (realizadas + pendentes) menos total geral de despesas (realizadas + pendentes + faturas)
+        $projectedTotals = $this->db->fetch(
+            "SELECT
+                COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0) total_income,
+                COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0) total_expense
+             FROM daily_transactions t
+             LEFT JOIN daily_card_invoices inv ON inv.id = t.invoice_id"
+        );
+
+        $projectedIncome = (float) ($projectedTotals['total_income'] ?? 0);
+        $projectedExpense = (float) ($projectedTotals['total_expense'] ?? 0);
+        $projectedBalance = $projectedIncome - $projectedExpense;
+
+        return [
+            'current_balance' => $currentBalance,
+            'current_income' => $currentIncome,
+            'current_expense' => $currentExpense,
+            'projected_balance' => $projectedBalance,
+            'projected_income' => $projectedIncome,
+            'projected_expense' => $projectedExpense,
         ];
     }
 
