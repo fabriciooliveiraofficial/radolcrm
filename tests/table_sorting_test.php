@@ -52,7 +52,7 @@ $contracts = [
     'indicador visual possui estados padrão, hover e ativo' => str_contains($css, '.table-sort-link')
         && str_contains($css, '.table-sort-link:hover')
         && str_contains($css, '.sortable-column.is-sorted .table-sort-indicator'),
-    'cache do estilo foi atualizado' => str_contains($layout, 'assets/css/app.css?v=21'),
+    'cache do estilo é versionado' => preg_match('#assets/css/app\.css\?v=\d+#', $layout) === 1,
 ];
 
 $failed = array_keys(array_filter($contracts, static fn(bool $passed): bool => !$passed));

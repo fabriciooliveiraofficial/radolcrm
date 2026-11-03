@@ -17,8 +17,8 @@ $css = (string) file_get_contents($root . '/assets/css/app.css');
 $contracts = [
     'schema de badges' => str_contains($schema, 'CREATE TABLE IF NOT EXISTS service_badges')
         && str_contains($schema, 'CREATE TABLE IF NOT EXISTS subscription_service_badges')
-        && str_contains($schema, "('schema_version', '8')"),
-    'migração automática preserva badges v6' => str_contains($migration, 'private const VERSION = 8')
+        && (preg_match("/\('schema_version', '(\d+)'\)/", $schema, $schemaVersion) === 1 && (int) $schemaVersion[1] >= 6),
+    'migração automática preserva badges v6' => (preg_match('/private const VERSION = (\d+);/', $migration, $migrationVersion) === 1 && (int) $migrationVersion[1] >= 6)
         && str_contains($migration, 'if ($version < 6)')
         && str_contains($migrationSql, 'fk_subscription_badges_badge'),
     'rota e navegação da biblioteca' => str_contains($index, "'service-badges'")

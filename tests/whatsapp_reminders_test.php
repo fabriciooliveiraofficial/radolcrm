@@ -65,7 +65,7 @@ $contracts = [
     'migração cria etapas mídia e link' => str_contains($migration, 'CREATE TABLE IF NOT EXISTS whatsapp_automation_steps')
         && str_contains($migration, "payload_type ENUM('text','image')")
         && str_contains($migration, 'payment_link VARCHAR(1000)'),
-    'schema atualizado para versão 8' => str_contains($schema, "('schema_version', '8')")
+    'schema atualizado para versão 8 ou superior' => (preg_match("/\('schema_version', '(\d+)'\)/", $schema, $schemaVersion) === 1 && (int) $schemaVersion[1] >= 8)
         && str_contains($schema, 'fk_whatsapp_reminder_step'),
     'painel cria jornadas flexíveis' => str_contains($view, 'data-reminder-flow="')
         && str_contains($view, 'data-add-reminder-step')

@@ -1,0 +1,5 @@
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+0 7 * * * root nexo-cron financial financial_automation.php
+15 7 * * * root nexo-cron exchange update-exchange-rate.php --secret
+*/30 * * * * root nexo-cron whatsapp send-whatsapp-reminders.php --secret

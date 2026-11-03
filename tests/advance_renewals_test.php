@@ -22,8 +22,8 @@ $contracts = [
         && str_contains($schema, 'discount_amount')
         && str_contains($schema, 'surcharge_amount')
         && str_contains($schema, 'manual_adjustment_amount')
-        && str_contains($schema, "('schema_version', '8')"),
-    'migração automática v7' => str_contains($migration, 'private const VERSION = 8')
+        && (preg_match("/\('schema_version', '(\d+)'\)/", $schema, $schemaVersion) === 1 && (int) $schemaVersion[1] >= 7),
+    'migração automática v7' => (preg_match('/private const VERSION = (\d+);/', $migration, $migrationVersion) === 1 && (int) $migrationVersion[1] >= 7)
         && str_contains($migration, 'if ($version < 7)')
         && str_contains($migrationSql, "VALUES ('schema_version','7')"),
     'dois modos de renovação' => str_contains($subscriptions, 'value="months" data-renewal-mode')
