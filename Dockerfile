@@ -17,6 +17,7 @@ COPY . /var/www/html/
 RUN install -m 755 /var/www/html/docker/entrypoint.sh /usr/local/bin/nexo-entrypoint \
     && install -m 755 /var/www/html/docker/nexo-cron.sh /usr/local/bin/nexo-cron \
     && install -m 644 /var/www/html/docker/crontab /etc/cron.d/nexo \
+    && install -D -m 644 /var/www/html/docker/cron-secret.php /usr/local/lib/nexo/cron-secret.php \
     && sed -i 's/\r$//' /usr/local/bin/nexo-entrypoint /usr/local/bin/nexo-cron /etc/cron.d/nexo \
     && rm -rf /var/www/html/docker
 

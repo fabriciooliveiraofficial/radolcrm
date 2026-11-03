@@ -10,7 +10,8 @@ flag="${3:-}"
 {
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] cron:$name início"
     if [ "$flag" = "--secret" ]; then
-        runuser -u www-data -- php "/var/www/html/cron/$script" "${NEXO_CRON_SECRET:-}" 2>&1
+        secret=$(runuser -u www-data -- php /usr/local/lib/nexo/cron-secret.php 2>/dev/null)
+        runuser -u www-data -- php "/var/www/html/cron/$script" "$secret" 2>&1
     else
         runuser -u www-data -- php "/var/www/html/cron/$script" 2>&1
     fi
