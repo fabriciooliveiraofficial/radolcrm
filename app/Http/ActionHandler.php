@@ -1501,7 +1501,7 @@ final class ActionHandler
             $this->db->query('UPDATE cash_entries SET business_unit_id=?, category_id=?, direction=?, category=?, description=?, amount=?, currency=?, exchange_rate=?, amount_brl=?, entry_date=?, notes=? WHERE id=?', $params);
             audit($this->db, 'update', 'cash_entry', $id);
         } else {
-            $id = $this->db->insert('INSERT INTO cash_entries (business_unit_id, category_id, direction, category, description, amount, currency, exchange_rate, amount_brl, entry_date, notes) VALUES (?,?,?,?,?,?,?,?,?,?)', $params);
+            $id = $this->db->insert('INSERT INTO cash_entries (business_unit_id, category_id, direction, category, description, amount, currency, exchange_rate, amount_brl, entry_date, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)', $params);
             audit($this->db, 'create', 'cash_entry', $id);
         }
         Flash::add('success', 'Movimentação de caixa salva.');
